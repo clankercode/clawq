@@ -771,11 +771,12 @@ let test_raised_confirm_rolls_back () =
       Lwt.return_unit)
 
 let fire_eligible (env : F.env) (o : T.order) =
+  let f = S.fire env.db o ~room:(Store.new_id ~prefix:"R") () in
   let+ result =
     G.evaluate ~db:env.db
       ~current_config:(fun () -> Session.get_config env.base.manager)
       ~now:S.now
-      ~stage:(G.Fire { fire_epoch = o.epoch })
+      ~stage:(G.Fire { fire_epoch = o.epoch; fire_id = f.id })
       ~unit_label:"fire" (G.subject_of_order o)
   in
   Result.is_ok result

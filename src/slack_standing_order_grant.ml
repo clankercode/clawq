@@ -27,7 +27,8 @@ type stage =
   | Confirm
   | Replace of { replaces : string; replaced_epoch : int }
   | Resume
-  | Fire of { fire_epoch : int }
+  | Fire of { fire_epoch : int; fire_id : string }
+  | Track of { fire_id : string }
 
 type failure_class = Hard | Transient | Inactive | Capped
 
@@ -41,6 +42,7 @@ type reason =
   | Order_expired
   | Epoch_mismatch
   | Daily_cap_reached
+  | Activation_unannounced
   | Identity_changed
   | Target_not_allowlisted
   | Grantor_not_allowed
@@ -68,7 +70,7 @@ let classify = function
   | Epoch_mismatch ->
       Inactive
   | Daily_cap_reached -> Capped
-  | Indeterminate _ | Config_changed -> Transient
+  | Indeterminate _ | Config_changed | Activation_unannounced -> Transient
   | Credentials_invalid | Identity_changed | Target_not_allowlisted
   | Grantor_not_allowed | Grantor_not_admin | Tool_denied _ | Duplicate_order _
   | Team_mismatch | App_mismatch | Bot_not_member | Private_policy_denied
@@ -89,6 +91,7 @@ let reason_code = function
   | Order_expired -> "order_expired"
   | Epoch_mismatch -> "epoch_mismatch"
   | Daily_cap_reached -> "daily_cap_reached"
+  | Activation_unannounced -> "activation_unannounced"
   | Identity_changed -> "identity_changed"
   | Target_not_allowlisted -> "target_not_allowlisted"
   | Grantor_not_allowed -> "grantor_not_allowed"
@@ -203,7 +206,11 @@ let no_live_conflict db (s : subject) ~excluding =
 let own_row db (s : subject) =
   match Store.find db s.order_id with
   | None -> Error Order_missing
-  | Some o when same_scope s o && o.grantor_user_id = s.grantor_user_id -> Ok o
+  | Some o
+    when same_scope s o
+         && o.enterprise_id = s.enterprise_id
+         && o.grantor_user_id = s.grantor_user_id ->
+      Ok o
   | Some _ -> Error Identity_changed
 
 let replaced_row db (s : subject) id =
@@ -249,6 +256,14 @@ let plan_rows db (s : subject) ~replaces ~replaced_epoch =
     in
     Ok { row = None; old_row = replaced }
 
+(* A fire id is authority only for its owning order. Use the strict store
+   query before any Slack reads, and repeat it after the last await. *)
+let bound_fire db (o : T.order) fire_id =
+  match Store.query_fires db "WHERE id = ?" [ Sqlite3.Data.TEXT fire_id ] with
+  | [ f ] when f.order_id = o.id -> Ok f
+  | [ _ ] -> Error Identity_changed
+  | _ -> Error (Indeterminate "fire")
+
 let stage_rows db ~now ~stage (s : subject) =
   let only o = Ok { row = Some o; old_row = None } in
   match stage with
@@ -265,11 +280,21 @@ let stage_rows db ~now ~stage (s : subject) =
       let*? () = require_state o T.[ Paused; Suspended ] in
       let*? () = no_live_conflict db s ~excluding:o.id in
       only o
-  | Fire { fire_epoch } ->
+  | Track { fire_id } ->
       let*? o = own_row db s in
+      let*? f = bound_fire db o fire_id in
+      (* Dispatch evidence survives terminal states and pause/cancel epochs. *)
+      if Option.is_some f.dispatched_at then only o
+      else Error (Indeterminate "fire")
+  | Fire { fire_epoch; fire_id } ->
+      let*? o = own_row db s in
+      let*? f = bound_fire db o fire_id in
       let*? () = require_state o [ T.Active ] in
-      if o.epoch <> fire_epoch then Error Epoch_mismatch
+      if o.epoch <> fire_epoch || f.epoch <> fire_epoch then
+        Error Epoch_mismatch
       else if not (unexpired o ~now) then Error Order_expired
+      else if not (Store.activation_announced db ~order_id:o.id) then
+        Error Activation_unannounced
       else if
         Store.dispatches_since db ~order_id:o.id ~since:(now -. 86400.)
         >= o.max_fires_per_day
@@ -310,6 +335,9 @@ let refuse reason = Lwt.return (Error reason)
 let typed_bool key json = match get key json with `Bool _ -> true | _ -> false
 let user_flags = [ "deleted"; "is_bot"; "is_restricted"; "is_ultra_restricted" ]
 
+let reported_id prefix key json =
+  match get key json with `String id -> valid_id prefix id | _ -> false
+
 let cursor_params cursor =
   if cursor = "" then [] else [ ("cursor", `String cursor) ]
 
@@ -345,17 +373,21 @@ let installation call (s : subject) =
   let enterprise =
     match field "enterprise_id" auth with "" -> None | e -> Some e
   in
-  if field "team_id" auth <> s.team_id then refuse Team_mismatch
-  else if
+  if
     not
-      (valid_id "UW" bot_user_id && valid_id "B" bot_id
+      (reported_id "T" "team_id" auth
+      && valid_id "UW" bot_user_id && valid_id "B" bot_id
       && Option.fold ~none:true ~some:(valid_id "E") enterprise)
   then refuse (Indeterminate "auth.test")
+  else if field "team_id" auth <> s.team_id then refuse Team_mismatch
   else if Option.is_some s.enterprise_id && s.enterprise_id <> enterprise then
     refuse Team_mismatch
   else
     let*! info = request call "bots.info" [ ("bot", `String bot_id) ] in
-    if field "app_id" (get "bot" info) <> s.api_app_id then refuse App_mismatch
+    if not (reported_id "A" "app_id" (get "bot" info)) then
+      refuse (Indeterminate "bots.info")
+    else if field "app_id" (get "bot" info) <> s.api_app_id then
+      refuse App_mismatch
     else Lwt.return (Ok (bot_user_id, bot_id, enterprise))
 
 (* Step 7, with [Grant_fire]'s share-flag rule ([Slack_huddles.channel_sharing])
@@ -371,8 +403,10 @@ let posture call (sc : Runtime_config.slack_config) (s : subject) =
     Slack_api.check_private_channel_policy ~config:sc ~channel_id:s.channel_id
       ~is_private_opt:(Some (flag "is_private" channel))
   in
-  if field "id" channel <> s.channel_id || not (flag "is_member" channel) then
-    refuse Bot_not_member
+  if not (reported_id "CG" "id" channel && typed_bool "is_member" channel) then
+    refuse (Indeterminate "conversations.info")
+  else if field "id" channel <> s.channel_id || not (flag "is_member" channel)
+  then refuse Bot_not_member
   else
     match Slack_huddles.channel_sharing channel with
     | Slack_huddles.Shared -> refuse Channel_shared
@@ -407,10 +441,20 @@ let channel_members call ~channel_id =
   in
   page "" 1 []
 
-let well_formed ~team_id ~id user =
-  field "id" user = id
-  && field "team_id" user = team_id
-  && List.for_all (fun key -> typed_bool key user) user_flags
+let member_metadata (s : subject) ~id ~method_ user =
+  let profile = get "profile" user in
+  if
+    not
+      (reported_id "UW" "id" user
+      && reported_id "T" "team_id" user
+      && List.for_all (fun key -> typed_bool key user) user_flags
+      && (id <> s.target.user_id
+         || reported_id "A" "api_app_id" profile
+            && reported_id "B" "bot_id" profile))
+  then Error (Indeterminate method_)
+  else if field "id" user <> id then Error Identity_changed
+  else if field "team_id" user <> s.team_id then Error Team_mismatch
+  else Ok ()
 
 (* Step 9: a well-formed record per needed member, from at most [max_pages]
    users.list pages and then at most [max_member_lookups] users.info calls. *)
@@ -425,9 +469,9 @@ let member_records call (s : subject) ~needed =
     let*? () = result in
     let id = field "id" user in
     if (not (Hashtbl.mem wanted id)) || Hashtbl.mem records id then Ok ()
-    else if well_formed ~team_id:s.team_id ~id user then
+    else
+      let*? () = member_metadata s ~id ~method_:"users.list" user in
       Ok (Hashtbl.replace records id user)
-    else Error (Indeterminate "users.list")
   in
   let rec list_page cursor n =
     let*! json =
@@ -450,7 +494,7 @@ let member_records call (s : subject) ~needed =
   else
     let rec lookup = function
       | [] -> Lwt.return (Ok records)
-      | id :: rest ->
+      | id :: rest -> (
           let user_not_found =
             if id = s.grantor_user_id then Grantor_unavailable
             else if id = s.target.user_id then Target_unavailable
@@ -460,10 +504,11 @@ let member_records call (s : subject) ~needed =
             request call ~user_not_found "users.info" [ ("user", `String id) ]
           in
           let user = get "user" json in
-          if well_formed ~team_id:s.team_id ~id user then (
-            Hashtbl.replace records id user;
-            lookup rest)
-          else refuse (Indeterminate "users.info")
+          match member_metadata s ~id ~method_:"users.info" user with
+          | Ok () ->
+              Hashtbl.replace records id user;
+              lookup rest
+          | Error r -> refuse r)
     in
     lookup misses
 
@@ -505,13 +550,27 @@ let slack_reads call sc (s : subject) =
 
 (* ── evaluate ───────────────────────────────────────────────────────────── *)
 
+(* [auth.test] and [canvases.getContent] are reads despite using POST. An
+   explicit list keeps Track read-only when the transport gains new writes. *)
+let tracking_call (call : SO.call) method_ params =
+  match method_ with
+  | "auth.test" | "bots.info" | "users.info" | "users.list"
+  | "users.conversations" | "conversations.info" | "conversations.members"
+  | "conversations.history" | "conversations.replies" | "files.info"
+  | "canvases.getContent" | "reactions.get" ->
+      call method_ params
+  | _ -> Lwt.return (Error (SO.Method_not_permitted method_))
+
 let evaluate ~db ~current_config ?http ?now ~stage ~unit_label (s : subject) =
   let now = match now with Some t -> t | None -> Store.now () in
   let run () =
     let cfg : Runtime_config.t = current_config () in
-    let order_ref =
-      Some { Access_snapshot.order_id = s.order_id; fire_id = None }
+    let fire_id =
+      match stage with
+      | Fire { fire_id; _ } | Track { fire_id } -> Some fire_id
+      | Plan _ | Confirm | Replace _ | Resume -> None
     in
+    let order_ref = Some { Access_snapshot.order_id = s.order_id; fire_id } in
     match gate ~db ~config:cfg ~channel_id:s.channel_id ~order_ref with
     | Error f -> Lwt.return (Error f)
     | Ok (sc, snapshot) -> (
@@ -525,6 +584,9 @@ let evaluate ~db ~current_config ?http ?now ~stage ~unit_label (s : subject) =
               SO.make ~db ~current_config ~snapshot ~channel_id:s.channel_id
                 ~audit:(SO.audit_label ~order_id:(Some s.order_id) ~unit_label)
                 ?http ()
+            in
+            let call =
+              match stage with Track _ -> tracking_call call | _ -> call
             in
             let+ reads = slack_reads call sc s in
             (* Step 11, with no yield from here to the caller's action: the
@@ -593,6 +655,7 @@ let check_member ~(call : SO.call) ~(config : Runtime_config.t) ~team_id
     let user = get "user" json in
     if
       field "id" user <> user_id
+      || (not (reported_id "T" "team_id" user))
       || not (List.for_all (fun key -> typed_bool key user) user_flags)
     then refuse (Member_indeterminate "users.info")
     else if field "team_id" user <> team_id then refuse Member_team_mismatch

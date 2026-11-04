@@ -396,6 +396,8 @@ let reason_text : G.reason -> string = function
   | Epoch_mismatch ->
       "the standing order changed while this was being checked; ask clawq again"
   | Daily_cap_reached -> "the standing order has reached its daily relay limit"
+  | Activation_unannounced ->
+      "the channel activation notice is not confirmed yet"
   | Identity_changed ->
       "the standing order no longer matches this request; ask clawq again"
   | Target_not_allowlisted -> "that target is not on clawq's approved list"

@@ -202,6 +202,17 @@ let test_channel_sharing () =
          `Assoc [ ("is_shared", `Bool true) ],
          "shared" );
      ]
+    @ List.concat_map
+        (fun k ->
+          [
+            ( k ^ " missing",
+              `Assoc (List.remove_assoc k all_false),
+              "unreported" );
+            ( k ^ " wrong type",
+              with_flags [ (k, `String "false") ],
+              "unreported" );
+          ])
+        share_flags
     @ List.map
         (fun k -> (k ^ " true", with_flags [ (k, `Bool true) ], "shared"))
         share_flags)
