@@ -135,7 +135,8 @@ M3 Executor
 │   └── T3.5.5 K=3 consecutive no_pickup|not_delivered|failed auto-pauses; cap gives skipped_cap, reported once a day (§7.15)
 └── E3.6 Reporting (suite slack_standing_order_report)
     ├── T3.6.1 fixed templates (ids and enumerated reasons), once per cause, in the management thread, mentioning the grantor (§7.13)
-    └── T3.6.2 hard failure suspends and reports; one-time no-notes hint; Transcript_unavailable once; expected non-events go to show only
+    ├── T3.6.2 hard failure suspends and reports; one-time no-notes hint; Transcript_unavailable once; expected non-events go to show only
+    └── T3.6.3 in the Phase 3 merge, remove the "no huddle is relayed yet" status note from docs/connector-reference.md and its docs/public/llms-full.txt twin
 ```
 
 ## Phase 4: Reconciler, limiter, recovery, manifest, docs (gated on P0-5)
