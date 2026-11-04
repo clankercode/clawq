@@ -1790,3 +1790,4 @@ bugs:
     - file: B835-slack-stops-receiving-messages.todo
     - file: B836-policy-refusals-are-silent-cla.todo
     - file: B837-b833-subtype-gate-drops-human.todo
+    - file: B838-send-to-session-tool-delivers.todo

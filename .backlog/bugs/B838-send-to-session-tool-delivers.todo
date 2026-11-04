@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-11-04T06:19:41Z"
+depends_on: []
+estimate_hours: 1
+id: B838
+priority: high
+status: pending
+tags: []
+title: send_to_session tool delivers to any session key without target authorization
+updated_at: "2026-11-04T06:19:41Z"
+---
+Found by huddle-orders authority research 2026-11-04 (.superpowers/sdd/huddle-orders/research/clawq-authority.md). send_to_session (src/tools_builtin_session.ml:284-520, registered src/tools_builtin.ml:769-772) delivers a message to any session key's notifier with no check that the caller may address that target. A prompt-injected turn can exfiltrate to another room/channel. Fix: authorize the target against the caller's principal/room access (same room or explicit grant), audit, and add tests; deny it in grant/automation contexts.
