@@ -299,6 +299,8 @@ let all_suites =
       Test_slack_standing_order_provenance.suite );
     ("slack_standing_order_config", Test_slack_standing_order_config.suite);
     ("slack_standing_order_store", Test_slack_standing_order_store.suite);
+    ( "slack_standing_order_fire_store",
+      Test_slack_standing_order_fire_store.suite );
     ("slack_standing_order_slack", Test_slack_standing_order_slack.suite);
     ("slack_standing_order_upload", Test_slack_standing_order_upload.suite);
     ("slack_standing_order_grant", Test_slack_standing_order_grant.suite);
