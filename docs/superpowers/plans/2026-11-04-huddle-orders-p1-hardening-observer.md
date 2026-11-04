@@ -34,23 +34,25 @@
 
 ## Global Constraints
 
-- Run everything from `/home/xertrov/src/clawq/.worktrees/huddle-orders`, one command at a time. Never run two `dune` commands in parallel. Builds and tests go through `build2` (the 2-core slice).
-- **Always pass `--root .`; never use the Makefile's dune targets here.** Both `/home/xertrov/src/clawq/dune-workspace` and the worktree's exist, and dune takes the outermost as root, so `make test-suite`, `make fmt-check` and `make build-minimal` from this worktree silently build, test or format **master**. `make test` (Docker) mounts the worktree but `build2` caps only the docker client, so don't use it either. Steps below name these commands; expand them in full (shell functions don't persist between tool calls):
+- **Every build, test and format run goes to the build box through the gate. Never run `dune`, `make` or `build2` on xsm** (Max: local builds grind xsm to a halt). Controller ruling, 2026-11-04: this replaces the plan's earlier `build2 … --root .` commands. The gate is `/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate.sh`, called below as `GATE`. It rsyncs this worktree to `x-p35:~/bb-src/clawq-huddle-orders`, which is a standalone tree, so there is no outer `dune-workspace` and no `--root` problem. It then runs one command there with `-j 2`, an isolated `HOME` and the GC cap. A local flock serialises all gate runs, so commands never overlap. Run every command from `/home/xertrov/src/clawq/.worktrees/huddle-orders`, one at a time.
 
   ```bash
-  # T <suite>   one suite, exact name from test/test_main.ml; one suite per command (the filter is a Str regex; no alternation)
-  OCAMLRUNPARAM=o=120,O=120 build2 opam exec --switch=clawq-5.1 -- dune exec --root . -j2 test/test_main.exe -- test '^<suite>$'
-  # FMT         first rewrites (may exit non-zero after promoting); the second must exit 0
-  build2 opam exec --switch=clawq-5.1 -- dune build --root . -j2 @fmt --auto-promote
-  build2 opam exec --switch=clawq-5.1 -- dune build --root . -j2 @fmt
-  # QUICK       whole quick run (make test-nocontainer at 2 cores)
-  OCAMLRUNPARAM=o=120,O=120 build2 opam exec --switch=clawq-5.1 -- dune exec --root . -j2 test/test_main.exe -- test --quick-tests
-  # SLACK       every suite whose name starts with slack (prefix regex; covers slack_fix1_*, slack_finalfix, slack_transport_credentials, ...)
-  OCAMLRUNPARAM=o=120,O=120 build2 opam exec --switch=clawq-5.1 -- dune exec --root . -j2 test/test_main.exe -- test '^slack'
+  GATE=/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate.sh
+  # T <suite>   one suite, exact name from test/test_main.ml (optional case indexes as 2nd arg)
+  $GATE suite <suite>
+  # FMT         auto-promote on the box, copy formatted src/ and test/ back, then re-check (must exit 0)
+  $GATE fmt
+  # QUICK       whole quick run (no Slow)
+  $GATE quick
+  # SLACK       every suite whose name starts with slack (covers slack_fix1_*, slack_finalfix, slack_transport_credentials, ...)
+  $GATE raw "dune exec -j 2 test/test_main.exe -- test '^slack'"
   # CYCLES      must print nothing
-  OCAMLRUNPARAM=o=120,O=120 build2 opam exec --switch=clawq-5.1 -- dune build --root . -j2 @check 2>&1 | grep -i "Dependency cycle"
+  $GATE raw "dune build -j 2 @check 2>&1 | grep -i 'Dependency cycle' || true"
+  # BUILD / MINIMAL
+  $GATE build
+  $GATE minimal
   ```
-  If output says `Entering directory '/home/xertrov/src/clawq'` or `No test suite matches`, the command lost `--root .` and ran against master. A held `_build/.lock`: run `./scripts/clean_stale_dune_locks.sh _build` and retry; if it persists another dune is running, so wait. `OCAMLRUNPARAM=o=120,O=120` is the Makefile's GC cap.
+  After `$GATE fmt`, check `git diff` locally: it copies formatted `.ml`/`.mli`/`dune` files back into `src/` and `test/`. If the gate prints `No test suite matches`, the suite name is wrong. Never work around the gate with a local build.
 - All new code lives in `clawq_runtime_integrations` (`src/dune` modules list, next to `slack_huddle_tools` at line 533). The one exception is `src/slack_config_types.ml` (Task 1), which is core because `slack_config` needs its type; it goes in the `clawq_runtime_core` list before `runtime_config_types` (line 16).
 - No new opam dependencies and no new CLI commands, so `src/command_bridge_min.ml` and `src/main_min.ml` are unchanged.
 - `Slack_huddle_observer`, `Slack_relay_guard`, `Slack_huddle_classify` and everything they call must not depend on `Slack` or `Slack_thread_ingress` (a dune module cycle can OOM).
@@ -63,7 +65,7 @@
 - No test makes a network call. Ingress tests use `Test_slack_threads.with_ingress` (a mock transport whose unknown methods fail the test).
 - **Unit fixtures use fake ids** (clawq `T123`/`A123`/`UBOT`/`BOWN`; Claude `U0CLAUDE`/`B0CLAUDE`/`A0CLAUDE`; channel `C0TEST`; huddle starter `U0STARTER`). Real ids appear only in docs and config examples: clawq app `A0CA40GBWTX`, bot user `U0C9TU04K5M`, bot `B0CB3LLV07J`, team `T0CA9091NAD`; Claude user `U0CA6U11ADQ`, bot `B0CA0SS6NJF`, app `A08SF47R6P4`; test channel `C0CEN7X8KL6` (`#clawq-huddle-test`, private).
 - Keep files under 1000 lines. New test files are used because `test/test_access_snapshot.ml` (1390 lines) and `test/test_slack_huddles.ml` (835) are already large. Use ocamlformat 0.28.1 and never fight it.
-- Each task ends with FMT, then the listed `git add` and `git commit` on `feat/huddle-standing-orders`. Don't push, merge, restart a daemon or change live config yourself.
+- Each task ends with FMT, then the listed `git add` and `git commit` on `feat/huddle-standing-orders`. Don't push, merge, restart a daemon or change live config yourself. **Never touch `~/.clawq` (Max's live data) or call the live Slack API.**
 - Two phase-1 stubs are test seams held in a ref: `Slack_relay_guard.registry_source` and `Slack_huddle_watch.source`. A test that overrides one restores it in `Fun.protect`/`Lwt.finalize`. Production never assigns them; later phases replace the default function's body.
 
 ## Review Focus
@@ -280,8 +282,10 @@ let test_tap () =
 
 Phase 0 has already settled P0-1, 1b, 2, 3, 4, 6 and 7 with direct API calls (spec §4 "Results so far"). **What remains needs this event log running in the daemon:** P0-5 (event shapes for a thread-started huddle, a participant-shared canvas, room-id reuse and deletion) and Claude's notice wordings. They finalise Task 5's rules and fill its matchers. Tasks 1 and 2 don't depend on Tasks 3–8, and Task 2 fixes a live bug.
 
-- [ ] **Executor: stop and report** the two commit hashes and the Task 1–2 results (including the Task 2 `QUICK` pass) to the coordinator, then continue with Task 3 on the branch. Don't merge, restart or reconfigure anything.
-- [ ] **Coordinator or Max lands Tasks 1–2 on master:** in `/home/xertrov/src/clawq`, `git cherry-pick <task1> <task2>` (a merge would bring later work in progress), then `build2 make build` and `build2 make test-nocontainer` (the main checkout is the outermost dune root, so the Makefile targets master correctly there). **`test-nocontainer` must PASS before the daemon is restarted**; on a failure, stop and fix on the branch, not on master.
+> **Controller ruling (2026-11-04): this checkpoint is deferred until after phase 1's final review.** Phase 1 merges to master once, through the normal worktree flow. The daemon is then restarted on that build: built on x-p35 and copied back, with no local build. The log is enabled after that. Executors **do not stop here**: go straight on to Task 3. The steps below are kept as the post-merge runbook, with `build2 make …` replaced by the gate.
+
+- [ ] **Executor:** no stop; continue with Task 3. Don't merge, restart or reconfigure anything.
+- [ ] **(Post-merge) Coordinator lands phase 1 on master:** in `/home/xertrov/src/clawq`, `git cherry-pick <task1> <task2>` (a merge would bring later work in progress), then `build2 make build` and `build2 make test-nocontainer` (the main checkout is the outermost dune root, so the Makefile targets master correctly there). **`test-nocontainer` must PASS before the daemon is restarted**; on a failure, stop and fix on the branch, not on master.
 - [ ] **Coordinator or Max restarts the xsm daemon on master** to load them. It was last restarted on master at 14:53 AEDT on 2026-11-04 (spec §11). If the orphaned `main.exe ec-run --daemon-mode` (pid 3924361) is still running, inspect it with `ps -o pid,lstart,cmd -p 3924361` and stop it only with Max's agreement. Check `clawq service status`, then `clawq service start`. Installing B829 supervision (`clawq service install`) is Max's call.
 - [ ] **Coordinator or Max turns the log on for the test channel only.** It takes effect on the next event:
   ```bash
@@ -832,12 +836,7 @@ From `/home/xertrov/src/clawq/.worktrees/huddle-orders`, one at a time:
 
 - [ ] `QUICK` → all suites PASS, including every B832/B833 suite (`slack*`, `access_snapshot`), so §7.21 holds.
 - [ ] The second `FMT` command → exit 0, no diff.
-- [ ] Minimal build: core (with `Slack_config_types` and the new field) builds without integrations:
-  ```bash
-  CLAWQ_BUILD_MINIMAL=true OCAMLRUNPARAM=o=120,O=120 build2 opam exec --switch=clawq-5.1 -- dune build --root . -j2 src/main_min.exe
-  exe=_build/default/src/main_min.exe; echo "$exe $((($(stat -c%s "$exe") + 1023) / 1024)) KB"
-  ```
-  Expected: the build succeeds, and the last line is `_build/default/src/main_min.exe <n> KB` (inside the worktree, so not master's binary).
+- [ ] Minimal build: core (with `Slack_config_types` and the new field) builds without integrations: `$GATE minimal` → exit 0. Then `$GATE raw 'ls -l _build/default/src/main_min.exe'`.
 - [ ] `CYCLES` → no output.
 - [ ] `wc -l src/slack_{config_types,event_log,relay_guard,huddle_classify,huddle_ledger,huddle_watch,huddle_observer}.ml test/test_slack_{event_fixtures,event_log,turn_gate,relay_guard,history_hardening,huddle_classify,huddle_ledger,huddle_observer}.ml test/test_access_snapshot_decode.ml` → each under 1000. `src/runtime_config_types.ml` grew by only the one field.
 
