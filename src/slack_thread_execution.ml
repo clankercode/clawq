@@ -136,7 +136,16 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                         let with_authority f =
                           match message.execution_origin with
                           | Human_request ->
-                              Slack_huddle_context.with_request
+                              (* This adapter runs live native turns as well
+                                 as queue drains: only a live ingress cell for
+                                 this exact message is not a drain. *)
+                              let drained =
+                                not
+                                  (Slack_huddle_context.live ~key
+                                     ~channel_id:route.channel ~user_id:user
+                                     ~message_id)
+                              in
+                              Slack_huddle_context.with_request ~drained
                                 ~session_manager:manager ~key
                                 ~channel_id:route.channel ~user_id:user
                                 ~message_id f

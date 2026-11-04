@@ -14,6 +14,9 @@ type turn = {
   config : Runtime_config.t;
   previous_snapshot : string option;
   is_admin : bool;
+  drained : bool;
+      (** Started by a queue drain, not by live ingress. Huddle tools ignore it;
+          standing-order management refuses it (spec §6.8, §7.8). *)
 }
 
 let current : turn option ref Lwt.key = Lwt.new_key ()
@@ -24,7 +27,7 @@ let snapshot_id (r : request) =
   | Some (agent, _, _) -> agent.Agent.access_snapshot_id
   | None -> None
 
-let start request =
+let start ?(drained = false) request =
   {
     request;
     config = Session.get_config request.manager;
@@ -34,6 +37,7 @@ let start request =
       | Some db ->
           Admin.is_admin ~db ~channel:"slack" ~sender_id:request.user_id
       | None -> false);
+    drained;
   }
 
 let clear () =
@@ -47,11 +51,12 @@ let before_queued ~key message_id =
       match Hashtbl.find_opt pending (key, id) with
       | Some request when Unix.gettimeofday () -. request.received_at < 3600. ->
           Hashtbl.remove pending (key, id);
-          cell := Some (start request)
+          cell := Some (start ~drained:true request)
       | _ -> ())
   | _ -> ()
 
-let with_request ~session_manager ~key ~channel_id ~user_id ~message_id f =
+let with_request ?(drained = false) ~session_manager ~key ~channel_id ~user_id
+    ~message_id f =
   let key = Session.sanitize_session_key key in
   let now = Unix.gettimeofday () in
   Hashtbl.filter_map_inplace
@@ -70,7 +75,7 @@ let with_request ~session_manager ~key ~channel_id ~user_id ~message_id f =
   (* Bound retention of queued evidence. Missing evidence always fails closed. *)
   if Hashtbl.length pending >= 1024 then Hashtbl.clear pending;
   Hashtbl.replace pending (key, message_id) request;
-  let cell = ref (Some (start request)) in
+  let cell = ref (Some (start ~drained request)) in
   Lwt.with_value current (Some cell) (fun () ->
       Lwt.finalize
         (fun () -> Tool.with_message_injection_guard (fun () -> cell := None) f)
@@ -90,6 +95,23 @@ let with_request ~session_manager ~key ~channel_id ~user_id ~message_id f =
           in
           if not queued then Hashtbl.remove pending (key, message_id);
           Lwt.return_unit))
+
+(* Positive evidence that the current cell is the live ingress turn for exactly
+   this message: made by [with_request], not drained, steered or cleared since.
+   [before_queued] always clears the cell first, so a drain never passes, even
+   when its queued evidence is missing; neither does a replay outside ingress. *)
+let live ~key ~channel_id ~user_id ~message_id =
+  let key = Session.sanitize_session_key key in
+  match Lwt.get current with
+  | Some cell -> (
+      match !cell with
+      | Some t ->
+          (not t.drained) && t.request.key = key
+          && t.request.channel_id = channel_id
+          && t.request.user_id = user_id
+          && t.request.message_id = message_id
+      | None -> false)
+  | None -> false
 
 let resolve ~tool_name (context : Tool.invoke_context) =
   let error =

@@ -1,7 +1,8 @@
 (* Shared standing-order ingress fixture (no suite): phase 1's thread ingress
    on [thread_key], with [S.default_response env.world] answering every
-   standing-order Slack method, the store clock pinned to [S.now] for the run,
-   and helpers to speak in Slack. Fake ids only. *)
+   standing-order Slack method, the management tools registered on the
+   session's registry, the store clock pinned to [S.now] for the run, and
+   helpers to speak in Slack and to invoke the tools. Fake ids only. *)
 module S = Test_slack_standing_order_support
 module Store = Slack_standing_order_store
 
@@ -80,6 +81,9 @@ let with_orders ?(config = Fun.id) f =
         }
       in
       set_config env (fun cfg -> config (default_orders cfg));
+      Slack_standing_order_tools.register
+        ~current_config:(fun () -> Session.get_config base.manager)
+        (Option.get base.manager.Session_core.tool_registry);
       S.at S.now;
       Lwt.finalize
         (fun () -> f env)
@@ -128,3 +132,83 @@ let admin env id =
   Sql_util.exec_with_params env.db
     "INSERT INTO channel_admins(channel, sender_id) VALUES ('slack', ?)"
     [ Sqlite3.Data.TEXT id ]
+
+(* ---- Management tools ---- *)
+
+(* [`Live]: a verified ingress turn on [thread_key] as [user] with a fresh
+   Room_turn snapshot; [`Bare]: no turn at all; [`Drained]: the turn a queue
+   drain starts; [`Steered]: a live turn invalidated by injected steering. *)
+let invoke env ?(user = "U123") ?(mode = `Live) tool args =
+  let registry = Option.get env.base.manager.Session_core.tool_registry in
+  let tool =
+    match Tool_registry.find registry tool with
+    | Some t -> t
+    | None -> Alcotest.fail ("F.invoke: no registered tool " ^ tool)
+  in
+  let call () =
+    tool.Tool.invoke
+      ~context:
+        {
+          Tool.default_context with
+          session_key = Some thread_key;
+          snapshot_id = env.base.agent.Agent.access_snapshot_id;
+        }
+      args
+  in
+  incr env.world.seq;
+  let message_id = Printf.sprintf "400.%06d" !(env.world.seq) in
+  let request f =
+    Slack_huddle_context.with_request ~session_manager:env.base.manager
+      ~key:thread_key ~channel_id:"C123" ~user_id:user ~message_id f
+  in
+  match mode with
+  | `Bare -> call ()
+  | `Live ->
+      request (fun () ->
+          env.base.snapshot ();
+          call ())
+  | `Drained ->
+      request (fun () ->
+          Slack_huddle_context.before_queued ~key:thread_key (Some message_id);
+          env.base.snapshot ();
+          call ())
+  | `Steered ->
+      request (fun () ->
+          env.base.snapshot ();
+          Tool.before_message_injection ();
+          call ())
+
+let create_args ?(args = []) () : Yojson.Safe.t =
+  let defaults =
+    [
+      ("instruction", `String "Update the project docs.");
+      ("target", `String "Claude");
+    ]
+  in
+  `Assoc
+    (args @ List.filter (fun (k, _) -> not (List.mem_assoc k args)) defaults)
+
+(* [args] add to or replace the default instruction and target. *)
+let create env ?user ?args () =
+  invoke env ?user "slack_standing_order_create" (create_args ?args ())
+
+(* The newest card of [kind] for the order. *)
+let card_for env ~order_id ~kind =
+  match
+    Sql_util.query_rows env.db
+      "SELECT id FROM slack_standing_order_cards WHERE order_id = ? AND kind = \
+       ? ORDER BY created_at DESC, rowid DESC LIMIT 1"
+      ~bind:(fun stmt ->
+        Sql_util.bind_params stmt
+          [
+            Sqlite3.Data.TEXT order_id;
+            Sqlite3.Data.TEXT
+              (Slack_standing_order_types.card_kind_to_string kind);
+          ])
+      ~of_stmt:(fun stmt -> Sql_util.text_column stmt 0)
+  with
+  | [ id ] -> (
+      match Store.find_card env.db id with
+      | Some card -> card
+      | None -> Alcotest.fail ("F.card_for: card does not decode " ^ id))
+  | _ -> Alcotest.fail ("F.card_for: no card for " ^ order_id)
