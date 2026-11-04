@@ -317,6 +317,8 @@
   test_slack_huddle_ledger
   test_slack_huddle_observer
   test_slack_standing_order_config
+  test_slack_standing_order_support
+  test_slack_standing_order_store
   test_access_snapshot_decode
   test_access_snapshot_standing_order
   test_slash_commands
