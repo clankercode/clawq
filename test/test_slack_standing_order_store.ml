@@ -482,6 +482,63 @@ let test_instruction_validation () =
     "trimmed" (Ok "a\tb")
     (T.validate_instruction "  a\tb \n")
 
+let test_instruction_rejects_invisible_controls () =
+  let error =
+    "the instruction contains an invisible text-direction or control \
+     character; only plain text, newlines and tabs are allowed"
+  in
+  List.iter
+    (fun (name, character) ->
+      Alcotest.(check (result string string))
+        name (Error error)
+        (T.validate_instruction ("Update " ^ character ^ "the docs.")))
+    [
+      ("U+202A", "\xe2\x80\xaa");
+      ("U+202B", "\xe2\x80\xab");
+      ("U+202C", "\xe2\x80\xac");
+      ("U+202D", "\xe2\x80\xad");
+      ("U+202E", "\xe2\x80\xae");
+      ("U+2066", "\xe2\x81\xa6");
+      ("U+2067", "\xe2\x81\xa7");
+      ("U+2068", "\xe2\x81\xa8");
+      ("U+2069", "\xe2\x81\xa9");
+      ("U+0080", "\xc2\x80");
+      ("U+0085", "\xc2\x85");
+      ("U+009F", "\xc2\x9f");
+    ];
+  let allowed =
+    "Update \xe2\x80\x8e\xe2\x80\x8f\xe2\x80\x8d\xf0\x9f\x91\x8b\n\tthe docs."
+  in
+  Alcotest.(check (result string string))
+    "LRM, RLM, ZWJ, emoji, newline and tab kept verbatim" (Ok allowed)
+    (T.validate_instruction allowed);
+  Alcotest.(check (result string string))
+    "invalid UTF-8 checked first"
+    (Error "the instruction is not valid UTF-8 text")
+    (T.validate_instruction "\xc2\x80\xff");
+  Alcotest.(check (result string string))
+    "C0 checked first"
+    (Error
+       "the instruction contains a control character; only plain text, \
+        newlines and tabs are allowed")
+    (T.validate_instruction "a\x07\xc2\x80b");
+  Alcotest.(check (result string string))
+    "invisible control checked before length" (Error error)
+    (T.validate_instruction (String.make 1001 'a' ^ "\xc2\x80"))
+
+let test_stored_instruction_revalidated () =
+  let db = S.fresh_db () in
+  let o = S.seed db () in
+  let action = S.relay_action ~instruction:"Update \xe2\x80\xaethe docs." () in
+  Sql_util.exec_with_params db
+    "UPDATE slack_standing_orders SET action_json = ? WHERE id = ?"
+    [
+      Sqlite3.Data.TEXT (Yojson.Safe.to_string (T.action_to_json action));
+      Sqlite3.Data.TEXT o.id;
+    ];
+  check_bool "stored U+202E instruction fails decode" true
+    (Store.find db o.id = None)
+
 let test_codecs () =
   List.iter
     (fun s ->
@@ -594,5 +651,9 @@ let suite =
     S.case "undecodable rows" test_undecodable_rows;
     S.case "instruction validation counts code points"
       test_instruction_validation;
+    S.case "instruction rejects bidi overrides, isolates and C1 controls"
+      test_instruction_rejects_invisible_controls;
+    S.case "stored instruction is revalidated"
+      test_stored_instruction_revalidated;
     S.case "codecs round trip" test_codecs;
   ]

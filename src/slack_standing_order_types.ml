@@ -57,6 +57,20 @@ type action =
 let action_target (Relay_to_app_mention { target; _ }) = target
 let max_instruction_chars = 1000
 
+(* Called only after UTF-8 validation. *)
+let contains_invisible_control text =
+  let rec scan i =
+    if i >= String.length text then false
+    else
+      let decoded = String.get_utf_8_uchar text i in
+      let code = Uchar.to_int (Uchar.utf_decode_uchar decoded) in
+      (code >= 0x202A && code <= 0x202E)
+      || (code >= 0x2066 && code <= 0x2069)
+      || (code >= 0x0080 && code <= 0x009F)
+      || scan (i + Uchar.utf_decode_length decoded)
+  in
+  scan 0
+
 (* C0 bytes never occur inside a multi-byte UTF-8 sequence, so a byte scan is
    exact once the text is known to be valid UTF-8. *)
 let validate_instruction raw =
@@ -69,6 +83,10 @@ let validate_instruction raw =
       Error
         "the instruction contains a control character; only plain text, \
          newlines and tabs are allowed"
+    else if contains_invisible_control text then
+      Error
+        "the instruction contains an invisible text-direction or control \
+         character; only plain text, newlines and tabs are allowed"
     else if Slack_config_types.code_points text > max_instruction_chars then
       Error
         (Printf.sprintf "the instruction is longer than %d characters"
