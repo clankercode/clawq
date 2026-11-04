@@ -1792,3 +1792,4 @@ bugs:
     - file: B837-b833-subtype-gate-drops-human.todo
     - file: B838-send-to-session-tool-delivers.todo
     - file: B839-slack-scopes-events-manifest-l.todo
+    - file: B840-setup-guide-says-empty-slack-a.todo
