@@ -264,3 +264,11 @@ let own_relay ?(channel = "C0TEST") ?(user = "UBOT") ?(bot_id = Some "BOWN")
        ("text", str ("<@U0CLAUDE> Huddle notes from this channel." ^ footer));
      ]
     @ opt "bot_id" bot_id @ opt "subtype" subtype @ opt "thread_ts" thread_ts)
+
+(* The Claude identity the fixtures' replies and reactions come from. *)
+let target =
+  {
+    Slack_huddle_classify.target_user_id = "U0CLAUDE";
+    target_bot_id = "B0CLAUDE";
+    target_app_id = "A0CLAUDE";
+  }

@@ -313,6 +313,7 @@
   test_slack_turn_gate
   test_slack_relay_guard
   test_slack_history_hardening
+  test_slack_huddle_classify
   test_slash_commands
   test_status_message
   test_stream_visibility

@@ -290,6 +290,7 @@ let all_suites =
     ("slack_turn_gate", Test_slack_turn_gate.suite);
     ("slack_relay_guard", Test_slack_relay_guard.suite);
     ("slack_history_hardening", Test_slack_history_hardening.suite);
+    ("slack_huddle_classify", Test_slack_huddle_classify.suite);
     ("discord", Test_discord.suite);
     ("attachment_download", Test_attachment_download.suite);
     ("group_chat_filter", Test_group_chat_filter.suite);
