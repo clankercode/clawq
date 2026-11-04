@@ -831,6 +831,21 @@ let test_check_member () =
   check_string "absent with a cursor left" "indeterminate:conversations.members"
     outcome;
   check_int "five member pages" 5 (count "conversations.members" calls);
+  let uncursored ids e =
+    answer "conversations.members" 200
+      (S.ok [ ("members", `List (List.map S.str ids)) ])
+      e ()
+  in
+  let e = env () in
+  uncursored [ "U123"; "U456" ] e;
+  let outcome, calls = member e "U456" in
+  check_string "listed on a page without a cursor" "ok" outcome;
+  check_int "one member page" 1 (count "conversations.members" calls);
+  let e = env () in
+  uncursored [ "U123" ] e;
+  check_string "absent from a page without a cursor"
+    "indeterminate:conversations.members"
+    (fst (member e "U456"));
   let e =
     env
       ~cfg:

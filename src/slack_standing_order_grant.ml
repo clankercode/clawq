@@ -602,13 +602,16 @@ let check_member ~(call : SO.call) ~(config : Runtime_config.t) ~team_id
         let*! json =
           ask "conversations.members" (members_params ~channel_id cursor)
         in
-        match (get "members" json, next_cursor json) with
-        | `List items, Some next ->
-            if List.mem (`String user_id) items then Lwt.return (Ok ())
-            else if next = "" then refuse Member_not_member
-            else if n >= max_pages then
-              refuse (Member_indeterminate "conversations.members")
-            else page next (n + 1)
+        (* A page that lists the user proves membership; the cursor only
+           matters for proving absence. Pause must not fail on a missing one. *)
+        match get "members" json with
+        | `List items when List.mem (`String user_id) items ->
+            Lwt.return (Ok ())
+        | `List _ -> (
+            match next_cursor json with
+            | Some "" -> refuse Member_not_member
+            | Some next when n < max_pages -> page next (n + 1)
+            | _ -> refuse (Member_indeterminate "conversations.members"))
         | _ -> refuse (Member_indeterminate "conversations.members")
       in
       page "" 1
