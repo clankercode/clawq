@@ -539,6 +539,7 @@
   slack_huddle_ledger
   slack_huddle_watch
   slack_huddle_observer
+  slack_huddle_transcript
   slack_standing_order_types
   slack_standing_order_sql
   slack_standing_order_store_base
