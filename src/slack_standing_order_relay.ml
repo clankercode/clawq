@@ -5,6 +5,53 @@ module T = Slack_standing_order_types
 module P = Slack_standing_order_provenance
 module Q = Slack_standing_order_sql
 module Render = Slack_standing_order_render
+module Store = Slack_standing_order_store
+
+let own_files message =
+  match P.get "files" message with
+  | `List (_ :: _ as files)
+    when List.for_all
+           (fun f -> Slack_config_types.valid_id "F" (P.field "id" f))
+           files ->
+      List.map (P.field "id") files |> List.sort_uniq String.compare
+  | _ -> []
+
+let adopt ~(order : T.order) ~nonce ~(attempt : Store.relay_attempt)
+    ~exclude_relay_ts message =
+  let ts = P.field "ts" message in
+  let files = own_files message in
+  if
+    order.bot_user_id = Some (P.field "user" message)
+    && order.bot_id = Some (P.field "bot_id" message)
+    && Slack_config_types.valid_id "UW" (P.field "user" message)
+    && Slack_config_types.valid_id "B" (P.field "bot_id" message)
+    && Slack_relay_guard.nonce_of_text (P.field "text" message) = Some nonce
+    && T.valid_slack_ts ts
+    && P.same_channel order.channel_id message
+    && (not (List.mem ts exclude_relay_ts))
+    && files <> []
+    && (attempt.uploaded_file_ids = []
+       || files = List.sort_uniq String.compare attempt.uploaded_file_ids)
+  then Some ts
+  else None
+
+let share_ts ~channel_id json =
+  let files = match P.get "files" json with `List xs -> xs | _ -> [ json ] in
+  let timestamps =
+    List.concat_map
+      (fun file ->
+        List.concat_map
+          (fun visibility ->
+            P.get "shares" file |> P.get visibility |> P.get channel_id
+            |> P.list
+            |> List.filter_map (fun share ->
+                let ts = P.field "ts" share in
+                if T.valid_slack_ts ts then Some ts else None))
+          [ "private"; "public" ])
+      files
+    |> List.sort_uniq String.compare
+  in
+  match timestamps with [ ts ] -> Some ts | _ -> None
 
 let rng_initialized = lazy (Mirage_crypto_rng_unix.use_default ())
 

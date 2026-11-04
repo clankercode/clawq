@@ -47,7 +47,8 @@ let pinned uri =
   with _ -> false
 
 let post ~db ~current_config ~snapshot ~channel_id ~audit ?(http = default_http)
-    ?(limit = fun () -> Lwt.return_unit) ~uri ~body () =
+    ?(limit = fun () -> Lwt.return_unit) ?(before_send = fun () -> Ok ()) ~uri
+    ~body () =
   if not (pinned uri) then Lwt.return (Error (SO.Egress_denied "upload"))
   else
     Lwt.catch
@@ -59,22 +60,25 @@ let post ~db ~current_config ~snapshot ~channel_id ~audit ?(http = default_http)
             "POST"
         with
         | Error error -> Lwt.return (Error error)
-        | Ok _ ->
-            let* response =
-              http
-                {
-                  uri;
-                  headers =
-                    [
-                      ("Content-Type", "application/octet-stream");
-                      ("Content-Length", string_of_int (String.length body));
-                    ];
-                  body;
-                }
-            in
-            Lwt.return
-              (if response.status >= 200 && response.status < 300 then Ok ()
-               else Error (SO.Http_status response.status)))
+        | Ok _ -> (
+            match before_send () with
+            | Error error -> Lwt.return (Error error)
+            | Ok () ->
+                let* response =
+                  http
+                    {
+                      uri;
+                      headers =
+                        [
+                          ("Content-Type", "application/octet-stream");
+                          ("Content-Length", string_of_int (String.length body));
+                        ];
+                      body;
+                    }
+                in
+                Lwt.return
+                  (if response.status >= 200 && response.status < 300 then Ok ()
+                   else Error (SO.Http_status response.status))))
       (function
         | Lwt.Canceled -> Lwt.fail Lwt.Canceled
         | _ ->

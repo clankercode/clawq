@@ -543,6 +543,7 @@
   slack_standing_order_provenance
   slack_standing_order_relay
   slack_standing_order_ctx
+  slack_standing_order_dispatch
   slack_standing_order_exec
   slack_standing_order_types
   slack_standing_order_sql

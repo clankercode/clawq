@@ -324,6 +324,7 @@
   test_slack_standing_order_exec
   test_slack_standing_order_config
   test_slack_standing_order_support
+  slack_standing_order_test_support
   test_slack_standing_order_store
   test_slack_standing_order_fire_store
   test_slack_standing_order_slack

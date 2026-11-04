@@ -407,8 +407,70 @@ let test_status_and_exceptions () =
               ~current_config:(fun () -> failwith uri)
               ~snapshot:snap ~channel_id:"C123" ~audit ~http ~uri ~body:bytes ())))
 
+let test_before_send () =
+  with_db (fun db ->
+      let cfg = config () in
+      let snap = snapshot db cfg in
+      let active = ref true and calls = ref 0 and hooks = ref 0 in
+      let limit () =
+        active := false;
+        Lwt.pause ()
+      in
+      let before_send () =
+        incr hooks;
+        if !active then Ok () else Error SO.Dispatch_refused
+      in
+      let http _ =
+        incr calls;
+        Lwt.return success
+      in
+      let result =
+        Lwt_main.run
+          (Upload.post ~db
+             ~current_config:(fun () -> cfg)
+             ~snapshot:snap ~channel_id:"C123" ~audit ~http ~limit ~before_send
+             ~uri ~body:bytes ())
+      in
+      expect_error SO.Dispatch_refused result;
+      let module G = Slack_standing_order_grant in
+      let reason =
+        G.reason_of_error ~user_not_found:G.Grantor_unavailable "upload"
+          SO.Dispatch_refused
+      in
+      check_bool "refusal is inactive, never Slack failure" true
+        (G.classify reason = G.Inactive);
+      check_bool "member refusal grants no authority" true
+        (G.member_refusal_of_error "users.info" SO.Dispatch_refused
+        = G.Member_indeterminate "users.info");
+      Alcotest.(check int) "hook runs after limiter" 1 !hooks;
+      Alcotest.(check int) "no raw POST" 0 !calls)
+
+let test_fake_time () =
+  let module F = Slack_standing_order_test_support in
+  let previous = !Slack_standing_order_store.clock in
+  Lwt_main.run
+    (F.with_fake_time ~now:100. (fun t ->
+         let a = F.wait t ~seconds:5. and b = F.wait t ~seconds:30. in
+         Alcotest.(check int) "two registered deadlines" 2 (F.pending_waits t);
+         Alcotest.(check (float 0.))
+           "wait does not advance clock" 100.
+           (Slack_standing_order_store.now ());
+         let* () = F.advance t ~seconds:5. in
+         check_bool "due waiter wakes" false (Lwt.is_sleeping a);
+         check_bool "heartbeat does not advance clock" true (Lwt.is_sleeping b);
+         Lwt.cancel b;
+         Alcotest.(check int)
+           "cancel removes pending wait" 0 (F.pending_waits t);
+         ignore (F.wait t ~seconds:120.);
+         Lwt.return_unit));
+  check_bool "finalization restores clock" true
+    (!Slack_standing_order_store.clock == previous)
+
 let suite =
   [
+    S.case "upload before_send follows limiter and blocks HTTP" test_before_send;
+    S.case "fake time advances explicitly and finalizes cancellable waits"
+      test_fake_time;
     S.case "302 upload never follows" test_redirect;
     S.case "upload URI is pinned" test_pinned;
     S.case "upload audit has no URL token or content" test_audit;

@@ -23,6 +23,7 @@ type error =
   | Method_not_permitted of string
   | Channel_denied
   | Not_configured
+  | Dispatch_refused
 
 type call =
   string -> (string * Yojson.Safe.t) list -> (Yojson.Safe.t, error) result Lwt.t
@@ -160,6 +161,7 @@ let error_code = function
   | Method_not_permitted m -> "method_not_permitted:" ^ m
   | Channel_denied -> "channel_denied"
   | Not_configured -> "not_configured"
+  | Dispatch_refused -> "dispatch_refused"
 
 let decode status body =
   if status = 429 then Error Rate_limited
@@ -266,7 +268,8 @@ let channel_params_allowed ~channel_id method_ params =
     params
 
 let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit
-    ?(http = default_http) ?(limit = fun () -> Lwt.return_unit) () : call =
+    ?(http = default_http) ?(limit = fun () -> Lwt.return_unit)
+    ?(before_send = fun () -> Ok ()) () : call =
  fun method_ params ->
   let permitted =
     match scope with
@@ -286,9 +289,12 @@ let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit
               ~audit method_ verb
           with
           | Error _ as denied -> Lwt.return denied
-          | Ok token ->
-              let* status, body = http ~verb ~token ~method_ ~params in
-              Lwt.return (decode status body))
+          | Ok token -> (
+              match before_send () with
+              | Error error -> Lwt.return (Error error)
+              | Ok () ->
+                  let* status, body = http ~verb ~token ~method_ ~params in
+                  Lwt.return (decode status body)))
         (function
           | Lwt.Canceled -> Lwt.fail Lwt.Canceled
           | _ ->

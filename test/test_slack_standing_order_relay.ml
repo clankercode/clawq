@@ -380,8 +380,465 @@ let test_complete_contract () =
             && not (List.mem_assoc "thread_ts" params)
         | _ -> false))
 
+let test_adoption () =
+  with_db (fun db ->
+      let order = S.seed db () in
+      let nonce = String.make 32 'a' in
+      let attempt = Store.empty_attempt 0 in
+      let message ?(user = "UBOT") ?(bot = "BOWN")
+          ?(footer = Slack_relay_guard.footer ~nonce) ?(files = [ "FONE" ])
+          subtype =
+        `Assoc
+          [
+            ("user", `String user);
+            ("bot_id", `String bot);
+            ("subtype", subtype);
+            ("ts", `String "1700000001.000001");
+            ("text", `String ("relay\n" ^ footer));
+            ( "files",
+              `List (List.map (fun id -> `Assoc [ ("id", `String id) ]) files)
+            );
+          ]
+      in
+      let adopt ?(attempt = attempt) ?(exclude = []) m =
+        R.adopt ~order ~nonce ~attempt ~exclude_relay_ts:exclude m
+      in
+      List.iter
+        (fun subtype ->
+          check "subtype ignored" true
+            (adopt (message subtype) = Some "1700000001.000001"))
+        [ `Null; `String "file_share"; `String "arbitrary" ];
+      List.iter
+        (fun m -> check "invalid identity or file set" true (adopt m = None))
+        [
+          message ~user:"U456" `Null;
+          message ~bot:"BOTHER" `Null;
+          message ~footer:"wrong" `Null;
+          message ~files:[] `Null;
+          message ~files:[ "invalid" ] `Null;
+        ];
+      check "excluded relay" true
+        (adopt ~exclude:[ "1700000001.000001" ] (message `Null) = None);
+      let attempt = { attempt with uploaded_file_ids = [ "FONE"; "FTWO" ] } in
+      check "exact file set independent of order" true
+        (adopt ~attempt (message ~files:[ "FTWO"; "FONE" ] `Null) <> None);
+      check "file mismatch" true (adopt ~attempt (message `Null) = None))
+
+let test_share_ts () =
+  let response visibility channel ts =
+    `Assoc
+      [
+        ( "files",
+          `List
+            [
+              `Assoc
+                [
+                  ( "shares",
+                    `Assoc
+                      [
+                        ( visibility,
+                          `Assoc
+                            [
+                              (channel, `List [ `Assoc [ ("ts", `String ts) ] ]);
+                            ] );
+                      ] );
+                ];
+            ] );
+      ]
+  in
+  List.iter
+    (fun visibility ->
+      text "channel's share" "1700000001.000001"
+        (Option.get
+           (R.share_ts ~channel_id:"C123"
+              (response visibility "C123" "1700000001.000001"))))
+    [ "private"; "public" ];
+  List.iter
+    (fun json ->
+      check "other channel or invalid timestamp" true
+        (R.share_ts ~channel_id:"C123" json = None))
+    [
+      response "private" "C999" "1700000001.000001";
+      response "private" "C123" "invalid";
+    ]
+
+module D = Slack_standing_order_dispatch
+module E = Test_slack_standing_order_exec_support
+module Ctx = Slack_standing_order_ctx
+
+let with_delivery ?(transcript = false) f =
+  E.with_env (fun e ->
+      E.seen e;
+      E.ready e ();
+      if transcript then E.enable_transcript e;
+      E.resolve e;
+      let id = (E.one_fire e).id in
+      let payload = Option.get (E.fetch e id) in
+      let cfg = Session.get_config e.manager in
+      let rule : Runtime_config.egress_rule =
+        {
+          host = "files.slack.com";
+          path = Some "/upload/*";
+          method_ = Some "POST";
+          action = Allow;
+          log_policy = No_log;
+        }
+      in
+      Session.update_config e.manager
+        {
+          cfg with
+          egress =
+            {
+              cfg.egress with
+              default_allowlist = rule :: cfg.egress.default_allowlist;
+            };
+        };
+      S.override e.mock "conversations.history" (fun _ ->
+          (200, S.ok [ ("messages", `List []); S.no_more ]));
+      let seq = ref 0 in
+      S.override e.mock "files.getUploadURLExternal" (fun _ ->
+          incr seq;
+          ( 200,
+            S.ok
+              [
+                ("file_id", `String ("FUPLOAD" ^ string_of_int !seq));
+                ("upload_url", `String "https://files.slack.com/upload/secret");
+              ] ));
+      S.override e.mock "files.completeUploadExternal" (fun _ ->
+          ( 200,
+            S.ok
+              [
+                ( "files",
+                  `List
+                    [
+                      `Assoc
+                        [
+                          ( "shares",
+                            `Assoc
+                              [
+                                ( "private",
+                                  `Assoc
+                                    [
+                                      ( "C123",
+                                        `List
+                                          [
+                                            `Assoc
+                                              [
+                                                ( "ts",
+                                                  `String "1700000041.000001" );
+                                              ];
+                                          ] );
+                                    ] );
+                              ] );
+                        ];
+                    ] );
+              ] ));
+      E.with_claim e id (fun lease r -> f e lease r payload))
+
+let raw_success _ =
+  Lwt.return
+    Slack_standing_order_upload.{ status = 200; headers = []; body = "" }
+
+let test_deliver_complete () =
+  List.iter
+    (fun transcript ->
+      with_delivery ~transcript (fun e lease r payload ->
+          let raw = ref [] in
+          let upload_http request =
+            raw := request :: !raw;
+            raw_success request
+          in
+          let starts = ref [] in
+          let http ~verb ~token ~method_ ~params =
+            if method_ = "files.completeUploadExternal" then
+              starts :=
+                ( E.runtime e r.fire.id,
+                  Store.dispatches_since e.db ~order_id:e.order.id ~since:0. )
+                :: !starts;
+            e.mock.http ~verb ~token ~method_ ~params
+          in
+          Lwt_main.run
+            (D.deliver ~ctx:(E.ctx e) ~db:e.db ~manager:e.manager ~http
+               ~upload_http ~lease r payload);
+          Alcotest.(check int)
+            "raw file count"
+            (if transcript then 2 else 1)
+            (List.length !raw);
+          let params =
+            List.find_map
+              (fun (_, m, p) ->
+                if m = "files.completeUploadExternal" then Some p else None)
+              !(e.mock.calls)
+            |> Option.get
+          in
+          check "top level same channel" true
+            (E.get "channel_id" params = `String "C123"
+            && E.get "thread_ts" params = `Null);
+          let saved = E.runtime e r.fire.id in
+          let nonce = Option.get saved.nonce in
+          text "exact initial_comment"
+            (R.initial_comment ~order:e.order ~verified:payload ~team_url:""
+               ~nonce)
+            (P.field "initial_comment" params);
+          check "Posting and reservation precede HTTP" true
+            (match !starts with
+            | [ (r, 1) ] ->
+                r.fire.state = T.Posting
+                && List.length (List.hd r.attempts).uploaded_file_ids
+                   = if transcript then 2 else 1
+            | _ -> false);
+          check "posted" true
+            (saved.fire.state = T.Posted
+            && saved.fire.relay_ts = Some "1700000041.000001")))
+    [ false; true ]
+
+let test_boundary mode () =
+  with_delivery (fun e lease r payload ->
+      let pause () =
+        ignore
+          (Store.deactivate e.db ~order_id:e.order.id (Store.Pause "U123")
+             ~now:(Store.now ()))
+      in
+      let raw = ref 0 and saw_allocation = ref false in
+      let ctx =
+        {
+          (E.ctx e) with
+          Ctx.limit =
+            (fun ~channel_id:_ ->
+              if !saw_allocation && !raw = 0 then
+                if mode = `Drain then e.accepting := false
+                else if mode = `Pause then pause ();
+              Lwt.pause ());
+        }
+      in
+      let http ~verb ~token ~method_ ~params =
+        if method_ = "files.getUploadURLExternal" then saw_allocation := true;
+        if mode = `Reload && !raw > 0 && method_ = "auth.test" then
+          Session.update_config e.manager (S.config ~enabled:false ());
+        e.mock.http ~verb ~token ~method_ ~params
+      in
+      let upload_http request =
+        incr raw;
+        raw_success request
+      in
+      Lwt_main.run
+        (D.deliver ~ctx ~db:e.db ~manager:e.manager ~http ~upload_http ~lease r
+           payload);
+      Alcotest.(check int) "raw writes" (if mode = `Reload then 1 else 0) !raw;
+      Alcotest.(check int)
+        "no complete" 0
+        (E.count e "files.completeUploadExternal");
+      Alcotest.(check int)
+        "no reservation" 0
+        (Store.dispatches_since e.db ~order_id:e.order.id ~since:0.))
+
+let test_pause_complete () =
+  with_delivery (fun e lease r payload ->
+      let receipt = ref "" in
+      let http ~verb ~token ~method_ ~params =
+        let open Lwt.Syntax in
+        let* response = e.mock.http ~verb ~token ~method_ ~params in
+        if method_ = "files.completeUploadExternal" then (
+          let change =
+            ok
+              (Store.deactivate e.db ~order_id:e.order.id (Store.Pause "U123")
+                 ~now:(Store.now ()))
+          in
+          receipt :=
+            Slack_standing_order_pause.receipt ~display_no:e.order.display_no
+              ~by:"U123"
+              (Slack_standing_order_pause.Paused
+                 { order = change.after; in_flight = change.in_flight });
+          e.accepting := false);
+        let+ () = Lwt.pause () in
+        response
+      in
+      Lwt_main.run
+        (D.deliver ~ctx:(E.ctx e) ~db:e.db ~manager:e.manager ~http
+           ~upload_http:raw_success ~lease r payload);
+      let saved = E.runtime e r.fire.id in
+      check "in-flight result retained after pause and drain" true
+        (saved.fire.state = T.Posted
+        && saved.fire.relay_ts <> None
+        && saved.fire.repost_forbidden);
+      check "receipt discloses in-flight relay" true
+        (contains !receipt "1 relay was already being sent"))
+
+let test_missing_payload () =
+  with_delivery (fun e lease r payload ->
+      Lwt_main.run
+        (D.deliver ~ctx:(E.ctx e) ~db:e.db ~manager:e.manager ~http:e.mock.http
+           ~upload_http:raw_success ~lease r
+           { payload with notes_md = "" });
+      E.no_upload e)
+
+let test_complete_limiter_reload ?(policy = false) () =
+  with_delivery (fun e lease r payload ->
+      let raw = ref false and complete_ready = ref false in
+      let http ~verb ~token ~method_ ~params =
+        if !raw && method_ = "users.list" then complete_ready := true;
+        e.mock.http ~verb ~token ~method_ ~params
+      in
+      let ctx =
+        {
+          (E.ctx e) with
+          Ctx.limit =
+            (fun ~channel_id:_ ->
+              if !complete_ready then
+                Session.update_config e.manager
+                  (if policy then S.config ~strict_rules:[] ()
+                   else S.config ~enabled:false ());
+              Lwt.pause ());
+        }
+      in
+      let upload_http req =
+        raw := true;
+        raw_success req
+      in
+      Lwt_main.run
+        (D.deliver ~ctx ~db:e.db ~manager:e.manager ~http ~upload_http ~lease r
+           payload);
+      Alcotest.(check int)
+        "zero complete" 0
+        (E.count e "files.completeUploadExternal");
+      E.check_state e r.fire.id
+        (if policy then T.Failed else T.Skipped_inactive);
+      Alcotest.(check int)
+        "no preflight reservation" 0
+        (Store.dispatches_since e.db ~order_id:e.order.id ~since:0.))
+
+let test_scan_adopts () =
+  with_delivery (fun e lease r payload ->
+      let pages = ref 0 in
+      S.override e.mock "conversations.history" (fun params ->
+          incr pages;
+          Alcotest.(check string)
+            "UTC SQL creation becomes epoch oldest" (D.oldest e.db r)
+            (P.field "oldest" params);
+          if !pages = 1 then
+            ( 200,
+              S.ok
+                [
+                  ("messages", `List []);
+                  ("has_more", `Bool true);
+                  ( "response_metadata",
+                    `Assoc [ ("next_cursor", `String "next") ] );
+                ] )
+          else (
+            check "second page uses cursor" true
+              (E.get "cursor" params = `String "next");
+            let nonce = Option.get (E.runtime e r.fire.id).nonce in
+            let m =
+              `Assoc
+                [
+                  ("ts", `String "1700000041.000001");
+                  ("user", `String "UBOT");
+                  ("bot_id", `String "BOWN");
+                  ("subtype", `Null);
+                  ("files", `List [ `Assoc [ ("id", `String "FADOPTED") ] ]);
+                  ("text", `String (Slack_relay_guard.footer ~nonce));
+                ]
+            in
+            (200, S.ok [ ("messages", `List [ m ]); S.no_more ])));
+      Lwt_main.run
+        (D.deliver ~ctx:(E.ctx e) ~db:e.db ~manager:e.manager ~http:e.mock.http
+           ~upload_http:(fun _ -> Alcotest.fail "adoption must not upload")
+           ~lease r payload);
+      let saved = E.runtime e r.fire.id in
+      E.check_state e r.fire.id T.Posted;
+      check "adopted ids persisted" true
+        ((List.hd saved.attempts).uploaded_file_ids = [ "FADOPTED" ]);
+      Alcotest.(check int)
+        "adoption debited exactly once" 1
+        (Store.dispatches_since e.db ~order_id:e.order.id ~since:0.);
+      E.no_upload e)
+
+let test_scan_ambiguous () =
+  List.iter
+    (fun kind ->
+      with_delivery (fun e lease r payload ->
+          let pages = ref 0 in
+          S.override e.mock "conversations.history" (fun _ ->
+              incr pages;
+              match kind with
+              | `Failed -> (503, `Null)
+              | `Malformed -> (200, S.ok [ ("messages", `String "invalid") ])
+              | `Incomplete ->
+                  ( 200,
+                    S.ok
+                      [
+                        ("messages", `List []);
+                        ("has_more", `Bool true);
+                        ( "response_metadata",
+                          `Assoc
+                            [ ("next_cursor", `String (string_of_int !pages)) ]
+                        );
+                      ] ));
+          Lwt_main.run
+            (D.deliver ~ctx:(E.ctx e) ~db:e.db ~manager:e.manager
+               ~http:e.mock.http
+               ~upload_http:(fun _ ->
+                 Alcotest.fail "ambiguous scan must not upload")
+               ~lease r payload);
+          E.no_upload e;
+          Alcotest.(check int)
+            "bounded pages"
+            (if kind = `Incomplete then 5 else 1)
+            !pages;
+          check "ambiguous scan schedules read-only retry" true
+            ((E.runtime e r.fire.id).fire.reason = Some "relay_scan_ambiguous")))
+    [ `Failed; `Malformed; `Incomplete ]
+
+let test_unknown () =
+  List.iter
+    (fun response ->
+      with_delivery (fun e lease r payload ->
+          let http ~verb ~token ~method_ ~params =
+            if method_ = "files.completeUploadExternal" then response ()
+            else e.mock.http ~verb ~token ~method_ ~params
+          in
+          Lwt_main.run
+            (D.deliver ~ctx:(E.ctx e) ~db:e.db ~manager:e.manager ~http
+               ~upload_http:raw_success ~lease r payload);
+          E.check_state e r.fire.id T.Posting_unknown;
+          let calls = List.length !(e.mock.calls) in
+          Lwt_main.run
+            (D.deliver ~ctx:(E.ctx e) ~db:e.db ~manager:e.manager ~http
+               ~upload_http:raw_success ~lease (E.runtime e r.fire.id) payload);
+          Alcotest.(check int)
+            "unknown never retries completion or reposts" calls
+            (List.length !(e.mock.calls))))
+    [
+      (fun () -> Lwt.return (503, ""));
+      (fun () -> Lwt.fail_with "secret response");
+      (fun () ->
+        Lwt.return (200, Yojson.Safe.to_string (S.ok [ ("files", `List []) ])));
+    ]
+
 let suite =
   [
+    S.case "complete preflight failure is enumerated and never reserved"
+      (test_complete_limiter_reload ~policy:true);
+    S.case "complete limiter reload is an inactive refusal"
+      (test_complete_limiter_reload ~policy:false);
+    S.case "adoption ignores subtype" test_adoption;
+    S.case "relay_ts read from complete response shares.private" test_share_ts;
+    S.case "upload complete is top level" test_deliver_complete;
+    S.case "complete reserved before network" test_deliver_complete;
+    S.case "pause while upload limiter waits stops HTTP" (test_boundary `Pause);
+    S.case "config reload during grant read stops complete"
+      (test_boundary `Reload);
+    S.case "drain during internal await stops later writes"
+      (test_boundary `Drain);
+    S.case
+      "pause racing complete records dispatched fire and receipt discloses it"
+      test_pause_complete;
+    S.case "missing source payload never calls upload" test_missing_payload;
+    S.case "paginated scan adopts and persists own file ids" test_scan_adopts;
+    S.case "failed or incomplete scan never authorizes upload"
+      test_scan_ambiguous;
+    S.case "unknown completion schedules resolution without direct retry"
+      test_unknown;
     S.case "nonce stable and framed" test_nonce;
     S.case "secret stable after reopen" test_secret;
     S.case "nonce absent from list show and reports" test_no_nonce;

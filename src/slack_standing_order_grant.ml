@@ -357,6 +357,7 @@ let next_cursor json =
   | _ -> None
 
 let reason_of_error ~user_not_found method_ : SO.error -> reason = function
+  | Dispatch_refused -> Epoch_mismatch
   | Rate_limited | Http_status _ | Transport | Audit_unavailable
   | Snapshot_unavailable ->
       Indeterminate method_
@@ -674,7 +675,8 @@ let member_refusal_of_error method_ : SO.error -> member_refusal = function
   | Slack_error "user_not_found" when method_ = "users.info" ->
       Member_unavailable
   | Rate_limited | Http_status _ | Transport | Audit_unavailable
-  | Snapshot_unavailable | Slack_error _ | Channel_denied | Not_configured ->
+  | Snapshot_unavailable | Slack_error _ | Channel_denied | Not_configured
+  | Dispatch_refused ->
       Member_indeterminate method_
 
 let check_member ~(call : SO.call) ~(config : Runtime_config.t) ~team_id
