@@ -547,6 +547,7 @@
   slack_standing_order_fire_store
   slack_standing_order_store
   slack_standing_order_slack
+  slack_standing_order_upload
   slack_standing_order_grant
   slack_standing_order_target
   slack_standing_order_render

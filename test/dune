@@ -321,6 +321,7 @@
   test_slack_standing_order_support
   test_slack_standing_order_store
   test_slack_standing_order_slack
+  test_slack_standing_order_upload
   test_slack_standing_order_grant
   test_slack_standing_order_grant_support
   test_slack_standing_order_grant_fire

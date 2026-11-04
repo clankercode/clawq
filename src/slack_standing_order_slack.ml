@@ -50,6 +50,7 @@ let methods =
   ]
 
 let api_uri method_ = "https://slack.com/api/" ^ method_
+let upload_prefix = "https://files.slack.com/"
 let auth_headers token = [ ("Authorization", "Bearer " ^ token) ]
 
 let query_value = function
@@ -195,7 +196,7 @@ let persisted_snapshot ~scope ~db ~(snapshot : Access_snapshot.t) ~channel_id =
     && Access_snapshot.get_by_id ~db snapshot.id = Some snapshot
   with _ -> false
 
-let preflight ~scope ~db ~(cfg : Runtime_config.t)
+let preflight ?uri ?(sensitive_uri = false) ~scope ~db ~(cfg : Runtime_config.t)
     ~(snapshot : Access_snapshot.t) ~channel_id ~audit method_ verb =
   try
     match cfg.channels.slack with
@@ -231,8 +232,9 @@ let preflight ~scope ~db ~(cfg : Runtime_config.t)
             }
           in
           match
-            Policy_http_client.check_policy ~rules ~uri:(api_uri method_)
-              ~method_:verb ~audit ~strict_audit:true ()
+            Policy_http_client.check_policy ~rules
+              ~uri:(Option.value uri ~default:(api_uri method_))
+              ~method_:verb ~audit ~strict_audit:true ~sensitive_uri ()
           with
           | Ok () -> Ok (String.trim sc.bot_token)
           | Error _ -> Error (Egress_denied method_)
