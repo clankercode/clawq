@@ -323,6 +323,8 @@
   test_slack_standing_order_grant
   test_slack_standing_order_target
   test_slack_standing_order_render
+  test_slack_standing_order_fixtures
+  test_slack_standing_order_pause
   test_slack_huddles_grant
   test_access_snapshot_decode
   test_access_snapshot_standing_order

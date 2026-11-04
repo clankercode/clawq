@@ -23,8 +23,8 @@ let message ?(kind = "message") ?(channel = "C123") ?thread ?(ts = "100.000001")
      ]
     @ match thread with None -> [] | Some t -> [ ("thread_ts", str t) ])
 
-let with_ingress ?(delay = fun _ _ -> Lwt.return_unit) f =
-  with_fixture (fun base ->
+let with_ingress ?(delay = fun _ _ -> Lwt.return_unit) ?key f =
+  with_fixture ?key (fun base ->
       Test_slack_huddle_fix1.configure_mock_provider base;
       let cfg = base.manager.config in
       let cfg =

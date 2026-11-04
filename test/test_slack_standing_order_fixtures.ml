@@ -1,0 +1,130 @@
+(* Shared standing-order ingress fixture (no suite): phase 1's thread ingress
+   on [thread_key], with [S.default_response env.world] answering every
+   standing-order Slack method, the store clock pinned to [S.now] for the run,
+   and helpers to speak in Slack. Fake ids only. *)
+module S = Test_slack_standing_order_support
+module Store = Slack_standing_order_store
+
+let thread_root = "100.000001"
+
+let thread_key =
+  Slack_thread_route.key
+    { team = "T123"; app = "A123"; channel = "C123"; root = thread_root }
+
+type env = {
+  base : Test_slack_huddle_fixtures.fixture;
+  calls : (string * Yojson.Safe.t) list ref;
+      (** Every Slack call (method, params), oldest first. *)
+  seen : Provider.message list list ref;  (** Every provider request. *)
+  db : Sqlite3.db;
+  posted : (Yojson.Safe.t * string) list ref;
+      (** Accepted [chat.postMessage] calls (params, returned ts), oldest first.
+      *)
+  world : S.world;
+  answer : (string -> Yojson.Safe.t -> Yojson.Safe.t) ref;
+      (** The Slack answers; [override] layers on it. *)
+  provider :
+    (model:string ->
+    messages:Provider.message list ->
+    Provider.completion_response Lwt.t)
+    ref;
+  run : string -> Yojson.Safe.t -> string Lwt.t;
+      (** Delivers one event callback with the given event id. *)
+}
+
+let set_config env f =
+  let config = f (Session.get_config env.base.manager) in
+  env.base.cfg := config;
+  Session.update_config env.base.manager config
+
+let default_orders (cfg : Runtime_config.t) =
+  S.with_slack cfg (fun sc ->
+      {
+        sc with
+        standing_orders =
+          {
+            Slack_config_types.orders_enabled = true;
+            allowed_targets = [ S.claude_target ];
+            creator_policy = Slack_config_types.So_creator_member;
+          };
+      })
+
+let with_orders ?(config = Fun.id) f =
+  Test_slack_threads.with_ingress ~key:thread_key
+    (fun base calls handler seen provider run ->
+      let world = S.world () and posted = ref [] in
+      let ingress = !handler in
+      let answer =
+        ref (fun method_ params ->
+            if List.mem_assoc method_ Slack_standing_order_slack.methods then
+              S.default_response world method_ params
+            else ingress method_ params)
+      in
+      (handler :=
+         fun method_ params ->
+           let response = !answer method_ params in
+           if method_ = "chat.postMessage" && Slack_huddles.flag "ok" response
+           then posted := !posted @ [ (params, S.param response "ts") ];
+           response);
+      let env =
+        {
+          base;
+          calls;
+          seen;
+          db = base.db;
+          posted;
+          world;
+          answer;
+          provider;
+          run = (fun id event -> run ~id event);
+        }
+      in
+      set_config env (fun cfg -> config (default_orders cfg));
+      S.at S.now;
+      Lwt.finalize
+        (fun () -> f env)
+        (fun () ->
+          Store.clock := Unix.gettimeofday;
+          Lwt.return_unit))
+
+(* [f params] answers [method_]; other methods keep their previous answer. *)
+let override env method_ f =
+  let previous = !(env.answer) in
+  env.answer :=
+    fun called params ->
+      if called = method_ then f params else previous called params
+
+let seed env ?channel ?grantor ?state () =
+  S.seed env.db ?channel ?grantor ?state ()
+
+(* A fresh event id every call, and a fresh valid [ts] unless one is given:
+   ingress dedups on both. *)
+let say env ?(user = "U123") ?(channel = "C123") ?thread ?ts ?subtype text =
+  incr env.world.seq;
+  let n = !(env.world.seq) in
+  let ts =
+    match ts with Some ts -> ts | None -> Printf.sprintf "300.%06d" n
+  in
+  let event = Test_slack_threads.message ~channel ?thread ~ts ~user text in
+  let event =
+    match (subtype, event) with
+    | Some s, `Assoc fields -> `Assoc (fields @ [ ("subtype", `String s) ])
+    | _ -> event
+  in
+  env.run (Printf.sprintf "say%d" n) event
+
+let fail_provider env =
+  env.provider :=
+    fun ~model:_ ~messages ->
+      env.seen := messages :: !(env.seen);
+      Lwt.fail_with "fixture: the LLM provider is down"
+
+let texts env =
+  List.map (fun (params, _) -> S.param params "text") !(env.posted)
+
+let methods env = List.map fst !(env.calls)
+
+let admin env id =
+  Sql_util.exec_with_params env.db
+    "INSERT INTO channel_admins(channel, sender_id) VALUES ('slack', ?)"
+    [ Sqlite3.Data.TEXT id ]

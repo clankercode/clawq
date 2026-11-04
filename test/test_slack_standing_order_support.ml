@@ -24,6 +24,37 @@ let fresh_db () =
   Room_activity_ledger.init_schema db;
   db
 
+(* Runs [f] with a reporter that keeps every message at [Info] and above, in
+   order, instead of printing it; the previous reporter and level come back
+   afterwards. *)
+let with_log_capture f =
+  let open Lwt.Syntax in
+  let messages = ref [] in
+  let reporter =
+    {
+      Logs.report =
+        (fun _src level ~over k msgf ->
+          msgf @@ fun ?header:_ ?tags:_ fmt ->
+          Format.kasprintf
+            (fun msg ->
+              messages := (level, msg) :: !messages;
+              over ();
+              k ())
+            fmt);
+    }
+  in
+  let prev_reporter = Logs.reporter () and prev_level = Logs.level () in
+  Logs.set_reporter reporter;
+  Logs.set_level (Some Logs.Info);
+  Lwt.finalize
+    (fun () ->
+      let+ result = f () in
+      (result, List.rev !messages))
+    (fun () ->
+      Logs.set_reporter prev_reporter;
+      Logs.set_level prev_level;
+      Lwt.return_unit)
+
 let state_t =
   Alcotest.testable
     (fun ppf s -> Format.pp_print_string ppf (T.state_to_string s))

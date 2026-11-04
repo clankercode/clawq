@@ -299,6 +299,7 @@ let all_suites =
     ("slack_standing_order_grant", Test_slack_standing_order_grant.suite);
     ("slack_standing_order_target", Test_slack_standing_order_target.suite);
     ("slack_standing_order_render", Test_slack_standing_order_render.suite);
+    ("slack_standing_order_pause", Test_slack_standing_order_pause.suite);
     ("slack_huddles_grant", Test_slack_huddles_grant.suite);
     ("access_snapshot_decode", Test_access_snapshot_decode.suite);
     ("access_snapshot_standing_order", Test_access_snapshot_standing_order.suite);

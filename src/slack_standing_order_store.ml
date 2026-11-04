@@ -371,6 +371,16 @@ let list db ?team_id ?channel_id ?(include_cancelled = false) () =
     (where ^ " ORDER BY team_id, channel_id, display_no")
     (List.concat_map snd filters)
 
+(* Any row in any state, undecodable rows included: whether a Plan evaluation
+   ever admitted this channel (Decision 20). *)
+let channel_has_orders db ~team_id ~api_app_id ~channel_id =
+  ensure_schema db;
+  int_query db
+    "SELECT EXISTS (SELECT 1 FROM slack_standing_orders WHERE team_id = ? AND \
+     api_app_id = ? AND channel_id = ?)"
+    [ text team_id; text api_app_id; text channel_id ]
+  = 1
+
 let live_where =
   "WHERE team_id = ? AND channel_id = ? AND target_app_id = ? AND id <> ? AND \
    state IN (" ^ live_states_sql ^ ") ORDER BY display_no"
