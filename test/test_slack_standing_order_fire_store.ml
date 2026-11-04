@@ -423,6 +423,242 @@ let test_reservation_rollback () =
     (Store.dispatches_since db ~order_id:o.id ~since:0.);
   state "fire rolled back" T.Uploading (runtime db f.id).fire.state
 
+let terminal_repost db capped =
+  let o, f = seed db in
+  let lease = claim db f.id "worker" S.now in
+  prepare db f.id lease S.now;
+  let before = runtime db f.id in
+  let first =
+    { (Store.empty_attempt 0) with uploaded_file_ids = [ "FFIRST" ] }
+  in
+  check "prepare original" true
+    (ok
+       (Store.cas db ~lease ~before
+          ~after:{ before with attempts = [ first ] }
+          ~now:S.now));
+  check "reserve original" true (ok (reserve db f.id lease S.now false));
+  check "record original" true
+    (ok (record_relay db f.id lease "1700000001.000001" S.now));
+  let notice_at = S.now +. 10. in
+  let before = runtime db f.id in
+  let first =
+    {
+      (List.hd before.attempts) with
+      first_reply_ts = Some "1700000010.000001";
+      rate_limited_at = Some notice_at;
+    }
+  in
+  let second =
+    { (Store.empty_attempt 1) with uploaded_file_ids = [ "FSECOND" ] }
+  in
+  check "record rate notice and prepare re-post" true
+    (ok
+       (Store.cas db ~lease ~before
+          ~after:
+            {
+              before with
+              attempts = [ first; second ];
+              next_attempt_at = Some (notice_at +. 300.);
+            }
+          ~now:notice_at));
+  let now = notice_at +. 300. in
+  let lease = claim db f.id "worker" now in
+  if capped then
+    Store.exec db
+      "UPDATE slack_standing_orders SET max_fires_per_day=1 WHERE id=?"
+      [ Store.text o.id ];
+  check "re-post reservation" (not capped) (ok (reserve db f.id lease now true));
+  check "terminal re-post outcome" true
+    (ok
+       (change db lease (runtime db f.id)
+          (if capped then T.Skipped_cap else T.Failed)
+          now));
+  (o, f, lease, now)
+
+let observe_original db id lease st now =
+  let before = runtime db id in
+  let attempts =
+    List.map
+      (fun (a : Store.relay_attempt) ->
+        if a.attempt_no <> 0 then a
+        else
+          match st with
+          | T.Acknowledged ->
+              { a with reaction_seen = true; acknowledged_at = Some now }
+          | T.Picked_up ->
+              { a with acknowledged_at = Some now; picked_up_at = Some now }
+          | T.Not_delivered -> { a with not_delivered = true }
+          | _ -> Alcotest.fail "unexpected observation state")
+      before.attempts
+  in
+  Store.cas db ~lease ~before
+    ~after:{ before with attempts; fire = { before.fire with state = st } }
+    ~now
+
+let check_dispatch_unchanged db (before : Store.fire_runtime) =
+  let after = runtime db before.fire.id in
+  let identities (r : Store.fire_runtime) =
+    List.map
+      (fun (a : Store.relay_attempt) ->
+        ( a.attempt_no,
+          a.uploaded_file_ids,
+          a.relay_ts,
+          a.dispatched_at,
+          a.pickup_started_at,
+          a.first_reply_ts,
+          a.rate_limited_at ))
+      r.attempts
+  in
+  check "retained identities, debits and clocks unchanged" true
+    (identities before = identities after);
+  check "fire identity and accounting unchanged" true
+    ({ after.fire with state = before.fire.state } = before.fire);
+  integer "current attempt unchanged" before.current_attempt
+    after.current_attempt;
+  check "source identity unchanged" true
+    ((before.root_ts, before.canvas_id, before.transcript_id, before.nonce)
+    = (after.root_ts, after.canvas_id, after.transcript_id, after.nonce))
+
+let test_terminal_repost_observation capped st () =
+  let db = S.fresh_db () in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.db_close db))
+    (fun () ->
+      let o, f, lease, now = terminal_repost db capped in
+      let before = runtime db f.id in
+      integer "expected re-post count"
+        (if capped then 0 else 1)
+        before.fire.reposts;
+      let debits = if capped then 1 else 2 in
+      integer "expected dispatch debits" debits
+        (Store.dispatches_since db ~order_id:o.id ~since:0.);
+      check "retained original observation" true
+        (ok (observe_original db f.id lease st (now +. 1.)));
+      let after = runtime db f.id in
+      state "observation advances fire" st after.fire.state;
+      let original = List.hd after.attempts in
+      (match st with
+      | T.Acknowledged -> check "reaction recorded" true original.reaction_seen
+      | T.Picked_up ->
+          check "pickup recorded" true (original.picked_up_at <> None)
+      | T.Not_delivered ->
+          check "non-delivery recorded" true original.not_delivered
+      | _ -> assert false);
+      let second = List.nth after.attempts 1 in
+      check "original never acknowledges second attempt" true
+        (second.acknowledged_at = None
+        && second.picked_up_at = None && (not second.reaction_seen)
+        && not second.not_delivered);
+      check_dispatch_unchanged db before;
+      integer "observation costs no dispatch" debits
+        (Store.dispatches_since db ~order_id:o.id ~since:0.);
+      if st <> T.Not_delivered then
+        check "late disabled notice wins" true
+          (ok (observe_original db f.id lease T.Not_delivered (now +. 2.)));
+      state "non-delivery dominates" T.Not_delivered
+        (runtime db f.id).fire.state;
+      let terminal = runtime db f.id in
+      List.iter
+        (fun target ->
+          check "cannot regress non-delivery" true
+            (Result.is_error (change db lease terminal target (now +. 3.))))
+        [ T.Acknowledged; T.Picked_up ];
+      check_dispatch_unchanged db before)
+
+let test_terminal_tracking_requires_dispatch () =
+  List.iter
+    (fun terminal ->
+      let db = S.fresh_db () in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.db_close db))
+        (fun () ->
+          let _, f = seed db in
+          let lease = claim db f.id "worker" S.now in
+          check "undispatched terminal" true
+            (ok (change db lease (runtime db f.id) terminal S.now));
+          let before = runtime db f.id in
+          List.iter
+            (fun target ->
+              let a =
+                {
+                  (Store.empty_attempt 0) with
+                  reaction_seen = true;
+                  acknowledged_at = Some S.now;
+                  picked_up_at = Some S.now;
+                  not_delivered = target = T.Not_delivered;
+                }
+              in
+              check "undispatched terminal stays closed" true
+                (Result.is_error
+                   (Store.cas db ~lease ~before
+                      ~after:
+                        {
+                          before with
+                          attempts = [ a ];
+                          fire = { before.fire with state = target };
+                        }
+                      ~now:S.now));
+              check "refusal preserves runtime" true (runtime db f.id = before))
+            [ T.Acknowledged; T.Picked_up; T.Not_delivered ]))
+    [ T.Skipped_cap; T.Failed ]
+
+let test_terminal_tracking_requires_evidence () =
+  List.iter
+    (fun capped ->
+      let db = S.fresh_db () in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.db_close db))
+        (fun () ->
+          let _, f, lease, now = terminal_repost db capped in
+          let before = runtime db f.id in
+          List.iter
+            (fun target ->
+              check "state alone cannot reopen terminal" true
+                (Result.is_error (change db lease before target now));
+              if capped then begin
+                let attempts =
+                  List.map
+                    (fun (a : Store.relay_attempt) ->
+                      if a.attempt_no = 0 then a
+                      else
+                        {
+                          a with
+                          reaction_seen = true;
+                          acknowledged_at = Some now;
+                          picked_up_at = Some now;
+                          not_delivered = target = T.Not_delivered;
+                        })
+                    before.attempts
+                in
+                check "prepared re-post is not dispatched evidence" true
+                  (Result.is_error
+                     (Store.cas db ~lease ~before
+                        ~after:
+                          {
+                            before with
+                            attempts;
+                            fire = { before.fire with state = target };
+                          }
+                        ~now))
+              end;
+              check "refusal preserves runtime" true (runtime db f.id = before))
+            [ T.Acknowledged; T.Picked_up; T.Not_delivered ];
+          let attempts =
+            List.map
+              (fun (a : Store.relay_attempt) ->
+                if a.attempt_no = 0 then { a with not_delivered = true } else a)
+              before.attempts
+          in
+          check "retain non-delivery evidence" true
+            (ok
+               (Store.cas db ~lease ~before ~after:{ before with attempts } ~now));
+          List.iter
+            (fun target ->
+              check "retained non-delivery prevents positive tracking" true
+                (Result.is_error (observe_original db f.id lease target now)))
+            [ T.Acknowledged; T.Picked_up ]))
+    [ true; false ]
+
 let suite =
   [
     S.case "one leased fire per channel across handles" test_channel_claim;
@@ -446,4 +682,20 @@ let suite =
       test_paused_adoption;
     S.case "reservation write failure rolls back debit"
       test_reservation_rollback;
+    S.case "cap-refused re-post retains original reaction"
+      (test_terminal_repost_observation true T.Acknowledged);
+    S.case "cap-refused re-post retains original ordinary reply"
+      (test_terminal_repost_observation true T.Picked_up);
+    S.case "cap-refused re-post retains original disabled or spend-limit notice"
+      (test_terminal_repost_observation true T.Not_delivered);
+    S.case "failed re-post retains original reaction"
+      (test_terminal_repost_observation false T.Acknowledged);
+    S.case "failed re-post retains original ordinary reply"
+      (test_terminal_repost_observation false T.Picked_up);
+    S.case "failed re-post retains original disabled or spend-limit notice"
+      (test_terminal_repost_observation false T.Not_delivered);
+    S.case "undispatched terminal fires stay closed"
+      test_terminal_tracking_requires_dispatch;
+    S.case "terminal tracking transitions require retained attempt evidence"
+      test_terminal_tracking_requires_evidence;
   ]

@@ -396,6 +396,30 @@ let declared_transition before after =
       true
   | _ -> false
 
+let retained_tracking_transition (before : fire_runtime) (after : fire_runtime)
+    =
+  (* A failed or cap-refused re-post does not close observation of the
+     original relay. Only retained dispatch evidence may reopen tracking. *)
+  List.mem before.fire.state T.[ Skipped_cap; Failed ]
+  && (after.fire.state = T.Not_delivered
+     || not
+          (List.exists
+             (fun (a : relay_attempt) -> a.not_delivered)
+             after.attempts))
+  && List.exists
+       (fun (old : relay_attempt) ->
+         old.dispatched_at <> None
+         &&
+         match attempt after old.attempt_no with
+         | None -> false
+         | Some a -> (
+             match after.fire.state with
+             | T.Acknowledged -> a.reaction_seen || a.acknowledged_at <> None
+             | T.Picked_up -> a.picked_up_at <> None
+             | T.Not_delivered -> a.not_delivered
+             | _ -> false))
+       before.attempts
+
 let immutable_fire (a : T.fire) (b : T.fire) =
   a.id = b.id && a.order_id = b.order_id && a.room_id = b.room_id
   && a.date_start = b.date_start
@@ -497,7 +521,8 @@ let cas db ~(lease : lease) ~(before : fire_runtime) ~(after : fire_runtime)
               if
                 (not (immutable_fire before.fire after.fire))
                 || (not
-                      (declared_transition before.fire.state after.fire.state))
+                      (declared_transition before.fire.state after.fire.state
+                      || retained_tracking_transition before after))
                 || after.claim <> before.claim
                 || after.current_attempt < before.current_attempt
                 || (not (List.mem after.current_attempt [ 0; 1 ]))
