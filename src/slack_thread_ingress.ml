@@ -147,82 +147,124 @@ let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
                              explicit mention"
                             channel root);
                       Lwt.return "ok")
-                    else if not (Slack_thread_runs.accepting session_manager)
-                    then Lwt.return "ok"
                     else
-                      let context =
-                        match fetched with
-                        | Some (Ok thread) when not command ->
-                            Slack_thread_api.render_history ~route ~bot
-                              ~current:ts
-                              ~untrusted:
-                                (Slack_relay_guard.untrusted_in_history
-                                   ~registry ~channel)
-                              thread
-                        | Some (Error e) when not command ->
-                            "Slack thread context unavailable (no complete \
-                             history): " ^ e ^ "\n"
-                        | _ -> ""
+                      let lookup id =
+                        let module SO = Slack_standing_order_slack in
+                        let call method_ params =
+                          let cfg = Session.get_config session_manager in
+                          match Session.get_db session_manager with
+                          | None -> Lwt.return (Error SO.Transport)
+                          | Some db -> (
+                              match
+                                SO.snapshot ~db ~config:cfg ~channel_id:channel
+                                  ~order_ref:None
+                              with
+                              | Error _ -> Lwt.return (Error SO.Transport)
+                              | Ok snapshot ->
+                                  SO.make ~db
+                                    ~current_config:(fun () ->
+                                      Session.get_config session_manager)
+                                    ~snapshot ~channel_id:channel
+                                    ~audit:"slack_peer_thread" () method_ params
+                              )
+                        in
+                        Slack_peer_thread.cached_lookup ~call
+                          ~allowed:sc.standing_orders.allowed_targets id
                       in
-                      let context =
-                        match get "app_context" event with
-                        | `Null -> context
-                        | c ->
-                            context
-                            ^ "Untrusted browsing context (not access \
-                               authority): " ^ Yojson.Safe.to_string c ^ "\n"
+                      let* peer_silent =
+                        Slack_peer_thread.silent
+                          ~allowed:sc.standing_orders.allowed_targets ~bot
+                          ~lookup ~text ~top_level:(not reply)
+                          ~root:root_message
+                          ~thread:
+                            (match fetched with
+                            | Some (Ok thread) -> thread.messages
+                            | _ -> [])
                       in
-                      let run =
-                        Slack_thread_runs.create ~manager:session_manager ~route
-                          ~message:ts ~owner:user
-                      in
-                      let rewritten =
-                        obj
-                          [
-                            ("type", str "event_callback");
-                            ( "event",
-                              obj
-                                (("thread_ts", str root)
-                                :: ("type", str "message")
-                                ::
-                                (match event with
-                                | `Assoc xs ->
-                                    List.remove_assoc "type"
-                                      (List.remove_assoc "thread_ts" xs)
-                                | _ -> [])) );
-                          ]
-                      in
-                      Slack_thread_api.with_route session_manager route
-                        (fun () ->
-                          Lwt.finalize
-                            (fun () ->
-                              let* () =
-                                if command then Lwt.return_unit
-                                else Slack_thread_runs.control run
-                              in
-                              if
-                                not
-                                  (Slack_thread_runs.accepting session_manager)
-                              then Lwt.return "ok"
-                              else
-                                handle_message ?thread_run:(Some run)
-                                  ?thread_context:(Some context) ~config:sc
-                                  ~session_manager ?send_message_fn
-                                  ?run_update_command ?event_limiter
-                                  (Yojson.Safe.to_string rewritten))
-                            (fun () ->
-                              let queued =
-                                Option.value
-                                  (Hashtbl.find_opt
-                                     session_manager.queued_messages run.key)
-                                  ~default:[]
-                                |> List.exists
-                                     (fun (q : Session_types.queued_message) ->
-                                       q.message_id = Some run.message)
-                              in
-                              if run.active || not queued then
-                                Slack_thread_runs.finish run
-                              else Lwt.return_unit)))
+                      if peer_silent then (
+                        Logs.info (fun m ->
+                            m
+                              "Slack peer thread %s/%s: no turn without an \
+                               explicit mention"
+                              channel root);
+                        Lwt.return "ok")
+                      else if not (Slack_thread_runs.accepting session_manager)
+                      then Lwt.return "ok"
+                      else
+                        let context =
+                          match fetched with
+                          | Some (Ok thread) when not command ->
+                              Slack_thread_api.render_history ~route ~bot
+                                ~current:ts
+                                ~untrusted:
+                                  (Slack_relay_guard.untrusted_in_history
+                                     ~registry ~channel)
+                                thread
+                          | Some (Error e) when not command ->
+                              "Slack thread context unavailable (no complete \
+                               history): " ^ e ^ "\n"
+                          | _ -> ""
+                        in
+                        let context =
+                          match get "app_context" event with
+                          | `Null -> context
+                          | c ->
+                              context
+                              ^ "Untrusted browsing context (not access \
+                                 authority): " ^ Yojson.Safe.to_string c ^ "\n"
+                        in
+                        let run =
+                          Slack_thread_runs.create ~manager:session_manager
+                            ~route ~message:ts ~owner:user
+                        in
+                        let rewritten =
+                          obj
+                            [
+                              ("type", str "event_callback");
+                              ( "event",
+                                obj
+                                  (("thread_ts", str root)
+                                  :: ("type", str "message")
+                                  ::
+                                  (match event with
+                                  | `Assoc xs ->
+                                      List.remove_assoc "type"
+                                        (List.remove_assoc "thread_ts" xs)
+                                  | _ -> [])) );
+                            ]
+                        in
+                        Slack_thread_api.with_route session_manager route
+                          (fun () ->
+                            Lwt.finalize
+                              (fun () ->
+                                let* () =
+                                  if command then Lwt.return_unit
+                                  else Slack_thread_runs.control run
+                                in
+                                if
+                                  not
+                                    (Slack_thread_runs.accepting session_manager)
+                                then Lwt.return "ok"
+                                else
+                                  handle_message ?thread_run:(Some run)
+                                    ?thread_context:(Some context) ~config:sc
+                                    ~session_manager ?send_message_fn
+                                    ?run_update_command ?event_limiter
+                                    (Yojson.Safe.to_string rewritten))
+                              (fun () ->
+                                let queued =
+                                  Option.value
+                                    (Hashtbl.find_opt
+                                       session_manager.queued_messages run.key)
+                                    ~default:[]
+                                  |> List.exists
+                                       (fun
+                                         (q : Session_types.queued_message) ->
+                                         q.message_id = Some run.message)
+                                in
+                                if run.active || not queued then
+                                  Slack_thread_runs.finish run
+                                else Lwt.return_unit)))
       else if
         field "type" event = "message"
         && field "subtype" event = "thread_broadcast"

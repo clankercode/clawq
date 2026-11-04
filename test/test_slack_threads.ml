@@ -452,8 +452,206 @@ let test_routing () =
       Alcotest.(check (option string)) "background connector" (Some "slack") ch;
       Lwt.return_unit)
 
+let peer_allowed : Slack_config_types.standing_order_target_config list =
+  [ { app_id = "ACLAUDE"; label = "Claude" } ]
+
+let peer_post ?(app = "ACLAUDE") () =
+  update
+    (message ~user:"UCLAUDE" ~ts:"100.000002" "answer")
+    [ ("bot_id", str "BCLAUDE"); ("bot_profile", obj [ ("app_id", str app) ]) ]
+
+let peer_user =
+  obj
+    [
+      ("id", str "UCLAUDE");
+      ("is_bot", `Bool true);
+      ("deleted", `Bool false);
+      ( "profile",
+        obj [ ("api_app_id", str "ACLAUDE"); ("bot_id", str "BCLAUDE") ] );
+    ]
+
+let with_peer ?(allowed = peer_allowed) ~root_text ~posts f =
+  Slack_peer_thread.reset_cache ();
+  with_ingress (fun base calls handler seen _ run ->
+      let cfg = base.manager.config in
+      let sc = Option.get cfg.channels.slack in
+      let cfg =
+        {
+          cfg with
+          channels =
+            {
+              cfg.channels with
+              slack =
+                Some
+                  {
+                    sc with
+                    standing_orders =
+                      { sc.standing_orders with allowed_targets = allowed };
+                  };
+            };
+        }
+      in
+      base.cfg := cfg;
+      Session.update_config base.manager cfg;
+      let old = !handler in
+      (handler :=
+         fun m p ->
+           if m = "conversations.replies" then
+             ok
+               [
+                 ("messages", arr (message ~user:"UBOT" root_text :: posts));
+                 ("has_more", `Bool false);
+               ]
+           else if m = "users.info" && get "user" p = str "UCLAUDE" then
+             ok [ ("user", peer_user) ]
+           else old m p);
+      f calls handler seen run)
+
+let peer_lookups calls =
+  List.filter
+    (fun (m, p) -> m = "users.info" && get "user" p = str "UCLAUDE")
+    !calls
+
+let check_peer_silent calls seen =
+  check_bool "no provider call" true (!seen = []);
+  check_bool "no Slack writes, status or reactions" true
+    (List.for_all
+       (fun (m, _) ->
+         List.mem m
+           [
+             "auth.test";
+             "users.info";
+             "conversations.info";
+             "conversations.members";
+             "conversations.replies";
+           ])
+       !calls)
+
+let peer_reply (run : ?id:string -> Yojson.Safe.t -> string Lwt.t)
+    ?(id = "peer1") ?(ts = "100.000003") text =
+  run ~id (message ~thread:"100.000001" ~ts text)
+
+let test_peer_posted () =
+  with_peer ~root_text:"question"
+    ~posts:[ peer_post () ]
+    (fun calls _ seen run ->
+      let* ack = peer_reply run "my answer" in
+      Alcotest.(check string) "ack" "ok" ack;
+      check_peer_silent calls seen;
+      Alcotest.(check int)
+        "no peer users.info" 0
+        (List.length (peer_lookups calls));
+      Lwt.return_unit)
+
+let test_peer_explicit () =
+  with_peer ~root_text:"question"
+    ~posts:[ peer_post () ]
+    (fun calls _ seen run ->
+      let* _ = peer_reply run "<@UBOT> help" in
+      check_bool "provider called" true (!seen <> []);
+      Alcotest.(check int) "no peer lookup" 0 (List.length (peer_lookups calls));
+      Lwt.return_unit)
+
+let test_peer_root () =
+  with_peer ~root_text:"<@UCLAUDE> please answer" ~posts:[]
+    (fun calls _ seen run ->
+      let* _ = peer_reply run "my answer" in
+      let* _ = peer_reply run ~id:"peer2" ~ts:"100.000004" "more" in
+      check_peer_silent calls seen;
+      Alcotest.(check int)
+        "one cached peer lookup" 1
+        (List.length (peer_lookups calls));
+      Lwt.return_unit)
+
+let test_peer_top ~explicit () =
+  with_peer ~root_text:"unrelated root" ~posts:[] (fun calls _ seen run ->
+      let text =
+        if explicit then "<@UCLAUDE> <@UBOT> help" else "<@UCLAUDE> help"
+      in
+      let* _ = run (message text) in
+      if explicit then check_bool "provider called" true (!seen <> [])
+      else check_peer_silent calls seen;
+      Lwt.return_unit)
+
+let test_peer_other () =
+  with_peer ~root_text:"question"
+    ~posts:[ peer_post ~app:"AOTHER" () ]
+    (fun calls _ seen run ->
+      let* _ = peer_reply run "my answer" in
+      check_bool "provider called" true (!seen <> []);
+      Alcotest.(check int) "no peer lookup" 0 (List.length (peer_lookups calls));
+      Lwt.return_unit)
+
+let test_peer_empty () =
+  with_peer ~allowed:[] ~root_text:"<@UCLAUDE> please answer" ~posts:[]
+    (fun calls _ seen run ->
+      let* _ = peer_reply run "my answer" in
+      check_bool "provider called" true (!seen <> []);
+      Alcotest.(check int) "no peer lookup" 0 (List.length (peer_lookups calls));
+      Lwt.return_unit)
+
+let test_peer_lookup_failure () =
+  with_peer ~root_text:"<@UCLAUDE> please answer" ~posts:[]
+    (fun calls handler seen run ->
+      let old = !handler and failed = ref false in
+      (handler :=
+         fun m p ->
+           if m = "users.info" && get "user" p = str "UCLAUDE" && not !failed
+           then (
+             failed := true;
+             obj [ ("ok", `Bool false); ("error", str "internal_error") ])
+           else old m p);
+      let* _ = peer_reply run "my answer" in
+      check_bool "failure lets turn run" true (!seen <> []);
+      calls := [];
+      seen := [];
+      let* _ = peer_reply run ~id:"peer2" ~ts:"100.000004" "more" in
+      check_peer_silent calls seen;
+      Alcotest.(check int)
+        "failed lookup retried" 1
+        (List.length (peer_lookups calls));
+      Lwt.return_unit)
+
+let test_peer_unreadable () =
+  with_peer ~root_text:"<@UCLAUDE> please answer" ~posts:[]
+    (fun _ handler seen run ->
+      let old = !handler in
+      (handler :=
+         fun m p ->
+           if m = "conversations.replies" then
+             obj [ ("ok", `Bool false); ("error", str "thread_not_found") ]
+           else old m p);
+      let* _ = peer_reply run "<@UCLAUDE> my answer" in
+      check_bool "unreadable replies fail open" true (!seen <> []);
+      Lwt.return_unit)
+
 let suite =
   [
+    ( "reply in a thread where the peer posted starts no turn",
+      `Quick,
+      test_peer_posted );
+    ( "reply mentioning clawq in a peer thread starts a turn",
+      `Quick,
+      test_peer_explicit );
+    ( "root mentioning the peer silences replies before the peer answers",
+      `Quick,
+      test_peer_root );
+    ( "top-level message mentioning only the peer starts no turn",
+      `Quick,
+      test_peer_top ~explicit:false );
+    ( "top-level message mentioning the peer and clawq starts a turn",
+      `Quick,
+      test_peer_top ~explicit:true );
+    ( "a non-allowlisted bot in the thread does not silence",
+      `Quick,
+      test_peer_other );
+    ( "empty allowlist never silences and never looks up",
+      `Quick,
+      test_peer_empty );
+    ( "users.info failure does not silence and is not cached",
+      `Quick,
+      test_peer_lookup_failure );
+    ("unreadable peer threads fail open", `Quick, test_peer_unreadable);
     ("native owned stream stop", `Quick, test_stop ~native:true);
     ("public run-specific button stop", `Quick, test_stop ~native:false);
     ("queued request stop", `Quick, test_queued_stop);

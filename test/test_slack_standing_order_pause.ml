@@ -172,6 +172,39 @@ let test_relay_thread () =
       check_bool "the silence gate holds" true (!(env.seen) = []);
       Lwt.return_unit)
 
+let test_peer_thread () =
+  F.with_orders
+    ~config:(fun cfg ->
+      S.with_slack cfg (fun sc ->
+          {
+            sc with
+            standing_orders =
+              {
+                sc.standing_orders with
+                allowed_targets = Test_slack_threads.peer_allowed;
+              };
+          }))
+    (fun env ->
+      let o = F.seed env () in
+      F.override env "conversations.replies" (fun _ ->
+          S.ok
+            [
+              ( "messages",
+                `List
+                  [
+                    Test_slack_threads.message "question";
+                    Test_slack_threads.peer_post ();
+                  ] );
+              ("has_more", `Bool false);
+            ]);
+      let* _ = F.say env ~thread:F.thread_root "pause SO-1" in
+      check_state env o T.Paused;
+      check_bool "pause receipt" true (has_text env (paused_receipt ~by:"U123"));
+      check_bool "no provider call" true (!(env.seen) = []);
+      check_bool "pause precedes history and peer gate" false
+        (called env "conversations.replies");
+      Lwt.return_unit)
+
 let test_thread_broadcast () =
   F.with_orders (fun env ->
       let o = F.seed env () in
@@ -545,6 +578,7 @@ let suite =
     case "pause works with the llm down" test_llm_down;
     case "pause runs before history" test_before_history;
     case "relay thread pause" test_relay_thread;
+    case "pause in a peer thread still pauses" test_peer_thread;
     case "thread broadcast pause" test_thread_broadcast;
     case "broadcast leaves the mention turn" test_broadcast_keeps_mention_turn;
     case "broadcast pause pair runs once" test_broadcast_pause_pair;

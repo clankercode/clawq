@@ -289,6 +289,7 @@ let all_suites =
     ("slack_event_log", Test_slack_event_log.suite);
     ("slack_turn_gate", Test_slack_turn_gate.suite);
     ("slack_relay_guard", Test_slack_relay_guard.suite);
+    ("slack_peer_thread", Test_slack_peer_thread.suite);
     ("slack_history_hardening", Test_slack_history_hardening.suite);
     ("slack_huddle_classify", Test_slack_huddle_classify.suite);
     ("slack_huddle_ledger", Test_slack_huddle_ledger.suite);

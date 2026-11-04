@@ -312,6 +312,7 @@
   test_slack_event_log
   test_slack_turn_gate
   test_slack_relay_guard
+  test_slack_peer_thread
   test_slack_history_hardening
   test_slack_huddle_classify
   test_slack_huddle_ledger
