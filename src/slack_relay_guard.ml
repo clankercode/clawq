@@ -67,23 +67,67 @@ let no_relays =
     unconfirmed_since = (fun ~channel:_ -> None);
   }
 
+(* Each lookup's answer on doubt: the thread is a relay thread and the message
+   is untrusted. An [unconfirmed_since] of [neg_infinity] counts every own file
+   post as posted after an unconfirmed upload. *)
+let fail_closed =
+  {
+    recorded_relay = (fun ~channel:_ ~ts:_ -> true);
+    in_flight_file = (fun ~channel:_ ~file_id:_ -> true);
+    unconfirmed_since = (fun ~channel:_ -> Some Float.neg_infinity);
+  }
+
+let guarded name ~closed lookup =
+  try lookup ()
+  with exn ->
+    Logs.warn (fun m ->
+        m "Slack relay registry %s raised (%s); failing closed" name
+          (Printexc.to_string exn));
+    closed ()
+
+(** [registry] with every lookup total: one that raises logs a warning and
+    answers as [fail_closed] does. Every reader of a registry goes through this,
+    so a raising lookup (phase 3's DB) never escapes ingress. *)
+let total registry =
+  {
+    recorded_relay =
+      (fun ~channel ~ts ->
+        guarded "recorded_relay"
+          (fun () -> registry.recorded_relay ~channel ~ts)
+          ~closed:(fun () -> fail_closed.recorded_relay ~channel ~ts));
+    in_flight_file =
+      (fun ~channel ~file_id ->
+        guarded "in_flight_file"
+          (fun () -> registry.in_flight_file ~channel ~file_id)
+          ~closed:(fun () -> fail_closed.in_flight_file ~channel ~file_id));
+    unconfirmed_since =
+      (fun ~channel ->
+        guarded "unconfirmed_since"
+          (fun () -> registry.unconfirmed_since ~channel)
+          ~closed:(fun () -> fail_closed.unconfirmed_since ~channel));
+  }
+
 (* Phase 3 replaces this body with the fire-table lookups. *)
 let phase1_registry (_ : Session.t) = no_relays
 
 (* Test seam only; production never assigns it. *)
 let registry_source = ref phase1_registry
-let current_registry manager = !registry_source manager
+
+let current_registry manager =
+  guarded "source"
+    (fun () -> !registry_source manager)
+    ~closed:(fun () -> fail_closed)
 
 (** History's secondary relay check: [message] is a recorded relay post.
     [Slack_thread_api.render_history] applies the structural check itself. *)
 let untrusted_in_history ~registry ~channel message =
-  registry.recorded_relay ~channel ~ts:(field "ts" message)
+  (total registry).recorded_relay ~channel ~ts:(field "ts" message)
 
 let posted_after_unconfirmed_upload ~registry ~bot ~channel root =
   field "user" root = bot
   && file_ids root <> []
   &&
-  match registry.unconfirmed_since ~channel with
+  match (total registry).unconfirmed_since ~channel with
   | None -> false
   | Some since ->
       let ts = field "ts" root in
@@ -93,6 +137,7 @@ let posted_after_unconfirmed_upload ~registry ~bot ~channel root =
     clawq's relay posts and the reply does not mention clawq. [root] is [None]
     when the thread could not be read; then only the registry decides. *)
 let silent ~registry ~bot ~channel ~root_ts ~root ~text =
+  let registry = total registry in
   (not (mentions ~bot text))
   && (registry.recorded_relay ~channel ~ts:root_ts
      ||

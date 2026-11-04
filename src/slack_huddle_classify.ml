@@ -15,7 +15,8 @@ type room = {
   canvas_thread_ts : string option;
   attached_file_ids : string list;
   transcript_file_id : string option;
-      (** [room.transcript_file_id] when it is an [F…] id; a hint (P0). *)
+      (** [room.transcript_file_id] when it is an [F…] id: Slack's
+          room-to-notes-canvas link (P0: equals the canvas id), a hint only. *)
 }
 
 type notice = Rate_limited | Spend_limit | Disabled | Not_delivered

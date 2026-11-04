@@ -22,7 +22,9 @@ type row = {
   attached_file_ids : string list;
   root_file_ids : string list;
   room_transcript_file_id : string option;
-      (** The root's hint; [transcript_file_id] is the verified id. *)
+      (** The root's [room.transcript_file_id]: Slack's room-to-notes-canvas
+          link (P0: equals the canvas id), a hint only. [transcript_file_id] is
+          the verified transcript id. *)
   date_start : int option;
   date_end : int option;
   has_ended : bool;

@@ -375,9 +375,9 @@ and user history require the relevant `channels:history`, `groups:history`,
 relevant `channels:read`, `groups:read`, `im:read`, `mpim:read` and `users:read`.
 Only this app's bot is labeled as assistant source; all other authors, bot
 messages, attachments and browsing context remain quoted untrusted data.
-Attached-file metadata in thread context is limited to id, name, title,
-mimetype, filetype, size, user and created (no previews, lines or
-transcriptions).
+Attached-file metadata in thread context, including files inside shared or
+forwarded message attachments, is limited to id, name, title, mimetype,
+filetype, size, user and created (no previews, lines or transcriptions).
 
 Public/group channels require typed `is_private` and bot-membership metadata;
 unknown privacy fails closed. A documented one-to-one DM instead uses
@@ -564,7 +564,7 @@ Or configure manually:
 | `allow_users`    | User ID allowlist                              | `["*"]`          |
 | `allow_private_channels` | Explicit opt-in list for private channels (required under `deny` policy) | `[]` |
 | `private_channel_policy` | `"deny"` (default) or `"allow_if_listed"` — controls whether private channels in `allow_channels` are permitted | `"deny"` |
-| `event_log` | Phase 0 diagnostic: metadata-only JSONL of every Slack event at `$CLAWQ_HOME/slack-events.jsonl` (0600, rotates at 16 MiB to `.1`); `capture_text_from` adds full text only for an exact `{channel, bot_id}` pair | `{"enabled": false, "capture_text_from": []}` |
+| `event_log` | Phase 0 diagnostic: metadata-only JSONL of every Slack event that reaches ingress (except `url_verification` handshakes, events received while the daemon is shutting down, and redeliveries already seen by event-id dedup) at `$CLAWQ_HOME/slack-events.jsonl` (0600, rotates at 16 MiB to `.1`); `capture_text_from` adds full text only for an exact `{channel, bot_id}` pair | `{"enabled": false, "capture_text_from": []}` |
 
 #### Private Channel Policy (B735)
 

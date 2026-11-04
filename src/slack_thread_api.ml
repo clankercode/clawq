@@ -318,11 +318,38 @@ let project_file = function
       Some (obj (Slack_event_log.scalars history_file_keys file))
   | _ -> None
 
-(** [untrusted] adds a secondary check (the relay registry); clawq's own relay
-    posts are recognised structurally here, so no caller can label one
-    [assistant]. *)
+(* A shared or forwarded message carries full file objects inside its
+   attachment ([files], [message_blocks[].message.files]). Every [files] or
+   [file] value at any depth keeps only the allowlisted keys; anything else
+   under those keys is dropped. *)
+let rec project_nested_files = function
+  | `Assoc fields ->
+      `Assoc
+        (List.filter_map
+           (fun (key, value) ->
+             match (key, value) with
+             | "files", `List files ->
+                 Some (key, `List (List.filter_map project_file files))
+             | ("files" | "file"), _ ->
+                 Option.map (fun file -> (key, file)) (project_file value)
+             | _ -> Some (key, project_nested_files value))
+           fields)
+  | `List values -> `List (List.map project_nested_files values)
+  | value -> value
+
+(** [untrusted] adds a secondary check (the relay registry; a raise counts as
+    untrusted); clawq's own relay posts are recognised structurally here, so no
+    caller can label one [assistant]. *)
 let render_history ~(route : Slack_thread_route.t) ~bot ~current ~untrusted
     thread =
+  let untrusted m =
+    try untrusted m
+    with exn ->
+      Logs.warn (fun l ->
+          l "Slack history relay check raised (%s); quoting as untrusted"
+            (Printexc.to_string exn));
+      true
+  in
   let budget = ref 48000 and clipped = ref thread.overflow in
   let messages =
     List.filter_map
@@ -335,7 +362,7 @@ let render_history ~(route : Slack_thread_route.t) ~bot ~current ~untrusted
               match v with `Null | `List [] -> None | v -> Some (k, v))
             [
               ("blocks", get "blocks" m);
-              ("attachments", get "attachments" m);
+              ("attachments", project_nested_files (get "attachments" m));
               ("files", `List files);
             ]
         in

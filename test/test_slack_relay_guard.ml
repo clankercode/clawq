@@ -15,6 +15,14 @@ let silent ?(registry = G.no_relays) ?(root = Some (F.own_relay ())) text =
   G.silent ~registry ~bot:"UBOT" ~channel:"C0TEST" ~root_ts:"1700004000.000500"
     ~root ~text
 
+(* A registry whose lookups all raise, as a failing phase-3 DB would. *)
+let raising =
+  {
+    G.recorded_relay = (fun ~channel:_ ~ts:_ -> failwith "recorded_relay");
+    in_flight_file = (fun ~channel:_ ~file_id:_ -> failwith "in_flight_file");
+    unconfirmed_since = (fun ~channel:_ -> failwith "unconfirmed_since");
+  }
+
 let test_footer () =
   let n = F.relay_nonce in
   Alcotest.(check (option string))
@@ -74,6 +82,13 @@ let test_silence () =
        ~root:(Some (F.own_relay ~footer:None ~ts:"bad" ()))
        "x");
   turn_when "the stub registry knows no relays" (silent ~root:None "x");
+  turn_when "mention overrides a recorded relay"
+    (silent ~registry:(reg ~recorded:true ()) ~root:None "<@UBOT> go");
+  turn_when "mention overrides an in-flight file"
+    (silent
+       ~registry:(reg ~in_flight:[ "F0MD" ] ())
+       ~root:(Some (F.own_relay ~footer:None ()))
+       "<@UBOT> go");
   check_bool "own relay" true
     (G.is_own_relay_message ~bot:"UBOT" (F.own_relay ()));
   check_bool "own relay without bot_id" true
@@ -97,6 +112,47 @@ let relay_root handler =
     ]
 
 let count name calls = List.length (List.filter (fun (m, _) -> m = name) !calls)
+
+(* Each lookup that raises fails closed on its own; a human root makes the
+   registry the only reason for silence. *)
+let test_registry_fails_closed () =
+  let silent_when name v = check_bool name true v in
+  let human = Some (F.human "hi") in
+  silent_when "raising registry, human root"
+    (silent ~registry:raising ~root:human "x");
+  silent_when "raising registry, unreadable thread"
+    (silent ~registry:raising ~root:None "x");
+  check_bool "mention still runs with a raising registry" false
+    (silent ~registry:raising ~root:None "<@UBOT> x");
+  silent_when "raising recorded_relay alone"
+    (silent
+       ~registry:
+         {
+           G.no_relays with
+           recorded_relay = (fun ~channel:_ ~ts:_ -> failwith "db");
+         }
+       ~root:human "x");
+  silent_when "raising in_flight_file alone"
+    (silent
+       ~registry:
+         {
+           G.no_relays with
+           in_flight_file = (fun ~channel:_ ~file_id:_ -> failwith "db");
+         }
+       ~root:
+         (Some (update (F.human "see file") [ ("files", arr [ F.md_file () ]) ]))
+       "x");
+  silent_when "raising unconfirmed_since alone"
+    (silent
+       ~registry:
+         {
+           G.no_relays with
+           unconfirmed_since = (fun ~channel:_ -> failwith "db");
+         }
+       ~root:(Some (F.own_relay ~footer:None ()))
+       "x");
+  check_bool "history check fails closed" true
+    (G.untrusted_in_history ~registry:raising ~channel:"C0TEST" (F.human "hi"))
 
 let test_relay_reply () =
   with_ingress (fun _ calls handler seen _ run ->
@@ -126,7 +182,7 @@ let test_mention_runs () =
 
 (* HTTP-level failure for conversations.replies only; the with_ingress fixture
    always answers 200, so wrap the transport. *)
-let failing_replies ~status ~error f =
+let failing_replies ~hits ~status ~error f =
   match Lwt.get Slack_transport.key with
   | None -> Alcotest.fail "with_ingress transport missing"
   | Some outer ->
@@ -134,48 +190,116 @@ let failing_replies ~status ~error f =
         if
           Filename.basename (Uri.path (Uri.of_string uri))
           = "conversations.replies"
-        then
+        then (
+          incr hits;
           Lwt.return
             ( status,
               Yojson.Safe.to_string
-                (obj [ ("ok", `Bool false); ("error", str error) ]) )
+                (obj [ ("ok", `Bool false); ("error", str error) ]) ))
         else outer.Slack_transport.get ~uri ~headers
       in
       Slack_transport.with_http { outer with Slack_transport.get } f
 
-let with_registry registry f =
+let with_source source f =
   let old = !G.registry_source in
-  (G.registry_source := fun _ -> registry);
+  G.registry_source := source;
   Lwt.finalize f (fun () ->
       G.registry_source := old;
       Lwt.return_unit)
 
+let with_registry registry f = with_source (fun _ -> registry) f
+
 let test_replies_failure () =
   with_ingress (fun _ _ _ seen _ run ->
+      let hits = ref 0 in
       let reply id ts =
         run ~id (message ~thread:"100.000001" ~ts "still there?")
       in
+      (* Each event must hit the injected failure, or the default human root
+         would keep every assertion true. *)
+      let injected label =
+        let before = !hits in
+        fun () -> check_bool (label ^ ": failure injected") true (!hits > before)
+      in
       let* () =
-        failing_replies ~status:500 ~error:"internal_error" (fun () ->
+        failing_replies ~hits ~status:500 ~error:"internal_error" (fun () ->
+            let ev1 = injected "Ev1" in
             let* _ =
               with_registry (reg ~recorded:true ()) (fun () ->
                   reply "Ev1" "100.000004")
             in
+            ev1 ();
             check_bool "HTTP 500: recorded relay stays silent" true (!seen = []);
+            let ev2 = injected "Ev2" in
             let* _ = reply "Ev2" "100.000005" in
+            ev2 ();
             check_bool "HTTP 500: unknown root gets a normal turn" true
               (!seen <> []);
             Lwt.return_unit)
       in
       seen := [];
-      failing_replies ~status:200 ~error:"not_in_channel" (fun () ->
+      failing_replies ~hits ~status:200 ~error:"not_in_channel" (fun () ->
+          let ev3 = injected "Ev3" in
           let* _ =
             with_registry (reg ~recorded:true ()) (fun () ->
                 reply "Ev3" "100.000006")
           in
+          ev3 ();
           check_bool "not_in_channel: recorded relay stays silent" true
             (!seen = []);
           Lwt.return_unit))
+
+(* A raising registry (phase 3's DB) never escapes ingress: the reply gets no
+   turn, the event is acknowledged, and a mention still runs. *)
+let test_raising_registry_ingress () =
+  with_ingress (fun _ calls _ seen _ run ->
+      let* ack =
+        with_registry raising (fun () ->
+            run (message ~thread:"100.000001" ~ts:"100.000004" "still there?"))
+      in
+      Alcotest.(check string) "raising callbacks: acknowledged" "ok" ack;
+      check_bool "raising callbacks: no model turn" true (!seen = []);
+      Alcotest.(check int)
+        "raising callbacks: no post" 0
+        (count "chat.postMessage" calls);
+      let* ack =
+        with_source
+          (fun _ -> failwith "source")
+          (fun () ->
+            run ~id:"Ev2"
+              (message ~thread:"100.000001" ~ts:"100.000005" "still there?"))
+      in
+      Alcotest.(check string) "raising source: acknowledged" "ok" ack;
+      check_bool "raising source: no model turn" true (!seen = []);
+      let* _ =
+        with_registry raising (fun () ->
+            run ~id:"Ev3"
+              (message ~thread:"100.000001" ~ts:"100.000006" "<@UBOT> go on"))
+      in
+      check_bool "mention runs despite a raising registry" true (!seen <> []);
+      Lwt.return_unit)
+
+(* §7.12: a command reply fetches the thread only so the gate sees its root. *)
+let test_relay_command_reply () =
+  let reply = message ~thread:"100.000001" ~ts:"100.000004" "/help" in
+  with_ingress (fun _ calls _ _ _ run ->
+      let* _ = run reply in
+      check_bool "control: /help posts in a human-rooted thread" true
+        (count "chat.postMessage" calls >= 1);
+      Lwt.return_unit);
+  with_ingress (fun _ calls handler seen _ run ->
+      relay_root handler;
+      let* ack = run reply in
+      Alcotest.(check string) "acknowledged" "ok" ack;
+      check_bool "no model turn" true (!seen = []);
+      Alcotest.(check int) "no post" 0 (count "chat.postMessage" calls);
+      Alcotest.(check int)
+        "no status" 0
+        (count "agents.sessions.setStatus" calls);
+      Alcotest.(check int)
+        "thread read once" 1
+        (count "conversations.replies" calls);
+      Lwt.return_unit)
 
 let suite =
   [
@@ -184,4 +308,9 @@ let suite =
     ("relay thread reply starts no turn", `Quick, test_relay_reply);
     ("explicit mention in relay thread runs", `Quick, test_mention_runs);
     ("replies failure falls back to registry", `Quick, test_replies_failure);
+    ("raising registry fails closed", `Quick, test_registry_fails_closed);
+    ( "raising registry never escapes ingress",
+      `Quick,
+      test_raising_registry_ingress );
+    ("command reply in relay thread is silent", `Quick, test_relay_command_reply);
   ]

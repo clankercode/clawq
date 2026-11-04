@@ -59,6 +59,23 @@ let test_gates () =
       check_calls "D channel never reaches the watch" [] !log;
       check_bool "no D channel rows" true
         (L.list_rows ~db ~team:"T123" ~channel:"D0DM" = []);
+      (* Reactions read item.channel, a different path. *)
+      observe ~watch:(watch_all ~log ()) db
+        (F.reaction
+           ~item:
+             (obj
+                [
+                  ("type", str "message");
+                  ("channel", str "D0DM");
+                  ("ts", str "1700004000.000500");
+                ])
+           ());
+      check_calls "D channel reaction never reaches the watch" [] !log;
+      let reaction_log = ref [] in
+      observe ~watch:(watch_all ~log:reaction_log ()) db (F.reaction ());
+      check_calls "control: C channel reaction reaches the watch"
+        [ ("T123", "A123", "C0TEST") ]
+        !reaction_log;
       observe ~watch:(watch_all ~log ()) db
         (F.reaction
            ~item:(obj [ ("type", str "file"); ("file", str "F0MD") ])

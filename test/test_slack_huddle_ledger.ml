@@ -83,6 +83,19 @@ let test_room_lifecycle_merge () =
         (Some "F0TRANSCRIPT") r.L.room_transcript_file_id;
       check_float "last_seen_at" 1200. r.L.last_seen_at)
 
+(* Two ended edits of one use (same date_start) arrive out of order. *)
+let test_date_end_never_regresses () =
+  List.iter
+    (fun (label, first, second) ->
+      with_db (fun db ->
+          seen db (room ~has_ended:true ~date_end:(Some first) ());
+          seen ~now:1100. db (room ~has_ended:true ~date_end:(Some second) ());
+          check_int_opt label (Some 1700003600) (one db).L.date_end))
+    [
+      ("later end first keeps it", 1700003600, 1700003000);
+      ("earlier end first is replaced", 1700003000, 1700003600);
+    ]
+
 let test_notes_newer_wins () =
   with_db (fun db ->
       seen db (room ());
@@ -215,6 +228,7 @@ let test_write_transaction_boundary () =
 let suite =
   [
     ("room lifecycle merge is monotonic", `Quick, test_room_lifecycle_merge);
+    ("date_end never regresses", `Quick, test_date_end_never_regresses);
     ("notes attach, newer wins", `Quick, test_notes_newer_wins);
     ( "thread-started huddle attaches by canvas thread",
       `Quick,

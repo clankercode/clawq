@@ -63,13 +63,21 @@ let test_huddle_roots () =
       check_str_opt "thread-started thread root" (Some "1699990000.000100")
         room.C.thread_root_ts
   | _ -> Alcotest.fail "thread-started: expected Huddle_seen");
-  check_room "ended edit"
-    { root_room with C.has_ended = true; date_end = Some 1700003600 }
-    (room_of "ended edit"
+  (match
+     classify
        (F.root_changed
           (F.huddle_root
              ~room:(F.room ~has_ended:true ~date_end:1700003600 ())
-             ())));
+             ()))
+   with
+  | C.Huddle_seen { channel; root_ts; room; _ } ->
+      check_str "ended edit: channel" "C0TEST" channel;
+      check_str "ended edit: root ts is the inner message's, not the edit's"
+        "1700000000.000100" root_ts;
+      check_room "ended edit"
+        { root_room with C.has_ended = true; date_end = Some 1700003600 }
+        room
+  | _ -> Alcotest.fail "ended edit: expected Huddle_seen");
   check_bool "date_end alone means ended" true
     (room_of "date_end alone"
        (F.huddle_root ~room:(F.room ~date_end:1700003600 ()) ()))
