@@ -118,7 +118,7 @@ Each unverified fact can invalidate part of the design, so all of these checks n
   - The canvas `user` is the **huddle starter**, not Slackbot.
   - `canvas_metadata` is null, so there is no `originating_huddle_id`.
 
-  What does exist: the canvas `shares` record `share_user_id = USLACKBOT` on the root and on the ready reply, and the room carries `transcript_file_id`.
+  What does exist: the canvas `shares` record `share_user_id = USLACKBOT` on the root and on the ready reply, and the room carries `transcript_file_id`. **Despite its name it holds the notes canvas id, not the transcript id**: in all 22 #core-sync rooms with notes (2026-11-04 backfill inventory), `room.transcript_file_id` equals the canvas id and the transcript is the canvas's `huddle_transcript_file_id`.
 - **P0-1b transcript.**
   - With documented parameters it is ❌. `files.info` has no `huddle_transcription`, and `url_private_download` redirects to the login page.
   - With the **undocumented** `include_transcription=true` it is ✅: lines `{contents, start_time_ms, line_id, user_id}` with speaker separation, `channel_id` set to the channel, and dates matching the room.
@@ -393,11 +393,11 @@ The executor is driven by fire rows and processes **one fire at a time per chann
   - it is in the root's `files[]` (or `room.attached_file_ids`) **and** on the Slackbot notes-ready reply;
   - `is_huddle_canvas = true`;
   - `files.info.shares` for the order's channel contains a share with **`share_user_id = USLACKBOT`** at the root ts or the ready reply ts. Ownership is **not** used, because a human owns the canvas.
-  - its `huddle_transcript_file_id` equals the root's **`room.transcript_file_id`**. Two independent Slack-controlled sources must agree.
+  - its id equals the root's **`room.transcript_file_id`**, which is Slack's room→canvas link (it holds the canvas id; see P0-1). Together with the Slackbot share, two independent Slack-controlled sources must agree. If the room has no link (absent, null or empty), the canvas passes on the other rules; a link naming any other file rejects it.
 - **Notes.** `canvases.getContent(canvas, markdown)`.
 - **Transcript.** Accept it only if all of these hold:
   - its id is the **Slack-controlled `huddle_transcript_file_id` from `files.info` on the verified canvas**. The canvas markdown embed is participant-editable and is **never** used as the source of the id.
-  - it also equals `room.transcript_file_id`;
+  - the room never names the transcript. The chain is room → canvas (`room.transcript_file_id`) → transcript (`huddle_transcript_file_id`), plus the channel and date checks below;
   - `mimetype` is `application/vnd.slack-huddle-transcript`. The owner is the huddle starter, so ownership isn't checked;
   - `huddle_transcription.channel_id` equals the order's channel (non-empty);
   - `huddle_transcription.date_start` equals `room.date_start`;
