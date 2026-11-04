@@ -448,6 +448,65 @@ let test_cards () =
     | None -> false);
   check_bool "unknown card" true (Store.find_card db "soc_missing" = None)
 
+let test_store_facade_preserves_lifecycle_and_cards () =
+  let db = S.fresh_db () in
+  let pending =
+    match
+      Store.insert_pending db ~id:"so_facade" ~team_id:"T123" ~api_app_id:"A123"
+        ~channel_id:"C123" ~grantor_user_id:"U123" ~action:(S.relay_action ())
+        ~management_thread_ts:"100.000001" ~now:S.now ()
+    with
+    | Ok o -> o
+    | Error _ -> Alcotest.fail "insert pending"
+  in
+  let active =
+    ok "activate"
+      (Store.activate_in_tx db ~order_id:pending.id
+         ~active_since:"1700000000.000100" ~confirmed_by:"U123"
+         ~bot_user_id:"UBOT" ~bot_id:"BOWN" ~now:S.now)
+  in
+  let insert_fire () =
+    Store.insert_fire db ~order:active ~room_id:"R123" ~date_start:"1700000000"
+      ~now:S.now ()
+  in
+  let fire =
+    match ok "insert fire" (insert_fire ()) with
+    | Some f -> f
+    | None -> Alcotest.fail "first fire was a duplicate"
+  in
+  let card =
+    Store.insert_card db ~kind:T.Pause_button ~order:active ~created_by:"U123"
+      ~reply_thread_ts:"100.000001" ~now:S.now ()
+  in
+  Store.set_card_message_ts db ~card_id:card.id "100.000002";
+  let bound_card = { card with message_ts = Some "100.000002" } in
+  let old, successor =
+    ok "replace"
+      (Store.in_tx db ~on_error:Fun.id (fun () ->
+           Store.replace_in_tx db ~old_id:active.id ~expected_epoch:active.epoch
+             ~new_id:"so_successor" ~grantor_user_id:"U123"
+             ~action:(S.relay_action ~instruction:"New text" ())
+             ~management_thread_ts:"100.000001"
+             ~active_since:"1700000000.000200" ~confirmed_by:"U123"
+             ~bot_user_id:"UBOT" ~bot_id:"BOWN" ~now:S.now ()))
+  in
+  check_state "old cancelled" T.Cancelled old.state;
+  check_state "successor active" T.Active successor.state;
+  check_int "successor epoch" 1 successor.epoch;
+  check_bool "old reads back" true (Store.find db old.id = Some old);
+  check_bool "successor reads back" true
+    (Store.find db successor.id = Some successor);
+  check_bool "same bound card lookup" true
+    (Store.find_card db card.id = Some bound_card);
+  let retained = Store.list_fires db ~order_id:old.id ~limit:10 in
+  Alcotest.(check (list string))
+    "old fire retained" [ fire.id ]
+    (List.map (fun (f : T.fire) -> f.id) retained);
+  (match retained with
+  | [ f ] -> check_bool "old fire swept" true (f.state = T.Skipped_inactive)
+  | _ -> Alcotest.fail "expected the old fire");
+  check_bool "second insert is Ok None" true (insert_fire () = Ok None)
+
 let test_undecodable_rows () =
   let db = S.fresh_db () in
   let bad = S.seed db () in
@@ -648,6 +707,8 @@ let suite =
     S.case "dispatch window" test_dispatch_window;
     S.case "a failed read is never empty" test_strict_reads;
     S.case "cards" test_cards;
+    S.case "store facade preserves lifecycle and cards"
+      test_store_facade_preserves_lifecycle_and_cards;
     S.case "undecodable rows" test_undecodable_rows;
     S.case "instruction validation counts code points"
       test_instruction_validation;

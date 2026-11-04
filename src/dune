@@ -541,6 +541,10 @@
   slack_huddle_observer
   slack_standing_order_types
   slack_standing_order_sql
+  slack_standing_order_store_base
+  slack_standing_order_card_store
+  slack_standing_order_replace_store
+  slack_standing_order_fire_store
   slack_standing_order_store
   slack_standing_order_slack
   slack_standing_order_grant
