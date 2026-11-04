@@ -563,6 +563,27 @@ let test_pause_any_member () =
         (has_text env "Standing order SO-1 is already paused.");
       Lwt.return_unit)
 
+let test_unknown_count_receipt () =
+  F.with_orders (fun env ->
+      let* o, button = confirmed env in
+      let fire = S.fire env.db o ~state:T.Posting ~room:"R1" () in
+      Sqlite3.create_fun0 env.db "count" (fun () ->
+          failwith "fixture count failure");
+      let* () = pause env ~user:"U456" button in
+      check_state env o T.Paused;
+      check_bool "receipt in the notice thread" true
+        (List.exists
+           (fun (p, _) ->
+             S.param p "text"
+             = "Standing order SO-1 is paused (by <@U456>). Huddles that \
+                become ready while it is paused will never be relayed, even \
+                after a resume. Relays may already be in flight."
+             && S.param p "thread_ts" = posted_ts button)
+           !(env.posted));
+      check_bool "repost forbidden" true
+        (S.fire_flags env.db fire.id = (T.Posting, true, false));
+      Lwt.return_unit)
+
 let test_pause_refusal () =
   F.with_orders (fun env ->
       let* o, button = confirmed env in
@@ -668,6 +689,7 @@ let suite =
       ("stale resume card", test_stale_resume_card);
       ("resume reruns the preflight", test_resume_preflight);
       ("pause button any member", test_pause_any_member);
+      ("unknown count receipt", test_unknown_count_receipt);
       ("pause button refusal", test_pause_refusal);
       ("pause button with the llm down", test_pause_llm_down);
       ("pause button store failure refuses", test_pause_store_failure);

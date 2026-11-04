@@ -465,7 +465,9 @@ type state_change = {
   before : T.order;
   after : T.order;
   changed : bool;
-  in_flight : int;  (** Fires in [posting] or [posting_unknown] at the change. *)
+  in_flight : int option;
+      (** Fires in [posting] or [posting_unknown]; [None] if the count failed.
+      *)
 }
 
 let transition (o : T.order) = function
@@ -506,12 +508,21 @@ let sweep_fires db ~order_id ~now =
         = ? WHERE order_id = ? AND state IN (%s)"
        (fire_states_sql T.dispatched_states))
     [ text at; text order_id ];
-  int_query db
-    (Printf.sprintf
-       "SELECT COUNT(*) FROM slack_standing_order_fires WHERE order_id = ? AND \
-        state IN (%s)"
-       (fire_states_sql T.[ Posting; Posting_unknown ]))
-    [ text order_id ]
+  (* The receipt count is diagnostic; only this read may fail without
+     rolling back the order change and the completed sweep writes. *)
+  try
+    Some
+      (int_query db
+         (Printf.sprintf
+            "SELECT COUNT(*) FROM slack_standing_order_fires WHERE order_id = \
+             ? AND state IN (%s)"
+            (fire_states_sql T.[ Posting; Posting_unknown ]))
+         [ text order_id ])
+  with exn when is_db_error exn ->
+    Logs.warn (fun m ->
+        m "%s: in-flight count failed for %s: %s" label order_id
+          (Printexc.to_string exn));
+    None
 
 let deactivate_in_tx db ~order_id op ~now =
   guard (fun () ->
@@ -521,7 +532,7 @@ let deactivate_in_tx db ~order_id op ~now =
       | Some before -> (
           match transition before op with
           | None ->
-              Ok { before; after = before; changed = false; in_flight = 0 }
+              Ok { before; after = before; changed = false; in_flight = Some 0 }
           | Some next -> (
               let after =
                 {

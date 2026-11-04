@@ -211,7 +211,8 @@ let store_failed what (o : T.order) reason =
   Printf.sprintf "Error: clawq could not %s %s; nothing changed. Try again."
     what (T.display_name o)
 
-(* Ruling F9: the outcome [Pause.run] would give, so the receipt is the same. *)
+(* Ruling F9: the outcome [Pause.run] would give, including an unknown
+   diagnostic count after a successful pause, so the receipt is the same. *)
 let cmd_pause db ~now (o : T.order) =
   let settled (o : T.order) =
     match o.state with

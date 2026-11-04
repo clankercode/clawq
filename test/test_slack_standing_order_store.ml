@@ -157,7 +157,7 @@ let test_pause_sweep () =
   let no_pickup = fire T.No_pickup "R10" in
   let change = deactivate db o (Store.Pause "U456") in
   check_bool "changed" true change.changed;
-  check_int "in flight" 2 change.in_flight;
+  Alcotest.(check (option int)) "in flight" (Some 2) change.in_flight;
   check_int "epoch" (o.epoch + 1) change.after.epoch;
   check_int "revision" (o.revision + 1) change.after.revision;
   check_state "paused" T.Paused change.after.state;
@@ -188,6 +188,75 @@ let test_pause_sweep () =
     (List.init 3 (fun _ -> Some "order_inactive"))
     reasons
 
+let test_pause_count_failure_still_commits () =
+  let db = S.fresh_db () in
+  let o = S.seed db () in
+  let queued = S.fire db o ~state:T.Detected ~room:"R1" () in
+  let claimed =
+    S.fire db o ~state:T.Fetching ~claim_until:(S.now +. 60.) ~room:"R2" ()
+  in
+  let posting = S.fire db o ~state:T.Posting ~room:"R3" () in
+  let unknown = S.fire db o ~state:T.Posting_unknown ~room:"R4" () in
+  let count_reads = ref 0 in
+  Sqlite3.create_fun0 db "count" (fun () ->
+      incr count_reads;
+      failwith "fixture count failure");
+  let change = deactivate db o (Store.Pause "U456") in
+  check_int "the final count read failed" 1 !count_reads;
+  check_bool "changed" true change.changed;
+  check_state "paused" T.Paused change.after.state;
+  check_int "epoch bumped" (o.epoch + 1) change.after.epoch;
+  Alcotest.(check (option int)) "unknown count" None change.in_flight;
+  check_bool "pause committed" true (Store.find db o.id = Some change.after);
+  check_flags "queued fire skipped"
+    (T.Skipped_inactive, false, false)
+    (S.fire_flags db queued.id);
+  check_flags "claimed fire cancelled" (T.Fetching, false, true)
+    (S.fire_flags db claimed.id);
+  check_flags "posting cannot repost" (T.Posting, true, false)
+    (S.fire_flags db posting.id);
+  check_flags "unknown posting cannot repost"
+    (T.Posting_unknown, true, false)
+    (S.fire_flags db unknown.id)
+
+let test_pause_write_failure_rolls_back () =
+  List.iter
+    (fun (name, table, column) ->
+      let db = S.fresh_db () in
+      let o = S.seed db () in
+      let queued = S.fire db o ~state:T.Detected ~room:"R1" () in
+      let claimed =
+        S.fire db o ~state:T.Fetching ~claim_until:(S.now +. 60.) ~room:"R2" ()
+      in
+      let posting = S.fire db o ~state:T.Posting ~room:"R3" () in
+      Sql_util.exec_exn db
+        (Printf.sprintf
+           "CREATE TRIGGER fixture_write_failure BEFORE UPDATE OF %s ON %s \
+            BEGIN SELECT RAISE(ABORT, 'fixture write failure'); END"
+           column table);
+      expect_error name
+        (Store.deactivate db ~order_id:o.id (Store.Pause "U456") ~now:S.now);
+      check_bool
+        (name ^ ": order rolled back")
+        true
+        (Store.find db o.id = Some o);
+      List.iter
+        (fun (label, state, (fire : T.fire)) ->
+          check_flags
+            (name ^ ": " ^ label)
+            (state, false, false) (S.fire_flags db fire.id))
+        [
+          ("queued", T.Detected, queued);
+          ("claimed", T.Fetching, claimed);
+          ("posting", T.Posting, posting);
+        ])
+    [
+      ("order write", "slack_standing_orders", "state");
+      ("skip sweep", "slack_standing_order_fires", "state");
+      ("cancel sweep", "slack_standing_order_fires", "cancel_requested");
+      ("repost sweep", "slack_standing_order_fires", "repost_forbidden");
+    ]
+
 let test_deactivate_idempotent () =
   let db = S.fresh_db () in
   let o = S.seed db () in
@@ -195,6 +264,7 @@ let test_deactivate_idempotent () =
   let fired = S.fire db o ~state:T.Detected ~room:"R1" () in
   let again = deactivate db o (Store.Pause "U789") in
   check_bool "unchanged" false again.changed;
+  Alcotest.(check (option int)) "unchanged count" (Some 0) again.in_flight;
   check_int "same epoch" first.after.epoch again.after.epoch;
   check_bool "row untouched" true (Store.find db o.id = Some first.after);
   check_opt "first pauser kept" (Some "U456") again.after.paused_by;
@@ -692,6 +762,9 @@ let suite =
     S.case "activation rejects a non-Slack timestamp"
       test_activation_rejects_bad_ts;
     S.case "pause sweep" test_pause_sweep;
+    S.case "pause count failure still commits"
+      test_pause_count_failure_still_commits;
+    S.case "pause write failure rolls back" test_pause_write_failure_rolls_back;
     S.case "deactivate idempotent" test_deactivate_idempotent;
     S.case "deactivate transition table" test_transition_table;
     S.case "deactivate_in_tx joins the caller's transaction"

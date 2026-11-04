@@ -525,6 +525,7 @@ let pause c =
     | Pause.Not_found _ -> Pause.Not_found o.display_no
     | outcome -> outcome
   in
+  (* An unknown diagnostic count still gets the successful pause receipt. *)
   Pause.post_receipt ~manager:c.manager
     ?order:(Pause.order_of_outcome outcome)
     ~channel_id:c.card.channel_id ~thread_ts:(reply_thread c)

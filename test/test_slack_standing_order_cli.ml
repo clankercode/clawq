@@ -145,7 +145,7 @@ let test_mutations_need_admin dir =
   check_opt "paused by cli" (Some "cli") paused.paused_by;
   check_string "pause receipt"
     (Pause.receipt ~display_no:o.display_no ~by:"cli"
-       (Pause.Paused { order = paused; in_flight = 0 }))
+       (Pause.Paused { order = paused; in_flight = Some 0 }))
     out;
   check_bool "no bogus mention" false (contains out "<@cli>");
   (match ledger db "standing_order_paused" with
@@ -156,6 +156,28 @@ let test_mutations_need_admin dir =
     (Pause.receipt ~display_no:o.display_no ~by:"cli"
        (Pause.Already_paused paused))
     (run ~http:m.http db [ "orders"; "pause"; o.id ]);
+  no_calls m
+
+let test_unknown_count_receipt _dir =
+  Unix.putenv "CLAWQ_ADMIN" "1";
+  let db = S.fresh_db () and m = S.mock () in
+  let o = S.seed db () in
+  let fire = S.fire db o ~state:T.Posting ~room:"R1" () in
+  Sqlite3.create_fun0 db "count" (fun () -> failwith "fixture count failure");
+  let out = run ~http:m.http db [ "orders"; "pause"; o.id ] in
+  let after = find db o in
+  Alcotest.check S.state_t "paused" T.Paused after.state;
+  check_int "epoch bumped" (o.epoch + 1) after.epoch;
+  check_string "unknown count receipt"
+    "Standing order SO-1 is paused (by cli). Huddles that become ready while \
+     it is paused will never be relayed, even after a resume. Relays may \
+     already be in flight."
+    out;
+  check_string "same shared receipt" out
+    (Pause.receipt ~display_no:1 ~by:"cli"
+       (Pause.Paused { order = after; in_flight = None }));
+  check_bool "repost forbidden" true
+    (S.fire_flags db fire.id = (T.Posting, true, false));
   no_calls m
 
 let test_pause_withdraws_pending _dir =
@@ -262,6 +284,7 @@ let suite =
     case "list shows every order with opaque ids" test_list;
     case "show and fires" test_show_and_fires;
     case "mutations need CLAWQ_ADMIN" test_mutations_need_admin;
+    case "unknown count receipt" test_unknown_count_receipt;
     case "cli pause withdraws a pending order" test_pause_withdraws_pending;
     case "cli resume runs the full preflight" test_resume_preflight;
     case "cancel" test_cancel;
