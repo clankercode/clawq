@@ -546,6 +546,7 @@
   slack_standing_order_render
   slack_standing_order_pause
   slack_standing_order_tools
+  slack_standing_order_change
   slack_standing_order_cards
   slack_thread_route
   slack_thread_api

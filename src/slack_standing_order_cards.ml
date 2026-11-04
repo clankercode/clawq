@@ -1,6 +1,7 @@
 (** Bound card clicks (spec §6.8): Confirm and Cancel on a confirm card, Resume
-    on a resume card, Pause on an activation notice, and the activation notice
-    itself.
+    on a resume card, Pause on an activation notice, the activation notice
+    itself, and the binding for a change card's Confirm change and Cancel, which
+    [Slack_standing_order_change] handles.
 
     A click acts only when it is bound to its persisted card: the card exists
     and its kind matches the button, a plan card names its plan, the payload's
@@ -17,11 +18,17 @@ module SO = Slack_standing_order_slack
 module Grant = Slack_standing_order_grant
 module Render = Slack_standing_order_render
 module Pause = Slack_standing_order_pause
+module Change = Slack_standing_order_change
 
 let field = Slack_huddles.field
 let get = Slack_huddles.get
 
-type button = Press_confirm | Press_cancel | Press_resume | Press_pause
+type button =
+  | Press_confirm
+  | Press_cancel
+  | Press_resume
+  | Press_pause
+  | Press_change
 
 let button_of_action_id id =
   List.assoc_opt id
@@ -30,14 +37,17 @@ let button_of_action_id id =
       (Render.action_cancel, Press_cancel);
       (Render.action_resume, Press_resume);
       (Render.action_pause, Press_pause);
+      (Render.action_change, Press_change);
     ]
 
 let is_card_action id = Option.is_some (button_of_action_id id)
 
 let card_kinds = function
-  | Press_confirm | Press_cancel -> [ T.Confirm_card ]
+  | Press_confirm -> [ T.Confirm_card ]
+  | Press_cancel -> [ T.Confirm_card; T.Change_card ]
   | Press_resume -> [ T.Resume_card ]
   | Press_pause -> [ T.Pause_button ]
+  | Press_change -> [ T.Change_card ]
 
 let has_plan_binding = function
   | T.Confirm_card | T.Change_card -> true
@@ -45,9 +55,10 @@ let has_plan_binding = function
 
 (* The audit unit of every Slack call a click on this card makes. *)
 let unit_label = function
-  | T.Confirm_card | T.Change_card -> "confirm"
+  | T.Confirm_card -> "confirm"
   | T.Resume_card -> "resume"
   | T.Pause_button -> "pause"
+  | T.Change_card -> "change"
 
 let expired_text = "This card has expired; ask clawq again for a new one."
 
@@ -549,11 +560,18 @@ let handle_action ~manager ?now ~payload action =
           match bind ~manager ~db ~now ~payload ~button action with
           | Error why -> ignored why
           | Ok c -> (
-              match button with
-              | Press_confirm -> confirm c
-              | Press_cancel -> cancel c
-              | Press_resume -> resume c
-              | Press_pause -> pause c)))
+              match (button, c.card.kind) with
+              | Press_confirm, _ -> confirm c
+              | Press_cancel, T.Change_card ->
+                  Change.handle_cancel ~manager ~now ~card:c.card
+                    ~clicker:c.clicker
+              | Press_cancel, _ -> cancel c
+              | Press_resume, _ -> resume c
+              | Press_pause, _ -> pause c
+              | Press_change, _ ->
+                  Change.handle_click ~manager ~now
+                    ~announce:announce_activation ~card:c.card
+                    ~clicker:c.clicker ~action_ts:c.action_ts)))
     (function
       | Lwt.Canceled -> Lwt.fail Lwt.Canceled
       | exn ->

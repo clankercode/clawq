@@ -67,6 +67,9 @@ let init_tool_registry ~(config : Runtime_config.t)
     Slack_standing_order_tools.register
       ~current_config:(fun () -> !current_config)
       registry;
+    Slack_standing_order_change.register
+      ~current_config:(fun () -> !current_config)
+      registry;
     let skills =
       Skills.load_all ~workspace_only:config.security.workspace_only
         ~allowed_commands:Tools_builtin.default_shell_allowlist ()

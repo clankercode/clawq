@@ -327,6 +327,7 @@
   test_slack_standing_order_pause
   test_slack_standing_order_tools
   test_slack_standing_order_cards
+  test_slack_standing_order_change
   test_slack_huddles_grant
   test_access_snapshot_decode
   test_access_snapshot_standing_order

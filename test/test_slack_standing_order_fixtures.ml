@@ -81,9 +81,10 @@ let with_orders ?(config = Fun.id) f =
         }
       in
       set_config env (fun cfg -> config (default_orders cfg));
-      Slack_standing_order_tools.register
-        ~current_config:(fun () -> Session.get_config base.manager)
-        (Option.get base.manager.Session_core.tool_registry);
+      let registry = Option.get base.manager.Session_core.tool_registry
+      and current_config () = Session.get_config base.manager in
+      Slack_standing_order_tools.register ~current_config registry;
+      Slack_standing_order_change.register ~current_config registry;
       S.at S.now;
       Lwt.finalize
         (fun () -> f env)

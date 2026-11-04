@@ -16,6 +16,7 @@ let action_confirm = "clawq_so_confirm"
 let action_cancel = "clawq_so_cancel"
 let action_resume = "clawq_so_resume"
 let action_pause = "clawq_so_pause"
+let action_change = "clawq_so_change"
 
 (* Slack's cap on a section or context text object. *)
 let max_text_chars = 3000
@@ -177,6 +178,56 @@ let confirm_card (o : T.order) ~card_id =
         expiry_context ~confirmer:o.grantor_user_id;
       ])
 
+(* ── Change card ────────────────────────────────────────────────────────── *)
+
+(* The confirm card's terms for the successor order: [grantor] (the requester)
+   runs it, with a fresh daily cap (ruling F12). The successor is inserted
+   active, so a change undoes a pause or suspension just as a resume would. *)
+let change_card ~(replaces : T.order) ~grantor ~action ~card_id =
+  let n = so replaces in
+  let title = Printf.sprintf "Change standing order %s — confirm?" n in
+  let restart =
+    let line state =
+      [
+        section
+          (Printf.sprintf
+             "%s is %s, so confirming starts relaying again. Huddles that \
+              became ready while it was %s will not be relayed."
+             n state state);
+      ]
+    in
+    match replaces.state with
+    | T.Paused -> line "paused"
+    | T.Suspended -> line "suspended"
+    | T.Active | T.Pending_confirmation | T.Cancelled -> []
+  in
+  let terms =
+    {
+      channel_id = replaces.channel_id;
+      grantor_user_id = grantor;
+      action;
+      max_fires_per_day = Slack_standing_order_store.default_max_fires_per_day;
+    }
+  in
+  card ~text:title
+    (section ("*" ^ title ^ "*")
+     :: section
+          (Printf.sprintf
+             "Confirming cancels %s and starts a new standing order with the \
+              instruction below. The new order gets the next SO number."
+             n)
+     :: restart
+    @ terms_sections terms
+    @ [
+        actions
+          [
+            button ~primary:true ~action_id:action_change ~value:card_id
+              "Confirm change";
+            button ~action_id:action_cancel ~value:card_id "Cancel";
+          ];
+        expiry_context ~confirmer:grantor;
+      ])
+
 (* ── Activation notice and resume card ──────────────────────────────────── *)
 
 let activation_notice (o : T.order) ~card_id =
@@ -213,7 +264,10 @@ type closed =
   | Confirmed_by of string
   | Withdrawn_by of string
   | Resumed_by of string
+  | Changed_by of { by : string; new_display_no : int }
+  | Change_cancelled_by of string
 
+(* For a change card, [o] is the replaced order. *)
 let card_closed (o : T.order) closed =
   let n = so o in
   notice
@@ -225,12 +279,19 @@ let card_closed (o : T.order) closed =
           "Standing order %s was withdrawn before confirmation by %s." n
           (user_ref u)
     | Resumed_by u ->
-        Printf.sprintf "Standing order %s resumed by %s." n (user_ref u))
+        Printf.sprintf "Standing order %s resumed by %s." n (user_ref u)
+    | Changed_by { by; new_display_no } ->
+        Printf.sprintf "Standing order %s was replaced by %s (by %s)." n
+          (so_n new_display_no) (user_ref by)
+    | Change_cancelled_by u ->
+        Printf.sprintf "The change to %s was cancelled by %s; %s is unchanged."
+          n (user_ref u) n)
 
 type grantor_event =
   | Paused_by of string
   | Resumed_by_user of string
   | Cancelled_by of string
+  | Replaced_by of { by : string; new_display_no : int }
   | Notice_failed
 
 let grantor_notice (o : T.order) event =
@@ -242,6 +303,8 @@ let grantor_notice (o : T.order) event =
   | Paused_by u -> was "paused" u
   | Resumed_by_user u -> was "resumed" u
   | Cancelled_by u -> was "cancelled" u
+  | Replaced_by { by; new_display_no } ->
+      was ("replaced by " ^ so_n new_display_no) by
   | Notice_failed ->
       Printf.sprintf
         "%s Standing order %s was confirmed, but clawq could not post the \
