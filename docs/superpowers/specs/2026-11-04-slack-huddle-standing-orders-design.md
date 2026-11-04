@@ -59,7 +59,7 @@ things are missing: a durable delegated authority, an event trigger, and a relay
 - Triggers other than notes-ready, and actions other than relaying to an app mention. The data model is
   typed so later ones need no new table, but none are built now.
 - An LLM in the fire path ("agentic orders"). See §9.
-- Generating transcripts, recording audio, or private/undocumented Slack APIs.
+- Generating transcripts, recording audio, or private/undocumented Slack APIs, except the Max-approved, feature-detected `files.info(include_transcription=true)` parameter used only for the verified transcript path (§6.5).
 - DMs and MPIMs.
 - Backfilling huddles that happened before the order was confirmed.
 
@@ -258,7 +258,7 @@ Each module owns an idempotent `ensure_schema`.
 - Claim fields: `claim_owner`, `lease_until`, `lease_epoch`. **Every state transition is a compare-and-swap on (state, claim_owner, lease_epoch)**, so a holder whose lease has expired can't write. Per-channel serialisation also goes through the DB.
 - Relay identity:
   - `nonce = HMAC(local secret, order_id‖room_id‖date_start)`. It is deterministic, never shown in `show`, `list` or reports, and appears only in the relay's fixed footer.
-  - `uploaded_file_ids`, `relay_ts`.
+  - Per-attempt `uploaded_file_ids`, `relay_ts`, upload/dispatch time, pickup start time, first reply, reaction, acknowledgement, pickup and notice evidence for attempts 0 and 1. Retain both identities for observation and registry lookups; a fire-level current-attempt projection must not erase the original relay. Pickup time starts at that attempt’s Slack relay timestamp, including after adoption.
 - `epoch`: the order's epoch at the time the fire was created.
 - States:
   - progression: `detected → fetching → uploading → posting → posting_unknown → posted → acknowledged → picked_up`;
@@ -270,7 +270,7 @@ Each module owns an idempotent `ensure_schema`.
 
 ### 6.2 Huddle observer (event trigger)
 
-**Tap.** In `Slack_thread_ingress.handle_event`, immediately after the event-id dedup mark and before routing, call `Slack_huddle_observer.observe`. It returns unit, catches all exceptions and never changes routing. It sees both transports, subtyped events and Slackbot messages. It ignores events whose envelope team or app doesn't match, and ignores D channels.
+**Tap.** In `Slack_thread_ingress.handle_event`, immediately after the event-id dedup mark and before routing, call `Slack_huddle_observer.observe`. It returns unit, catches all exceptions and never changes routing. It sees both transports, subtyped events and Slackbot messages. It ignores events whose envelope team or app doesn't match, and ignores D channels. Carry the verified envelope `team_id` and Clawq `api_app_id` into pickup reduction and persist them with queued observations; the target assistant’s app id is a separate identity. An otherwise matching relay/reaction from another team or Clawq app cannot advance a retained fire.
 
 **Classifier.** A pure function over fixed top-level JSON paths only: never a recursive search, never metadata, blocks or attachments text. Its result is one of:
 
@@ -357,7 +357,7 @@ The same change makes **unknown work types decode fail-closed**. `get_by_id` ret
 - Write methods: `files.getUploadURLExternal`, `files.completeUploadExternal`, `chat.postMessage`, `files.delete`.
 - A `POST` to the upload URL, **pinned to `https://files.slack.com/`**, with no redirects followed.
 
-These rules are documented for strict-egress users.
+These rules are documented for strict-egress users. Upload policy evaluates the actual capability URI, while opt-in sensitive-URI handling removes its host/path/query and any URI-bearing diagnostic from ordinary allow/deny logs, audit inputs and returned errors. The raw upload POST sends binary content headers and no Authorization header; a 302 Location is an error and triggers no second request.
 
 **Re-validated at every fire and again before every Slack write.** The order-state read comes last, with no yield before dispatch.
 
@@ -375,7 +375,7 @@ These rules are documented for strict-egress users.
 
 **Failure handling.**
 
-- *Hard failures* (any of the above definitively false) suspend the order and report in the management thread.
+- *Hard failures* (any of the above definitively false) suspend the order and report in the management thread, except a capability denial: record an inspectable local-only notification and send no HTTP. Recheck the three capabilities locally before processing any queued report, including after reload; a newly denied report becomes local-only and is not automatically sent after re-enable. Content API `missing_scope` failures preserve the exact failing allowlisted method (history, replies, files.info or canvases.getContent), suspend and report that method once; they never become notes-only success or generic retries.
 - *Transient failures* (network, 5xx, 429, indeterminate) retry with backoff.
 - *Inactive order*, or an epoch mismatch, is never transient: the fire becomes `skipped_inactive`. The state-change transaction normally does this already (§6.1).
 
@@ -429,9 +429,9 @@ The executor is driven by fire rows and processes **one fire at a time per chann
 **3. posting → posted.** Read `relay_ts` from the response’s `files[].shares.{public|private}[channel][0].ts` if present. Otherwise wait for the observer's `Own_relay` event, or poll `files.info(file).shares` with backoff for up to 2 minutes. Check both `shares.public` and `shares.private` for the order's channel.
 
 - **Any ambiguous outcome** (timeout, 5xx, or no share seen in time) leads to `posting_unknown`. It is reconciled read-only.
-  - A match requires a message from **clawq's own bot user**, with the nonce in the fixed footer, **and** non-empty `files[]` matching the fire's `uploaded_file_ids`, plus the stored own `bot_id`. Subtype is ignored (the observed relay subtype is null).
+  - A match requires a message from **clawq's own bot user**, with the nonce in the fixed footer, **and** non-empty `files[]` matching the relevant attempt’s `uploaded_file_ids`, plus the stored own `bot_id`. Subtype is ignored (the observed relay subtype is null).
   - Only once reconciliation proves no share happened may the single re-post occur.
-- **Re-post at most once, ever, per fire.** This covers both `posting_unknown` and `rate_limited`, and re-posts count toward the daily cap.
+- **Re-post at most once, ever, per fire.** This covers both `posting_unknown` and `rate_limited`, and re-posts count toward the daily cap. For a rate-limited re-post, scan for an already-shared second attempt while excluding every known first-attempt relay ts (the nonce is shared). Match persisted second-attempt file ids exactly when available; otherwise adopt only a new own-file set with matching nonce and non-excluded relay ts. Keep the original relay and file ids for late reactions/notices, and account the second attempt exactly once whether adopted or newly dispatched.
 - Uploads that are never completed are discarded by Slack automatically, so no cleanup call is needed.
 
 **4. Pickup.**
@@ -441,7 +441,8 @@ The executor is driven by fire rows and processes **one fire at a time per chann
 - Notices:
   - `rate_limited`: re-post once after a **fixed** 5-minute backoff, and only if no acknowledgement reaction was seen. The wait is never parsed from Claude's text.
   - `spend_limit` or `disabled`: the fire becomes `not_delivered` and is reported. This holds even if the notice arrives after `picked_up`.
-- No acknowledgement within **T_ack** (default 3 min; set from P0-3), confirmed by the reconciler's `reactions.get` and `conversations.replies` check, moves the fire to `no_pickup`, which is reported.
+- Each attempt has its own first-reply classification and **T_ack/T_reply** clock starting at its relay timestamp; an older attempt’s first reply or reaction cannot set the second attempt’s timing or acknowledgement. A reaction on the original suppresses an unreserved rate-limit re-post; a late first-only rate notice cannot create a third attempt. A non-notice reply on either retained attempt is pickup, and disabled/spend-limit on either still makes the fire not_delivered. While the justified rate-limit re-post waits 300 s, the first attempt’s 180 s deadline does not prematurely finalise the fire.
+- No acknowledgement within **T_ack** (default 3 min; set from P0-3), confirmed by the reconciler's `reactions.get` and `conversations.replies` check, moves the fire to `no_pickup`, which is reported, only after the current attempt’s deadline and confirmation of all retained relays with no acknowledgement/pickup on either. Each fire contributes once to failure accounting.
 - Acknowledged but no further reply within **T_reply** (default 60 min) is reported as information only, not as a failure.
 
 **5. Failure accounting.**
@@ -718,6 +719,7 @@ The original questions:
 
 ## Review history
 
+- **r5 Round 1 (2026-11-05):** clarified per-attempt relay identities/pickup, verified observation scope, method-specific scope failures, sensitive upload URI redaction, zero-HTTP local capability refusals and the narrow undocumented-parameter exception. Docs-only review; no new live verification.
 - **r5 (2026-11-05):** documentation revision from the supplied live facts, deployed P1/P2 interfaces and Max’s P3 inputs. Folded in the roadmap’s superseded-text list; P0-5 stays deferred. §6.10 is unchanged. No new live probe or implementation verification is claimed by this revision.
 
 - r1 → r2 (2026-11-04). Inputs: a builder check (PASS_WITH_NOTES), a security red-team (**FAIL**: 2 blockers and 15 majors) and a fact-check (PASS_WITH_NOTES, 7 majors). The reports are in `.superpowers/sdd/huddle-orders/reviews/`.
