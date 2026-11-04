@@ -470,7 +470,8 @@ let peer_user =
         obj [ ("api_app_id", str "ACLAUDE"); ("bot_id", str "BCLAUDE") ] );
     ]
 
-let with_peer ?(allowed = peer_allowed) ~root_text ~posts f =
+let with_peer ?(allowed = peer_allowed) ?(channel = "C123") ~root_text ~posts f
+    =
   Slack_peer_thread.reset_cache ();
   with_ingress (fun base calls handler seen _ run ->
       let cfg = base.manager.config in
@@ -485,6 +486,8 @@ let with_peer ?(allowed = peer_allowed) ~root_text ~posts f =
                 Some
                   {
                     sc with
+                    allow_channels = [ channel ];
+                    allow_private_channels = [ channel ];
                     standing_orders =
                       { sc.standing_orders with allowed_targets = allowed };
                   };
@@ -496,15 +499,28 @@ let with_peer ?(allowed = peer_allowed) ~root_text ~posts f =
       let old = !handler in
       (handler :=
          fun m p ->
-           if m = "conversations.replies" then
+           if m = "conversations.info" && channel = "D123" then
              ok
                [
-                 ("messages", arr (message ~user:"UBOT" root_text :: posts));
+                 ( "channel",
+                   obj
+                     [
+                       ("id", str channel);
+                       ("is_im", `Bool true);
+                       ("user", str "U123");
+                     ] );
+               ]
+           else if m = "conversations.replies" then
+             ok
+               [
+                 ( "messages",
+                   arr (message ~channel ~user:"UBOT" root_text :: posts) );
                  ("has_more", `Bool false);
                ]
            else if m = "users.info" && get "user" p = str "UCLAUDE" then
              ok [ ("user", peer_user) ]
            else old m p);
+      let run ?id event = run ?id (update event [ ("channel", str channel) ]) in
       f calls handler seen run)
 
 let peer_lookups calls =
@@ -573,6 +589,29 @@ let test_peer_top ~explicit () =
       else check_peer_silent calls seen;
       Lwt.return_unit)
 
+let test_peer_dm_top () =
+  with_peer ~channel:"D123" ~root_text:"unrelated root" ~posts:[]
+    (fun calls _ seen run ->
+      let* ack = run (message "<@UCLAUDE>") in
+      Alcotest.(check string) "ack" "ok" ack;
+      check_peer_silent calls seen;
+      Alcotest.(check int)
+        "one successful peer lookup in an authorized DM" 1
+        (List.length (peer_lookups calls));
+      Lwt.return_unit)
+
+let test_peer_dm_root () =
+  with_peer ~channel:"D123" ~root_text:"<@UCLAUDE> please answer" ~posts:[]
+    (fun calls _ seen run ->
+      let* first = peer_reply run "my answer" in
+      let* second = peer_reply run ~id:"peer2" ~ts:"100.000004" "more" in
+      Alcotest.(check (list string)) "acks" [ "ok"; "ok" ] [ first; second ];
+      check_peer_silent calls seen;
+      Alcotest.(check int)
+        "repeated DM replies share one successful peer lookup" 1
+        (List.length (peer_lookups calls));
+      Lwt.return_unit)
+
 let test_peer_other () =
   with_peer ~root_text:"question"
     ~posts:[ peer_post ~app:"AOTHER" () ]
@@ -627,6 +666,12 @@ let test_peer_unreadable () =
 
 let suite =
   [
+    ( "top-level DM mentioning only the peer starts no turn",
+      `Quick,
+      test_peer_dm_top );
+    ( "DM peer-mentioned root silences repeated replies",
+      `Quick,
+      test_peer_dm_root );
     ( "reply in a thread where the peer posted starts no turn",
       `Quick,
       test_peer_posted );

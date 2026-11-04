@@ -156,12 +156,12 @@ let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
                           | None -> Lwt.return (Error SO.Transport)
                           | Some db -> (
                               match
-                                SO.snapshot ~db ~config:cfg ~channel_id:channel
-                                  ~order_ref:None
+                                SO.peer_lookup_snapshot ~db ~config:cfg
+                                  ~channel_id:channel
                               with
                               | Error _ -> Lwt.return (Error SO.Transport)
                               | Ok snapshot ->
-                                  SO.make ~db
+                                  SO.make_peer_lookup ~db
                                     ~current_config:(fun () ->
                                       Session.get_config session_manager)
                                     ~snapshot ~channel_id:channel

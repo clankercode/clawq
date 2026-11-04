@@ -134,6 +134,88 @@ let test_channel_and_credentials () =
     (run call "users.info" user_params);
   no_http "no HTTP without a channel or credentials" m
 
+let peer_call db cfg (m : S.mock) =
+  let snap =
+    match SO.peer_lookup_snapshot ~db ~config:!cfg ~channel_id:"D123" with
+    | Ok snap -> snap
+    | Error e -> Alcotest.fail e
+  in
+  ( snap,
+    SO.make_peer_lookup ~db
+      ~current_config:(fun () -> !cfg)
+      ~snapshot:snap ~channel_id:"D123" ~audit:"slack_peer_thread" ~http:m.http
+      () )
+
+let dm_config cfg =
+  S.with_slack cfg (fun sc -> { sc with allow_channels = [ "D123" ] })
+
+let test_peer_lookup_scope () =
+  let db = S.fresh_db () and m = S.mock () in
+  let cfg = ref (dm_config (S.config ())) in
+  let snap, call = peer_call db cfg m in
+  check_bool "peer lookup uses a room-turn snapshot" true
+    (snap.work_type = Access_snapshot.Room_turn && snap.standing_order = None);
+  check_bool "peer snapshot is persisted" true
+    (Access_snapshot.get_by_id ~db snap.id = Some snap);
+  let standing_call =
+    SO.make ~db
+      ~current_config:(fun () -> !cfg)
+      ~snapshot:snap ~channel_id:"D123" ~audit:"standing_order:none:plan"
+      ~http:m.http ()
+  in
+  expect_error "standing orders still reject explicitly allowed DMs"
+    Channel_denied
+    (run standing_call "users.info" user_params);
+  List.iter
+    (fun method_ ->
+      expect_error "peer scope permits only users.info"
+        (Method_not_permitted method_) (run call method_ []))
+    [ "chat.postMessage"; "conversations.info"; "users.list" ];
+  no_http "rejected scopes never reach HTTP" m;
+  ignore (expect_ok "DM peer lookup" (run call "users.info" user_params));
+  check_bool "only peer GET reached HTTP" true
+    (!(m.calls) = [ ("GET", "users.info", `Assoc user_params) ]);
+  match Egress_audit.query ~db ~tool_name:"slack_peer_thread" () with
+  | [ e ] ->
+      check_bool "DM peer call is audited under its persisted snapshot" true
+        (e.snapshot_id = Some snap.id
+        && e.session_key = Some "slack:D123"
+        && e.decision = Egress_audit.Allowed)
+  | _ -> Alcotest.fail "expected one peer lookup audit row"
+
+let test_peer_lookup_policy () =
+  let db = S.fresh_db () and m = S.mock () in
+  let cfg = ref (dm_config (S.config ~strict_rules:[] ())) in
+  let _, call = peer_call db cfg m in
+  expect_error "DM peer lookup obeys egress policy" (Egress_denied "users.info")
+    (run call "users.info" user_params);
+  no_http "denied peer lookup never reaches HTTP" m;
+  cfg := dm_config (S.config ());
+  ignore
+    (expect_ok "updated policy allows lookup"
+       (run call "users.info" user_params));
+  m.calls := [];
+  cfg := S.with_slack !cfg (fun sc -> { sc with allow_channels = [ "C123" ] });
+  expect_error "current channel allowlist is checked" Channel_denied
+    (run call "users.info" user_params);
+  cfg := dm_config (S.config ~bot_token:"" ());
+  expect_error "current credentials are checked" Not_configured
+    (run call "users.info" user_params);
+  no_http "revoked channel or credentials stop peer HTTP" m
+
+let test_peer_lookup_unauditable () =
+  let db = Sqlite3.db_open ":memory:" in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.db_close db))
+    (fun () ->
+      Access_snapshot.init_schema db;
+      let m = S.mock () in
+      let _, call = peer_call db (ref (dm_config (S.config ()))) m in
+      expect_error "peer lookup requires its audit row"
+        (Egress_denied "users.info")
+        (run call "users.info" user_params);
+      no_http "unauditable peer lookup never reaches HTTP" m)
+
 let test_typed_errors () =
   let db = S.fresh_db () and m = S.mock () in
   let _, call = make db m (ref (S.config ())) in
@@ -286,6 +368,10 @@ let suite =
     S.case "audit tag" test_audit_tag;
     S.case "unauditable egress is denied" test_unauditable_egress;
     S.case "channel and credentials" test_channel_and_credentials;
+    S.case "peer lookup admits DMs without widening standing orders"
+      test_peer_lookup_scope;
+    S.case "peer lookup checks current policy" test_peer_lookup_policy;
+    S.case "peer lookup requires an audit row" test_peer_lookup_unauditable;
     S.case "typed errors" test_typed_errors;
     S.case "error codes" test_error_codes;
     S.case "reads config per call" test_reads_config_per_call;

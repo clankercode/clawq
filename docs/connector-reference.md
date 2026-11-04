@@ -422,7 +422,8 @@ References: [agent sessions](https://docs.slack.dev/ai/agent-sessions/),
 Clawq stays silent in its relay threads unless explicitly @-mentioned. It also
 starts no turn for a top-level message mentioning a peer assistant, or a reply
 whose root mentions a peer or whose fetched thread contains a peer post, unless
-the message explicitly @-mentions Clawq. Peer apps reuse
+the message explicitly @-mentions Clawq. This also applies in authorized DMs.
+Peer apps reuse
 `channels.slack.standing_orders.allowed_targets`. Mentioned users are resolved
 from thread evidence or `users.info` (cached for six hours for peers, ten minutes
 for non-peers); lookup failures and unreadable threads fail open. An empty

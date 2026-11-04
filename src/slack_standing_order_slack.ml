@@ -1,7 +1,8 @@
 (* The only way standing-order code calls Slack: a closed method list, a
    persisted Standing_order snapshot, the current config's credentials and
    channel allowlist, an audited egress check per call, and typed errors. No
-   call is made under an unpersisted snapshot. *)
+   call is made under an unpersisted snapshot. Peer lookup shares this
+   audited transport through a users.info-only scope that also admits DMs. *)
 open Lwt.Syntax
 
 type http =
@@ -74,10 +75,10 @@ let audit_label ~order_id ~unit_label =
 (* Decision 15: unlike [Access_snapshot.create_and_persist], a row that can't
    be written is an error, so no egress audit row points at a missing
    snapshot. *)
-let snapshot ~db ~config ~channel_id ~order_ref =
+let snapshot_for ~work_type ~db ~config ~channel_id ~order_ref =
   match
     let snap =
-      Access_snapshot.create ~config ~work_type:Standing_order
+      Access_snapshot.create ~config ~work_type
         ~session_key:(access_key ~channel_id) ~room_id:channel_id
         ?standing_order:order_ref ()
     in
@@ -86,6 +87,11 @@ let snapshot ~db ~config ~channel_id ~order_ref =
   with
   | snap -> Ok snap
   | exception _ -> Error "snapshot_not_persisted"
+
+let snapshot = snapshot_for ~work_type:Standing_order
+
+let peer_lookup_snapshot ~db ~config ~channel_id =
+  snapshot_for ~work_type:Room_turn ~db ~config ~channel_id ~order_ref:None
 
 (* Slack codes are short snake_case words; anything else is not echoed. *)
 let slack_code = function
@@ -129,13 +135,17 @@ let decode status body =
 
 (* Steps 2-4: current credentials, channel allowlist, then the audited egress
    check against the current config's rules for this channel. *)
-let preflight ~db ~(cfg : Runtime_config.t) ~(snapshot : Access_snapshot.t)
-    ~channel_id ~audit method_ verb =
+type scope = Standing_order | Peer_lookup
+
+let preflight ~scope ~db ~(cfg : Runtime_config.t)
+    ~(snapshot : Access_snapshot.t) ~channel_id ~audit method_ verb =
   match cfg.channels.slack with
   | Some sc when Runtime_config.slack_has_valid_credentials sc -> (
       if
         not
-          (Slack_config_types.valid_id "CG" channel_id
+          (Slack_config_types.valid_id
+             (match scope with Standing_order -> "CG" | Peer_lookup -> "CGD")
+             channel_id
           && Slack_api.is_allowed_allowlist ~kind:"channel" ~id:channel_id
                sc.allow_channels)
       then Error Channel_denied
@@ -167,15 +177,20 @@ let preflight ~db ~(cfg : Runtime_config.t) ~(snapshot : Access_snapshot.t)
         | exception _ -> Error (Egress_denied method_))
   | _ -> Error Not_configured
 
-let make ~db ~current_config ~snapshot ~channel_id ~audit ?(http = default_http)
-    () : call =
+let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit
+    ?(http = default_http) () : call =
  fun method_ params ->
-  match List.assoc_opt method_ methods with
+  let permitted =
+    match scope with
+    | Standing_order -> methods
+    | Peer_lookup -> [ ("users.info", "GET") ]
+  in
+  match List.assoc_opt method_ permitted with
   | None -> Lwt.return (Error (Method_not_permitted method_))
   | Some verb -> (
       match
-        preflight ~db ~cfg:(current_config ()) ~snapshot ~channel_id ~audit
-          method_ verb
+        preflight ~scope ~db ~cfg:(current_config ()) ~snapshot ~channel_id
+          ~audit method_ verb
       with
       | Error _ as denied -> Lwt.return denied
       | Ok token ->
@@ -190,3 +205,6 @@ let make ~db ~current_config ~snapshot ~channel_id ~audit ?(http = default_http)
                       m "standing-order Slack %s failed: %s" method_
                         (Printexc.to_string exn));
                   Lwt.return (Error Transport)))
+
+let make = make_scoped ~scope:Standing_order
+let make_peer_lookup = make_scoped ~scope:Peer_lookup
