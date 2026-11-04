@@ -1789,3 +1789,4 @@ bugs:
     - file: B834-investigate-t3code-and-paseo-b.todo
     - file: B835-slack-stops-receiving-messages.todo
     - file: B836-policy-refusals-are-silent-cla.todo
+    - file: B837-b833-subtype-gate-drops-human.todo

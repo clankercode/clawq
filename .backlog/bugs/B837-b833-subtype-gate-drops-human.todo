@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-11-04T06:19:41Z"
+depends_on: []
+estimate_hours: 1
+id: B837
+priority: high
+status: pending
+tags: []
+title: B833 subtype gate drops human file_share and thread_broadcast messages (breaks Slack file/audio transcription)
+updated_at: "2026-11-04T06:19:41Z"
+---
+Found by huddle-orders research 2026-11-04 (.superpowers/sdd/huddle-orders/research/clawq-ingress.md). Slack_thread_ingress.handle_event (src/slack_thread_ingress.ml:52-55) only turns message/app_mention events with no bot_id AND no subtype into turns; human messages with subtype file_share (uploads, voice clips) and thread_broadcast ('also send to channel' replies) are acked and dropped. The Slack file + audio transcription path in src/slack.ml:842-962 therefore can no longer run in production, though docs (channels.mdx) still advertise it. Fix: allow human file_share/thread_broadcast through the native path with the same authorization, add regression tests.
