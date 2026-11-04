@@ -381,6 +381,17 @@ let channel_has_orders db ~team_id ~api_app_id ~channel_id =
     [ text team_id; text api_app_id; text channel_id ]
   = 1
 
+(* The orders that make a channel observed (§6.2). The huddle observer asks
+   per inbound event, so this is one SELECT on the (team_id, channel_id)
+   prefix of the display-number key and never a Slack call. *)
+let observed_orders db ~team_id ~api_app_id ~channel_id =
+  ensure_schema db;
+  query_orders db
+    ("WHERE team_id = ? AND channel_id = ? AND api_app_id = ? AND state IN ("
+    ^ sql_in (List.map T.state_to_string T.[ Active; Paused ])
+    ^ ") ORDER BY display_no")
+    [ text team_id; text channel_id; text api_app_id ]
+
 let live_where =
   "WHERE team_id = ? AND channel_id = ? AND target_app_id = ? AND id <> ? AND \
    state IN (" ^ live_states_sql ^ ") ORDER BY display_no"
