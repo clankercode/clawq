@@ -18,6 +18,7 @@ module SO = Slack_standing_order_slack
 module Grant = Slack_standing_order_grant
 module Render = Slack_standing_order_render
 module Pause = Slack_standing_order_pause
+module Tools = Slack_standing_order_tools
 module Change = Slack_standing_order_change
 
 let field = Slack_huddles.field
@@ -59,15 +60,6 @@ let unit_label = function
   | T.Resume_card -> "resume"
   | T.Pause_button -> "pause"
   | T.Change_card -> "change"
-
-let expired_text = "This card has expired; ask clawq again for a new one."
-
-let no_click_time button =
-  Printf.sprintf "Slack did not include a click time; press %s again." button
-
-let config_changed_text =
-  "clawq's configuration changed since this card was made; ask again to get a \
-   new card."
 
 let ignored why =
   Logs.info (fun m -> m "standing-order card click ignored: %s" why);
@@ -280,25 +272,9 @@ let reply c text =
       Lwt.return_unit
 
 (* Replaces the card's blocks, so its buttons disappear. *)
-let close_card (call : SO.call) c (closed : Render.rendered) =
-  let+ result =
-    guarded ~what:"chat.update" ~channel_id:c.card.channel_id (fun () ->
-        let+ result =
-          call "chat.update"
-            [
-              ("channel", `String c.card.channel_id);
-              ("ts", `String c.message_ts);
-              ("text", `String closed.text);
-              ("blocks", closed.blocks);
-            ]
-        in
-        Result.map_error SO.error_code result)
-  in
-  match result with
-  | Ok _ -> ()
-  | Error code ->
-      Logs.warn (fun m ->
-          m "standing-order %s card not closed: %s" c.order.id code)
+let close_card call c closed =
+  Tools.update_card call ~order_id:c.order.id ~channel_id:c.card.channel_id
+    ~ts:c.message_ts closed
 
 let use_card c =
   ignore (Store.use_card c.db ~card_id:c.card.id ~now:c.now : bool)
@@ -338,7 +314,7 @@ let apply_confirm c (v : Grant.validated) (o : T.order) ~action_ts ~plan_id
       ~destination_room:o.channel_id ~now:c.now ~authority ~apply_ops ()
   with
   | Setup_plan_apply.Rejected { reason = Stale_revision; _ } ->
-      reply_with v.call c config_changed_text
+      reply_with v.call c Render.config_changed_text
   | Rejected { reason; _ } ->
       reply_with v.call c
         (Printf.sprintf "Not confirmed (%s)."
@@ -361,7 +337,7 @@ let apply_confirm c (v : Grant.validated) (o : T.order) ~action_ts ~plan_id
 let confirm c =
   match (c.card.used_at, c.action_ts, c.card.plan_id, c.card.plan_digest) with
   | Some _, _, _, _ -> ignored "the confirm card was already used"
-  | None, None, _, _ -> reply c (no_click_time "Confirm")
+  | None, None, _, _ -> reply c (Render.no_click_time "Confirm")
   | None, Some action_ts, Some plan_id, Some digest -> (
       ignore (Store.expire_pending c.db ~now:c.now : int);
       match Store.find c.db c.order.id with
@@ -385,7 +361,7 @@ let confirm c =
                   (Printf.sprintf "Not confirmed: %s."
                      (Render.reason_text f.Grant.reason))
             | Ok v -> apply_confirm c v o ~action_ts ~plan_id ~digest)
-      | _ -> reply c expired_text)
+      | _ -> reply c Render.expired_text)
   | None, Some _, _, _ -> ignored "the confirm card names no plan"
 
 (* ── Cancel (a confirm card's second button) ────────────────────────────── *)
@@ -486,8 +462,8 @@ let resume c =
   let o = c.order in
   match (c.card.used_at, c.action_ts) with
   | Some _, _ -> ignored "the resume card was already used"
-  | None, _ when not (card_open c) -> reply c expired_text
-  | None, None -> reply c (no_click_time "Resume")
+  | None, _ when not (card_open c) -> reply c Render.expired_text
+  | None, None -> reply c (Render.no_click_time "Resume")
   | None, Some action_ts -> (
       let by_grantor = c.clicker = o.grantor_user_id in
       if (not by_grantor) && not (is_admin c) then

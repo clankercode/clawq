@@ -418,6 +418,58 @@ let test_double_click () =
         "no Slack call" [] (C.calls_since env before);
       Lwt.return_unit)
 
+(* Review Focus 3: Slack delivers clicks concurrently, so a Cancel can claim
+   the card while Confirm change waits on the Replace evaluation's Slack reads.
+   The Cancel wins: SO-1 stays unchanged, as its receipt says. *)
+let test_cancel_during_confirm () =
+  F.with_orders (fun env ->
+      let o = F.seed env () in
+      let* card = planned env o in
+      let answer = !(env.answer) in
+      F.override env "conversations.info" (fun params ->
+          ignore (Store.use_card env.db ~card_id:card.id ~now:S.now : bool);
+          answer "conversations.info" params);
+      let before = C.mark env in
+      let* () = confirm_change env card in
+      check_bool "the evaluation ran" true
+        (List.mem "conversations.info" (C.calls_since env before));
+      check_bool "the cancel holds the card" true
+        ((change_card env o).used_at <> None);
+      unchanged env o;
+      no_successor env;
+      no_activation env;
+      check_bool "the card is not rewritten" true (C.updates env = []);
+      check_bool "the losing click posts nothing" false
+        (List.mem "chat.postMessage" (C.calls_since env before));
+      check_int "no changed row" 0
+        (List.length (C.ledger env "standing_order_changed"));
+      Lwt.return_unit)
+
+(* The claim is part of the apply transaction: an apply that fails after it
+   rolls the claim back, so the card stays usable. *)
+let test_failed_apply_releases_the_card () =
+  F.with_orders (fun env ->
+      let o = F.seed env () in
+      let* card = planned env o in
+      Sql_util.exec_exn env.db
+        "CREATE TRIGGER fixture_no_insert BEFORE INSERT ON \
+         slack_standing_orders BEGIN SELECT RAISE(ABORT, 'fixture'); END";
+      let* () = confirm_change env card in
+      check_bool "refused" true (C.has_text env "Not changed (apply_error).");
+      unchanged env o;
+      no_successor env;
+      no_activation env;
+      check_bool "the claim rolled back" true
+        ((change_card env o).used_at = None);
+      Sql_util.exec_exn env.db "DROP TRIGGER fixture_no_insert";
+      let* () = confirm_change env card in
+      (match successor env with
+      | Some n ->
+          Alcotest.check S.state_t "the retry changes SO-1" T.Active n.state
+      | None -> Alcotest.fail "the retry made no SO-2");
+      check_bool "card used" true ((change_card env o).used_at <> None);
+      Lwt.return_unit)
+
 let shared_channel params =
   S.ok
     [
@@ -602,6 +654,9 @@ let suite =
       test_requester_must_still_be_admin;
     S.case "stale change card" test_stale_card;
     S.case "double click changes once" test_double_click;
+    S.case "cancel during a confirm change wins" test_cancel_during_confirm;
+    S.case "a failed change releases the card"
+      test_failed_apply_releases_the_card;
     S.case "change reruns the preflight" test_preflight;
     S.case "capability deny at plan and at click" test_capability_deny;
     S.case "cross-channel change looks like not found" test_cross_channel;

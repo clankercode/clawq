@@ -23,7 +23,6 @@ module Tools = Slack_standing_order_tools
 let tool_name = "slack_standing_order_change"
 let apply_kind = "slack_standing_order_change"
 let error = Tools.error
-let order_path id = "slack_standing_orders/" ^ id
 
 (* ── The draft a change plan carries ────────────────────────────────────── *)
 
@@ -118,55 +117,19 @@ let change_args json (old : T.order) =
             is \"relay_notes\" or \"skip\" (left out, the order keeps its \
             current setting); nothing changed.")
 
-let store_plan (p : Tools.prelude) (v : Grant.validated) ~(old : T.order)
-    (d : draft) =
-  let context session_key : Setup_plan.context =
-    {
-      room_id = Some p.route.channel;
-      session_key;
-      connector = Some "slack";
-      profile_id = v.snapshot.profile_id;
-      extra = [];
-    }
-  in
-  let old_json = T.action_to_json old.action
-  and new_json = T.action_to_json d.action in
-  let plan =
-    Setup_plan.make
-      ~principal:
-        {
-          Setup_plan.id = Tools.requester p;
-          kind = Channel_actor;
-          label = None;
-        }
-      ~source:(context (Some p.turn.request.key))
-      ~destination:(context None) ~current_state:old_json
-      ~planned_state:new_json
-      ~diff:
-        [
-          Setup_plan.Delete { path = order_path old.id; old = old_json };
-          Setup_plan.Create { path = order_path d.order_id; value = new_json };
-        ]
-      ~readiness:
-        [
+let store_plan (p : Tools.prelude) v ~(old : T.order) (d : draft) =
+  let old_json = T.action_to_json old.action in
+  Tools.store_plan p v ~action:d.action ~current_state:old_json
+    ~diff:
+      [
+        Setup_plan.Delete { path = Tools.order_path old.id; old = old_json };
+        Setup_plan.Create
           {
-            Setup_plan.name = "preflight";
-            status = Pass;
-            message = "grant authority validated";
+            path = Tools.order_path d.order_id;
+            value = T.action_to_json d.action;
           };
-        ]
-      ~warnings:[]
-      ~base_revision:(Setup_plan.base_revision_of_config v.config)
-      ~apply_payload:
-        {
-          Setup_plan.kind = Generic apply_kind;
-          ops = `List [];
-          data = draft_to_json d;
-        }
-      ~ttl_seconds:Tools.card_ttl ~now:p.now ()
-  in
-  Setup_plan_apply.init_schema p.db;
-  Result.map (fun () -> plan) (Setup_plan_apply.store_plan ~db:p.db plan)
+      ]
+    ~apply_payload:(Tools.plan_payload ~kind:apply_kind (draft_to_json d))
 
 (* Step 7: the card is bound to the old order at the epoch the evaluation read
    last, so any later state change makes it out of date. *)
@@ -316,17 +279,8 @@ let register ~current_config registry =
 
 (* ── Card clicks ────────────────────────────────────────────────────────── *)
 
-let expired_text = "This card has expired; ask clawq again for a new one."
-
-let no_click_time =
-  "Slack did not include a click time; press Confirm change again."
-
 let out_of_date_text =
   "This change card is out of date; ask clawq for a new one."
-
-let config_changed_text =
-  "clawq's configuration changed since this card was made; ask again to get a \
-   new card."
 
 type click = {
   manager : Session.t;
@@ -384,47 +338,26 @@ let current_config c () = Session.get_config c.manager
 let is_admin c = Admin.is_admin ~db:c.db ~channel:"slack" ~sender_id:c.clicker
 
 (* Replaces the card's blocks, so its buttons disappear. *)
-let close_card (call : SO.call) c (closed : Render.rendered) =
-  let warn code =
-    Logs.warn (fun m ->
-        m "standing-order %s change card not closed: %s" c.old.id code)
-  in
-  Lwt.catch
-    (fun () ->
-      let+ result =
-        call "chat.update"
-          [
-            ("channel", `String c.card.channel_id);
-            ("ts", `String c.message_ts);
-            ("text", `String closed.text);
-            ("blocks", closed.blocks);
-          ]
-      in
-      match result with Ok _ -> () | Error e -> warn (SO.error_code e))
-    (function
-      | Lwt.Canceled -> Lwt.fail Lwt.Canceled
-      | exn ->
-          warn ("exception: " ^ Printexc.to_string exn);
-          Lwt.return_unit)
+let close_card call c closed =
+  Tools.update_card call ~order_id:c.old.id ~channel_id:c.card.channel_id
+    ~ts:c.message_ts closed
 
-(* Never raises: after the commit, a failure here must not skip the
-   activation notice. *)
-let use_card c =
-  try Store.use_card c.db ~card_id:c.card.id ~now:c.now
-  with exn ->
-    Logs.warn (fun m ->
-        m "standing-order change card %s not marked used: %s" c.card.id
-          (Printexc.to_string exn));
-    false
+(* The one point Confirm change and Cancel race on (Slack delivers clicks
+   concurrently): the first to set the card's [used_at] wins. Confirm change
+   claims inside the apply transaction, so a failed apply releases the claim.
+   Never raises. *)
+let claim c =
+  match Store.use_card c.db ~card_id:c.card.id ~now:c.now with
+  | claimed -> Ok claimed
+  | exception exn -> Error (Printexc.to_string exn)
 
 let applied c = Option.is_some (Store.find c.db c.draft.order_id)
 
-(* Step 5 after the commit: close the card, announce the successor (whose
-   notice failure pauses it), then tell the old grantor when someone else
-   changed their order. *)
+(* Step 5 after the commit (which also used the card): close the card,
+   announce the successor (whose notice failure pauses it), then tell the old
+   grantor when someone else changed their order. *)
 let changed c (v : Grant.validated) ~(announce : announce)
     ((old_after : T.order), (fresh : T.order)) =
-  ignore (use_card c : bool);
   Pause.ledger ~db:c.db ~channel_id:c.card.channel_id ~actor:c.clicker
     ~event_type:"standing_order_changed"
     [
@@ -447,9 +380,12 @@ let changed c (v : Grant.validated) ~(announce : announce)
          (Render.Replaced_by { by = c.clicker; new_display_no }))
 
 (* Step 4: the compare-and-swap on plan id and digest, under the config
-   revision the plan was made with, around [Store.replace_in_tx]. *)
+   revision the plan was made with, around the card claim and
+   [Store.replace_in_tx] in one transaction. A Cancel that claimed the card
+   while this click's evaluation waited on Slack wins: the apply then changes
+   nothing and says nothing, so "SO-n is unchanged" stays true. *)
 let apply_change c (v : Grant.validated) ~announce ~action_ts ~plan_id ~digest =
-  let replaced = ref None in
+  let replaced = ref None and card_taken = ref false in
   let authority ~(principal : Setup_plan.principal)
       ~(destination : Setup_plan.context) =
     if principal.id = c.clicker && destination.room_id = Some c.card.channel_id
@@ -457,15 +393,21 @@ let apply_change c (v : Grant.validated) ~announce ~action_ts ~plan_id ~digest =
     else Error "not the requester"
   in
   let apply_ops ~plan:_ ~receipt_id:_ =
-    Result.map
-      (fun pair -> replaced := Some pair)
-      (Store.replace_in_tx c.db ~old_id:c.old.id
-         ~expected_epoch:c.card.order_epoch ~new_id:c.draft.order_id
-         ~grantor_user_id:c.clicker ?principal_id:c.draft.principal_id
-         ~action:c.draft.action
-         ~management_thread_ts:c.draft.management_thread_ts
-         ~active_since:action_ts ~confirmed_by:c.clicker
-         ~bot_user_id:v.bot_user_id ~bot_id:v.bot_id ~now:c.now ())
+    match claim c with
+    | Error e -> Error ("change card claim failed: " ^ e)
+    | Ok false ->
+        card_taken := true;
+        Error "the change card was already used"
+    | Ok true ->
+        Result.map
+          (fun pair -> replaced := Some pair)
+          (Store.replace_in_tx c.db ~old_id:c.old.id
+             ~expected_epoch:c.card.order_epoch ~new_id:c.draft.order_id
+             ~grantor_user_id:c.clicker ?principal_id:c.draft.principal_id
+             ~action:c.draft.action
+             ~management_thread_ts:c.draft.management_thread_ts
+             ~active_since:action_ts ~confirmed_by:c.clicker
+             ~bot_user_id:v.bot_user_id ~bot_id:v.bot_id ~now:c.now ())
   in
   Setup_plan_apply.init_schema c.db;
   match
@@ -475,8 +417,10 @@ let apply_change c (v : Grant.validated) ~announce ~action_ts ~plan_id ~digest =
       ~current_base_revision:(Setup_plan.base_revision_of_config v.config)
       ~destination_room:c.card.channel_id ~now:c.now ~authority ~apply_ops ()
   with
-  | Setup_plan_apply.Rejected { reason = Stale_revision; _ } ->
-      reply c config_changed_text
+  | Setup_plan_apply.Rejected _ when !card_taken ->
+      ignored "the change card was used while the change was evaluated"
+  | Rejected { reason = Stale_revision; _ } ->
+      reply c Render.config_changed_text
   | Rejected { reason; _ } ->
       reply c
         (Printf.sprintf "Not changed (%s)."
@@ -510,7 +454,7 @@ let handle_click ~manager ~now ~announce ~card ~clicker ~action_ts =
             match c.card.expires_at with
             | Some t when t > now -> (
                 match action_ts with
-                | None -> reply c no_click_time
+                | None -> reply c (Render.no_click_time "Confirm change")
                 | Some action_ts ->
                     if clicker <> c.card.created_by then
                       reply c
@@ -552,7 +496,7 @@ let handle_click ~manager ~now ~announce ~card ~clicker ~action_ts =
                       | Ok v ->
                           apply_change c v ~announce ~action_ts ~plan_id ~digest)
                 )
-            | _ -> reply c expired_text)
+            | _ -> reply c Render.expired_text)
       | None, _, _ -> ignored "the change card names no plan")
 
 (* Cancel changes no order, so it needs no membership check (ruling F4). *)
@@ -576,16 +520,22 @@ let handle_cancel ~manager ~now ~card ~clicker =
             Logs.warn (fun m ->
                 m "standing-order %s change cancel refused: %s" c.old.id code);
             Lwt.return_unit
-        | Ok snapshot ->
-            if use_card c then
-              let call =
-                SO.make ~db:c.db ~current_config:(current_config c) ~snapshot
-                  ~channel_id:c.card.channel_id
-                  ~audit:
-                    (SO.audit_label ~order_id:(Some c.old.id)
-                       ~unit_label:"change")
-                  ()
-              in
-              close_card call c
-                (Render.card_closed c.old (Render.Change_cancelled_by clicker))
-            else ignored "the change card was already used")
+        | Ok snapshot -> (
+            match claim c with
+            | Ok true ->
+                let call =
+                  SO.make ~db:c.db ~current_config:(current_config c) ~snapshot
+                    ~channel_id:c.card.channel_id
+                    ~audit:
+                      (SO.audit_label ~order_id:(Some c.old.id)
+                         ~unit_label:"change")
+                    ()
+                in
+                close_card call c
+                  (Render.card_closed c.old (Render.Change_cancelled_by clicker))
+            | Ok false -> ignored "the change card was already used"
+            | Error e ->
+                Logs.warn (fun m ->
+                    m "standing-order change card %s not marked used: %s"
+                      c.card.id e);
+                Lwt.return_unit))

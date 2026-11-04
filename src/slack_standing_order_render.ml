@@ -320,6 +320,17 @@ let cancel_receipt (o : T.order) ~by =
 let not_found n =
   Printf.sprintf "There is no standing order %s in this channel." (so_n n)
 
+(* ── Click replies shared by every card ─────────────────────────────────── *)
+
+let expired_text = "This card has expired; ask clawq again for a new one."
+
+let no_click_time button =
+  Printf.sprintf "Slack did not include a click time; press %s again." button
+
+let config_changed_text =
+  "clawq's configuration changed since this card was made; ask again to get a \
+   new card."
+
 (* ── Reasons ────────────────────────────────────────────────────────────── *)
 
 let indeterminate m =

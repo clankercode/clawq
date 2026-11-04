@@ -163,6 +163,32 @@ let post_card (call : SO.call) ~channel_id ~thread_ts (r : Render.rendered) =
       | _ -> Error "no_ts")
   | Error e -> Error (SO.error_code e)
 
+(* Replaces a posted card's message, so its buttons disappear. Best effort: a
+   failure is a warning, never an exception. *)
+let update_card (call : SO.call) ~order_id ~channel_id ~ts (r : Render.rendered)
+    =
+  let warn code =
+    Logs.warn (fun m ->
+        m "standing-order %s card not updated: %s" order_id code)
+  in
+  Lwt.catch
+    (fun () ->
+      let+ result =
+        call "chat.update"
+          [
+            ("channel", `String channel_id);
+            ("ts", `String ts);
+            ("text", `String r.text);
+            ("blocks", r.blocks);
+          ]
+      in
+      match result with Ok _ -> () | Error e -> warn (SO.error_code e))
+    (function
+      | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+      | exn ->
+          warn ("exception: " ^ Printexc.to_string exn);
+          Lwt.return_unit)
+
 let withdraw p ~order_id reason =
   match Store.deactivate p.db ~order_id (Store.Withdraw reason) ~now:p.now with
   | Ok _ -> ()
@@ -263,9 +289,17 @@ let target_error ~allowed (e : Target.error) =
       "Error: this workspace has too many users for clawq to search by name; \
        mention the bot as the target instead."
 
-(* Step 6: the plan a Confirm click applies (Task 11). *)
-let store_plan p (v : Grant.validated) ~order_id ~action =
-  let action_json = T.action_to_json action in
+let order_path id = "slack_standing_orders/" ^ id
+
+let plan_payload ~kind data : Setup_plan.apply_payload =
+  { kind = Generic kind; ops = `List []; data }
+
+(* The plan a bound card's click applies: create's (step 6; Task 11) and
+   change's (Task 13). They differ only in [current_state], [diff] and
+   [apply_payload]; principal, contexts, readiness, the config base revision
+   (the CAS behind "configuration changed") and the TTL are shared. *)
+let store_plan p (v : Grant.validated) ~action ~current_state ~diff
+    ~apply_payload =
   let context session_key : Setup_plan.context =
     {
       room_id = Some p.route.channel;
@@ -280,13 +314,8 @@ let store_plan p (v : Grant.validated) ~order_id ~action =
       ~principal:
         { Setup_plan.id = requester p; kind = Channel_actor; label = None }
       ~source:(context (Some p.turn.request.key))
-      ~destination:(context None) ~current_state:`Null
-      ~planned_state:action_json
-      ~diff:
-        [
-          Setup_plan.Create
-            { path = "slack_standing_orders/" ^ order_id; value = action_json };
-        ]
+      ~destination:(context None) ~current_state
+      ~planned_state:(T.action_to_json action) ~diff
       ~readiness:
         [
           {
@@ -297,13 +326,7 @@ let store_plan p (v : Grant.validated) ~order_id ~action =
         ]
       ~warnings:[]
       ~base_revision:(Setup_plan.base_revision_of_config v.config)
-      ~apply_payload:
-        {
-          Setup_plan.kind = Generic "slack_standing_order";
-          ops = `List [];
-          data = `Assoc [ ("order_id", `String order_id) ];
-        }
-      ~ttl_seconds:card_ttl ~now:p.now ()
+      ~apply_payload ~ttl_seconds:card_ttl ~now:p.now ()
   in
   Setup_plan_apply.init_schema p.db;
   Result.map (fun () -> plan) (Setup_plan_apply.store_plan ~db:p.db plan)
@@ -334,7 +357,20 @@ let plan_order p (v : Grant.validated) ~order_id ~action =
       in
       Lwt.catch
         (fun () ->
-          match store_plan p v ~order_id ~action with
+          match
+            store_plan p v ~action ~current_state:`Null
+              ~diff:
+                [
+                  Setup_plan.Create
+                    {
+                      path = order_path order_id;
+                      value = T.action_to_json action;
+                    };
+                ]
+              ~apply_payload:
+                (plan_payload ~kind:"slack_standing_order"
+                   (`Assoc [ ("order_id", `String order_id) ]))
+          with
           | Error _ ->
               failed ~reason:"plan_store_failed"
                 "clawq could not record the plan; nothing was created."
