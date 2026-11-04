@@ -813,6 +813,7 @@ An `Access_snapshot` captures the effective access for a session at a point in t
 - **Auditable**: Carry a `config_hash` (SHA-256 of serialized config) and full provenance (`bundle_sources` recording which bundle/layer/field contributed each grant).
 - **Tool-gating**: `tool_denial` matches the resolver's allowed/denied lists exactly.
 - **Persisted**: Written to DB for audit trail; reloaded on restart.
+- **Fail-closed decode:** a stored work type this binary doesn't know is never treated as authority. Lookups return nothing, so tools deny, and exports list it as `unknown`. Binaries older than this change decoded unknown types as `room_turn`, so once newer work types (e.g. `standing_order`) exist in the database, don't roll back past this change.
 
 ### Channel Isolation
 
