@@ -541,6 +541,7 @@
   slack_huddle_observer
   slack_huddle_transcript
   slack_standing_order_provenance
+  slack_standing_order_relay
   slack_standing_order_types
   slack_standing_order_sql
   slack_standing_order_store_base
@@ -679,6 +680,9 @@
   ec_process
   ec_diagnosis
   command_bridge_pair)
+ (foreign_stubs
+  (language c)
+  (names slack_standing_order_relay_stubs))
  (wrapped false)
  (libraries
   clawq_runtime_core

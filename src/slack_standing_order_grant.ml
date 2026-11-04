@@ -143,6 +143,7 @@ type validated = {
   enterprise_id : string option;
   bot_user_id : string;
   bot_id : string;
+  team_url : string;
   call : SO.call;
 }
 
@@ -368,6 +369,30 @@ let request (call : SO.call) ?(user_not_found = Indeterminate "users.info")
   let+ result = call method_ params in
   Result.map_error (reason_of_error ~user_not_found method_) result
 
+(* Only workspace origins may supply relay links. Return a normalized trailing
+   slash; paths, credentials and markup never enter the fixed comment. *)
+let workspace_url url =
+  try
+    let uri = Uri.of_string url in
+    match Uri.host uri with
+    | Some host
+      when Uri.scheme uri = Some "https"
+           && String.ends_with ~suffix:".slack.com" host
+           && String.length host > String.length ".slack.com"
+           && String.for_all
+                (function
+                  | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '.' -> true
+                  | _ -> false)
+                host
+           && Uri.userinfo uri = None
+           && Uri.port uri = None
+           && Uri.query uri = []
+           && Uri.fragment uri = None
+           && (Uri.path uri = "" || Uri.path uri = "/") ->
+        "https://" ^ String.lowercase_ascii host ^ "/"
+    | _ -> ""
+  with _ -> ""
+
 (* Steps 5-6: the team (and enterprise) by auth.test, our app by bots.info. *)
 let installation call (s : subject) =
   let*! auth = request call "auth.test" [] in
@@ -390,7 +415,9 @@ let installation call (s : subject) =
       refuse (Indeterminate "bots.info")
     else if field "app_id" (get "bot" info) <> s.api_app_id then
       refuse App_mismatch
-    else Lwt.return (Ok (bot_user_id, bot_id, enterprise))
+    else
+      Lwt.return
+        (Ok (bot_user_id, bot_id, enterprise, workspace_url (field "url" auth)))
 
 (* Step 7, with [Grant_fire]'s share-flag rule ([Slack_huddles.channel_sharing])
    so an order that confirms can also read its huddles: a reported share is
@@ -535,7 +562,7 @@ let judge_members (s : subject) records =
       | _ -> Error Target_unavailable)
 
 let slack_reads call sc (s : subject) =
-  let*! bot_user_id, bot_id, enterprise_id = installation call s in
+  let*! bot_user_id, bot_id, enterprise_id, team_url = installation call s in
   let*! () = posture call sc s in
   let*! members = channel_members call ~channel_id:s.channel_id in
   if not (List.mem s.grantor_user_id members) then refuse Grantor_not_member
@@ -548,7 +575,7 @@ let slack_reads call sc (s : subject) =
     let*! records = member_records call s ~needed in
     match judge_members s records with
     | Error r -> refuse r
-    | Ok () -> Lwt.return (Ok (bot_user_id, bot_id, enterprise_id))
+    | Ok () -> Lwt.return (Ok (bot_user_id, bot_id, enterprise_id, team_url))
 
 (* ── evaluate ───────────────────────────────────────────────────────────── *)
 
@@ -594,7 +621,7 @@ let evaluate ~db ~current_config ?http ?now ~stage ~unit_label (s : subject) =
             (* Step 11, with no yield from here to the caller's action: the
                same config, then step 3's admin read, then the rows, last. *)
             Result.map_error failure
-              (let*? bot_user_id, bot_id, enterprise_id = reads in
+              (let*? bot_user_id, bot_id, enterprise_id, team_url = reads in
                let*? () =
                  if current_config () != cfg then Error Config_changed
                  else Ok ()
@@ -610,6 +637,7 @@ let evaluate ~db ~current_config ?http ?now ~stage ~unit_label (s : subject) =
                    enterprise_id;
                    bot_user_id;
                    bot_id;
+                   team_url;
                    call;
                  }))
   in

@@ -297,6 +297,7 @@ let all_suites =
     ("slack_huddle_transcript", Test_slack_huddle_transcript.suite);
     ( "slack_standing_order_provenance",
       Test_slack_standing_order_provenance.suite );
+    ("slack_standing_order_relay", Test_slack_standing_order_relay.suite);
     ("slack_standing_order_config", Test_slack_standing_order_config.suite);
     ("slack_standing_order_store", Test_slack_standing_order_store.suite);
     ( "slack_standing_order_fire_store",

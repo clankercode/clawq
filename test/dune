@@ -319,6 +319,7 @@
   test_slack_huddle_observer
   test_slack_huddle_transcript
   test_slack_standing_order_provenance
+  test_slack_standing_order_relay
   test_slack_standing_order_config
   test_slack_standing_order_support
   test_slack_standing_order_store
