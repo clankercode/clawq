@@ -154,6 +154,10 @@ let start_scheduler_loop ~db ~(session_manager : Session.t) ~ip_limiter
                   ~max_age_days:cur_config.connector_history.max_age_days
                   ~max_messages:cur_config.connector_history.max_messages;
               Memory.cleanup_teams_dedup ~db ~max_age_days:30;
+              (try ignore (Slack_huddle_ledger.prune ~db ~now)
+               with exn ->
+                 Logs.warn (fun m ->
+                     m "slack_huddles prune failed: %s" (Printexc.to_string exn)));
               (* B830: webhook delivery snapshot retention (was per-delivery) *)
               Github_hooks.cleanup_delivery_snapshots ();
               let purged =
