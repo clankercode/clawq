@@ -4,12 +4,13 @@
     Every public function runs [ensure_schema] first. REAL columns hold unix
     seconds from the one standing-order clock ([clock]); TEXT audit columns are
     wall-clock [Time_util.sql_datetime_utc]. Rows whose [state] or [action_json]
-    don't decode are skipped by every reader (fail-closed, logged by id only).
-*)
+    don't decode are skipped by every reader (fail-closed, logged by id only). A
+    read that fails raises (see [Slack_standing_order_sql.query]); it never
+    reads as no rows. *)
 
 module T = Slack_standing_order_types
+include Slack_standing_order_sql
 
-let label = "slack_standing_orders"
 let clock : (unit -> float) ref = ref Unix.gettimeofday
 let now () = !clock ()
 let default_max_fires_per_day = 10
@@ -91,84 +92,6 @@ let schema =
   ]
 
 let ensure_schema db = List.iter (Sql_util.exec_schema ~label db) schema
-
-(* ── SQL plumbing ───────────────────────────────────────────────────────── *)
-
-let text s = Sqlite3.Data.TEXT s
-let int n = Sqlite3.Data.INT (Int64.of_int n)
-let bool b = int (if b then 1 else 0)
-let stamp () = Time_util.sql_datetime_utc ()
-let exec db sql params = Sql_util.exec_with_params ~label db sql params
-
-(* Like [exec] but hands back the step result, so callers can tell a
-   constraint violation from other failures. *)
-let step db sql params =
-  let stmt = Sqlite3.prepare db sql in
-  Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-    (fun () ->
-      Sql_util.bind_params stmt params;
-      Sqlite3.step stmt)
-
-let query db sql params of_stmt =
-  Sql_util.query_rows db sql
-    ~bind:(fun stmt -> Sql_util.bind_params stmt params)
-    ~of_stmt
-
-let first = function x :: _ -> Some x | [] -> None
-
-(* A space-separated column list; decoders index columns in this order. *)
-let columns names = String.split_on_char ' ' names
-
-let int_query db sql params =
-  Option.value ~default:0
-    (first (query db sql params (fun stmt -> Sql_util.int_column stmt 0)))
-
-let opt_float_column stmt i =
-  match Sqlite3.column stmt i with
-  | Sqlite3.Data.FLOAT f -> Some f
-  | Sqlite3.Data.INT n -> Some (Int64.to_float n)
-  | _ -> None
-
-let is_db_error = function
-  | Failure _ | Sqlite3.Error _ | Sqlite3.SqliteError _
-  | Sqlite3.InternalError _ | Sqlite3.RangeError _ | Sqlite3.DataTypeError _ ->
-      true
-  | _ -> false
-
-(* The [_in_tx] functions run inside a caller's transaction, whose handler
-   (e.g. [Setup_plan_apply.apply]) rolls back on [Error] but not on an
-   exception, so database failures become [Error] here. *)
-let guard f =
-  try f () with exn when is_db_error exn -> Error (Printexc.to_string exn)
-
-let rollback db = try Sql_util.exec_exn ~label db "ROLLBACK" with _ -> ()
-
-(* BEGIN runs outside the handler: a BEGIN that fails (e.g. inside a caller's
-   transaction) must not roll back a transaction someone else holds. *)
-let in_tx db ~on_error f =
-  match
-    Sql_util.retry_busy (fun () ->
-        Sql_util.exec_exn ~label db "BEGIN IMMEDIATE")
-  with
-  | exception exn when is_db_error exn ->
-      Error (on_error (Printexc.to_string exn))
-  | () -> (
-      match f () with
-      | Error _ as error ->
-          rollback db;
-          error
-      | Ok _ as ok -> (
-          match Sql_util.exec_exn ~label db "COMMIT" with
-          | () -> ok
-          | exception exn when is_db_error exn ->
-              rollback db;
-              Error (on_error (Printexc.to_string exn)))
-      | exception exn ->
-          let bt = Printexc.get_raw_backtrace () in
-          rollback db;
-          if is_db_error exn then Error (on_error (Printexc.to_string exn))
-          else Printexc.raise_with_backtrace exn bt)
 
 (* ── Order codec ────────────────────────────────────────────────────────── *)
 
@@ -702,9 +625,16 @@ let expired_where =
 (* Callers run this before plans, lookups and clicks; it never raises, so a
    failure here (logged) can't block a pause. *)
 let expire_pending db ~now =
-  ensure_schema db;
+  let failed reason =
+    Logs.warn (fun m -> m "%s: expire_pending failed: %s" label reason);
+    0
+  in
   let expired () = query_orders db expired_where [ Sqlite3.Data.FLOAT now ] in
-  match expired () with
+  match
+    ensure_schema db;
+    expired ()
+  with
+  | exception exn when is_db_error exn -> failed (Printexc.to_string exn)
   | [] -> 0
   | _ -> (
       let withdraw count (o : T.order) =
@@ -718,9 +648,7 @@ let expire_pending db ~now =
             List.fold_left withdraw (Ok 0) (expired ()))
       with
       | Ok n -> n
-      | Error reason ->
-          Logs.warn (fun m -> m "%s: expire_pending failed: %s" label reason);
-          0)
+      | Error reason -> failed reason)
 
 type resume_error =
   | Not_resumable of T.state

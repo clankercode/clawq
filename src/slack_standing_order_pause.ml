@@ -65,7 +65,14 @@ type outcome =
   | Withdrawn of T.order
   | Not_active of T.order  (** Suspended or cancelled. *)
   | Not_found of int
+  | Unreadable of int
+      (** The store could not be read, so whether SO-n exists here is unknown.
+          Only a [`Display] lookup gives it: an [`Order] target is a known
+          order, whose failed read is [store_refused]. *)
   | Refused of Grant.member_refusal
+
+let store_refusal = Grant.Member_indeterminate "standing_order_store"
+let store_refused = Refused store_refusal
 
 let order_of_outcome = function
   | Paused { order; _ }
@@ -73,7 +80,13 @@ let order_of_outcome = function
   | Withdrawn order
   | Not_active order ->
       Some order
-  | Not_found _ | Refused _ -> None
+  | Not_found _ | Unreadable _ | Refused _ -> None
+
+(* A failed store read is never "no order": it comes back as [Error] with its
+   cause, which the caller logs at warn. *)
+let read f =
+  try Ok (f ())
+  with exn when Store.is_db_error exn -> Error (Printexc.to_string exn)
 
 let refusal_code : Grant.member_refusal -> string = function
   | Member_unavailable -> "member_unavailable"
@@ -167,48 +180,50 @@ let lookup db ~team_id ~app_id ~channel_id = function
           else None)
 
 (* Steps 4-5 on the row as it is now; [deactivate] re-checks it in its
-   transaction, so a concurrent change yields [changed = false]. *)
+   transaction, so a concurrent change yields [changed = false]. A failed store
+   read or write refuses: the order is known, so it is never "not found". *)
 let apply ~manager ~db ~now ~channel_id ~user_id ~source (o : T.order) =
   let settled (o : T.order) =
     Lwt.return
       (match o.state with T.Paused -> Already_paused o | _ -> Not_active o)
   in
-  let fresh = Option.value (Store.find db o.id) ~default:o in
-  let op =
-    match fresh.state with
-    | T.Pending_confirmation -> Some (Store.Withdraw user_id)
-    | T.Active -> Some (Store.Pause user_id)
-    | T.Paused | T.Suspended | T.Cancelled -> None
+  let failed e =
+    Logs.warn (fun m -> m "standing-order pause of %s failed: %s" o.id e);
+    Lwt.return store_refused
   in
-  match op with
-  | None -> settled fresh
-  | Some op -> (
-      match Store.deactivate db ~order_id:fresh.id op ~now with
-      | Error e ->
-          Logs.warn (fun m ->
-              m "standing-order pause of %s failed: %s" fresh.id e);
-          Lwt.return
-            (Refused (Grant.Member_indeterminate "standing_order_store"))
-      | Ok { Store.changed = false; after; _ } -> settled after
-      | Ok { Store.after; in_flight; _ } ->
-          let withdrawn =
-            match op with Store.Withdraw _ -> true | _ -> false
-          in
-          ledger ~db ~channel_id ~actor:user_id
-            ~event_type:
-              (if withdrawn then "standing_order_withdrawn"
-               else "standing_order_paused")
-            [
-              ("order", `String (T.display_name after));
-              ("source", `String (source_to_string source));
-            ];
-          let+ () =
-            notify_grantor ~manager after ~user_id
-              (if withdrawn then Render.Cancelled_by user_id
-               else Render.Paused_by user_id)
-          in
-          if withdrawn then Withdrawn after
-          else Paused { order = after; in_flight })
+  let deactivate (fresh : T.order) op =
+    match
+      Result.join
+        (read (fun () -> Store.deactivate db ~order_id:fresh.id op ~now))
+    with
+    | Error e -> failed e
+    | Ok { Store.changed = false; after; _ } -> settled after
+    | Ok { Store.after; in_flight; _ } ->
+        let withdrawn = match op with Store.Withdraw _ -> true | _ -> false in
+        ledger ~db ~channel_id ~actor:user_id
+          ~event_type:
+            (if withdrawn then "standing_order_withdrawn"
+             else "standing_order_paused")
+          [
+            ("order", `String (T.display_name after));
+            ("source", `String (source_to_string source));
+          ];
+        let+ () =
+          notify_grantor ~manager after ~user_id
+            (if withdrawn then Render.Cancelled_by user_id
+             else Render.Paused_by user_id)
+        in
+        if withdrawn then Withdrawn after
+        else Paused { order = after; in_flight }
+  in
+  match read (fun () -> Store.find db o.id) with
+  | Error e -> failed e
+  | Ok found -> (
+      let fresh = Option.value found ~default:o in
+      match fresh.state with
+      | T.Pending_confirmation -> deactivate fresh (Store.Withdraw user_id)
+      | T.Active -> deactivate fresh (Store.Pause user_id)
+      | T.Paused | T.Suspended | T.Cancelled -> settled fresh)
 
 let run ~manager ?now ~team_id ~app_id ~channel_id ~user_id ~target ~source () =
   let now = match now with Some t -> t | None -> Store.now () in
@@ -217,9 +232,19 @@ let run ~manager ?now ~team_id ~app_id ~channel_id ~user_id ~target ~source () =
   | None -> Lwt.return (Not_found n)
   | Some db -> (
       ignore (Store.expire_pending db ~now : int);
-      match lookup db ~team_id ~app_id ~channel_id target with
-      | None -> Lwt.return (Not_found n)
-      | Some o ->
+      match read (fun () -> lookup db ~team_id ~app_id ~channel_id target) with
+      | Error e ->
+          let name, outcome =
+            match target with
+            | `Display n -> (Render.so_n n, Unreadable n)
+            | `Order id -> (id, store_refused)
+          in
+          Logs.warn (fun m ->
+              m "standing-order pause of %s in %s not run: store unreadable: %s"
+                name channel_id e);
+          Lwt.return outcome
+      | Ok None -> Lwt.return (Not_found n)
+      | Ok (Some o) ->
           Lwt.catch
             (fun () ->
               let current_config () = Session.get_config manager in
@@ -269,6 +294,9 @@ let in_flight_note = function
   | 1 -> " 1 relay was already being sent before the pause."
   | k -> Printf.sprintf " %d relays were already being sent before the pause." k
 
+let refused_text r =
+  "Pause not applied: " ^ Render.member_refusal_text ~action:`Pause r ^ "."
+
 let receipt ~display_no ~by outcome =
   let n = Render.so_n display_no in
   match outcome with
@@ -292,8 +320,8 @@ let receipt ~display_no ~by outcome =
       Printf.sprintf "Standing order %s %s; nothing changed." n
         (Render.state_phrase state)
   | Not_found k -> Render.not_found k
-  | Refused r ->
-      "Pause not applied: " ^ Render.member_refusal_text ~action:`Pause r ^ "."
+  | Unreadable _ -> refused_text store_refusal
+  | Refused r -> refused_text r
 
 (* ── Ingress hook ───────────────────────────────────────────────────────── *)
 
@@ -302,13 +330,15 @@ let conversation_channel channel =
 
 let channel_has_orders manager (route : Slack_thread_route.t) =
   match Session.get_db manager with
-  | None -> false
-  | Some db -> (
-      try
-        Store.channel_has_orders db ~team_id:route.team ~api_app_id:route.app
-          ~channel_id:route.channel
-      with _ -> false)
+  | None -> Ok false
+  | Some db ->
+      read (fun () ->
+          Store.channel_has_orders db ~team_id:route.team ~api_app_id:route.app
+            ~channel_id:route.channel)
 
+(* Decision 20: clawq speaks only where an order row proves a grant evaluation
+   admitted the channel. An unreadable store proves nothing, so it stays
+   silent there too (final review, Important 1), with the cause at warn. *)
 let handle_text ~manager ~(route : Slack_thread_route.t) ~user ~ts text =
   match parse_command text with
   | Some n when conversation_channel route.channel ->
@@ -319,23 +349,34 @@ let handle_text ~manager ~(route : Slack_thread_route.t) ~user ~ts text =
               ~channel_id:route.channel ~user_id:user ~target:(`Display n)
               ~source:Text ()
           in
+          let answer () =
+            let+ () =
+              post_receipt ~manager ?order:(order_of_outcome outcome)
+                ~channel_id:route.channel ~thread_ts:route.root
+                (receipt ~display_no:n ~by:user outcome)
+            in
+            true
+          in
           match outcome with
-          | Not_found _ when not (channel_has_orders manager route) ->
-              (* Decision 20: no order row here means no grant evaluation
-                 admitted this channel, so clawq does not speak in it. *)
-              Logs.info (fun m ->
-                  m
-                    "Slack pause command for SO-%d at %s in %s: no standing \
-                     orders in this channel; not answered"
-                    n ts route.channel);
-              Lwt.return_true
-          | _ ->
-              let+ () =
-                post_receipt ~manager ?order:(order_of_outcome outcome)
-                  ~channel_id:route.channel ~thread_ts:route.root
-                  (receipt ~display_no:n ~by:user outcome)
-              in
-              true)
+          | Unreadable _ -> Lwt.return_true (* [run] logged the cause. *)
+          | Not_found _ -> (
+              match channel_has_orders manager route with
+              | Ok true -> answer ()
+              | Ok false ->
+                  Logs.info (fun m ->
+                      m
+                        "Slack pause command for SO-%d at %s in %s: no \
+                         standing orders in this channel; not answered"
+                        n ts route.channel);
+                  Lwt.return_true
+              | Error e ->
+                  Logs.warn (fun m ->
+                      m
+                        "Slack pause command for SO-%d at %s in %s: standing \
+                         orders unreadable, not answered: %s"
+                        n ts route.channel e);
+                  Lwt.return_true)
+          | _ -> answer ())
         (function
           | Lwt.Canceled -> Lwt.fail Lwt.Canceled
           | exn ->

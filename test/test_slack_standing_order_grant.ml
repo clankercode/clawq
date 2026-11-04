@@ -373,7 +373,25 @@ let test_posture_matrix () =
     (Indeterminate "conversations.info")
     (eval ~mutate:(channel_with [ ("is_private", `Null) ]) ());
   expect_fail "is_shared untyped" Transient (Indeterminate "conversations.info")
-    (eval ~mutate:(channel_with [ ("is_shared", `String "false") ]) ())
+    (eval ~mutate:(channel_with [ ("is_shared", `String "false") ]) ());
+  (* Grant_fire's rule (Slack_huddles.channel_sharing): every share flag must
+     be a reported false, and a reported share outranks an unreported flag. *)
+  expect_fail "is_org_shared unreported" Transient
+    (Indeterminate "conversations.info")
+    (eval ~mutate:(channel_with [ ("is_org_shared", `Null) ]) ());
+  expect_fail "is_pending_ext_shared untyped" Transient
+    (Indeterminate "conversations.info")
+    (eval ~mutate:(channel_with [ ("is_pending_ext_shared", `Int 0) ]) ());
+  expect_fail "shared with another flag unreported" Hard Channel_shared
+    (eval
+       ~mutate:
+         (channel_with [ ("is_shared", `Bool true); ("is_org_shared", `Null) ])
+       ());
+  expect_fail "shared with is_private unreported" Hard Channel_shared
+    (eval
+       ~mutate:
+         (channel_with [ ("is_shared", `Bool true); ("is_private", `Null) ])
+       ())
 
 let test_member_flags_scale () =
   let e = env () in
@@ -628,6 +646,9 @@ let test_inactive_and_cap () =
   ignore
     (expect_ok "ten dispatches yesterday"
        (eval ~mutate:(fires 10 ~at:(S.now -. 86_401.)) ()));
+  expect_fail "an unreadable dispatch count fails closed" Transient
+    (Indeterminate "internal")
+    (eval ~mutate:(fun e o -> S.overflow_dispatches e.db o) ());
   let expires value e (o : T.order) =
     Sql_util.exec_with_params e.db
       "UPDATE slack_standing_orders SET expires_at = ? WHERE id = ?"

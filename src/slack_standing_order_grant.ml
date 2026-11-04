@@ -358,29 +358,31 @@ let installation call (s : subject) =
     if field "app_id" (get "bot" info) <> s.api_app_id then refuse App_mismatch
     else Lwt.return (Ok (bot_user_id, bot_id, enterprise))
 
-(* Step 7. Room policy is not evaluated (Decision 7). *)
+(* Step 7, with [Grant_fire]'s share-flag rule ([Slack_huddles.channel_sharing])
+   so an order that confirms can also read its huddles: a reported share is
+   [Channel_shared] (hard), an unreported share state is indeterminate
+   (transient). Room policy is not evaluated (Decision 7). *)
 let posture call (sc : Runtime_config.slack_config) (s : subject) =
   let*! info =
     request call "conversations.info" [ ("channel", `String s.channel_id) ]
   in
   let channel = get "channel" info in
+  let private_policy () =
+    Slack_api.check_private_channel_policy ~config:sc ~channel_id:s.channel_id
+      ~is_private_opt:(Some (flag "is_private" channel))
+  in
   if field "id" channel <> s.channel_id || not (flag "is_member" channel) then
     refuse Bot_not_member
-  else if
-    not
-      (List.for_all
-         (fun key -> typed_bool key channel)
-         [ "is_private"; "is_shared"; "is_ext_shared" ])
-  then refuse (Indeterminate "conversations.info")
-  else if List.exists (fun key -> flag key channel) Slack_huddles.share_flags
-  then refuse Channel_shared
-  else if
-    not
-      (Slack_api.check_private_channel_policy ~config:sc
-         ~channel_id:s.channel_id
-         ~is_private_opt:(Some (flag "is_private" channel)))
-  then refuse Private_policy_denied
-  else Lwt.return (Ok ())
+  else
+    match Slack_huddles.channel_sharing channel with
+    | Slack_huddles.Shared -> refuse Channel_shared
+    | Slack_huddles.Sharing_unreported ->
+        refuse (Indeterminate "conversations.info")
+    | Slack_huddles.Not_shared ->
+        if not (typed_bool "is_private" channel) then
+          refuse (Indeterminate "conversations.info")
+        else if not (private_policy ()) then refuse Private_policy_denied
+        else Lwt.return (Ok ())
 
 let members_params ~channel_id cursor =
   [ ("channel", `String channel_id); ("limit", `Int page_size) ]

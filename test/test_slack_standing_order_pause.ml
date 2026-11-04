@@ -80,6 +80,10 @@ let test_receipt_copy () =
         P.Not_active { o with state = T.Cancelled },
         "Standing order SO-4 was cancelled; nothing to pause." );
       ("not found", P.Not_found 9, Render.not_found 9);
+      ( "unreadable",
+        P.Unreadable 9,
+        "Pause not applied: Slack did not answer reliably \
+         (standing_order_store); try again in a minute." );
       ( "refused",
         P.Refused Slack_standing_order_grant.Member_not_member,
         "Pause not applied: only members of this channel can pause its \
@@ -446,6 +450,90 @@ let test_pending_withdrawn () =
         (has_text env "<@U123> Standing order SO-1 was cancelled by <@U456>.");
       Lwt.return_unit)
 
+let store_refused =
+  P.Refused
+    (Slack_standing_order_grant.Member_indeterminate "standing_order_store")
+
+let warned logs needles =
+  List.exists
+    (fun (level, msg) ->
+      level = Logs.Warning && List.for_all (contains msg) needles)
+    logs
+
+let raw_state (env : F.env) (o : T.order) =
+  Sql_util.query_rows env.db
+    "SELECT state FROM slack_standing_orders WHERE id = ?"
+    ~bind:(fun stmt -> Sql_util.bind_params stmt [ Sqlite3.Data.TEXT o.id ])
+    ~of_stmt:(fun stmt -> Sql_util.text_column stmt 0)
+
+(* The button and the tool name a known order, so a store that can't be read
+   refuses with a reason; it never reads as "no such order". *)
+let test_store_failure_known_order () =
+  F.with_orders (fun env ->
+      let o = F.seed env () in
+      S.drop_order_column env.db;
+      let run source =
+        S.with_log_capture (fun () ->
+            P.run ~manager:env.base.manager ~team_id:"T123" ~app_id:"A123"
+              ~channel_id:"C123" ~user_id:"U456" ~target:(`Order o.id) ~source
+              ())
+      in
+      let* button, logs = run P.Button in
+      let* tool, _ = run P.Tool in
+      check_bool "button refused" true (button = store_refused);
+      check_bool "tool refused" true (tool = store_refused);
+      check_bool "warned with the real cause" true
+        (warned logs [ "pause of " ^ o.id; "no such column" ]);
+      check_string "the reason"
+        "Pause not applied: Slack did not answer reliably \
+         (standing_order_store); try again in a minute."
+        (P.receipt ~display_no:1 ~by:"U456" button);
+      check_bool "no member check" false (called env "users.info");
+      Alcotest.(check (list string))
+        "order untouched" [ "active" ] (raw_state env o);
+      Lwt.return_unit)
+
+(* Typed: whether SO-n exists here is unknown, so the command stays unanswered
+   as in Decision 20, with the cause logged at warn. *)
+let test_store_failure_typed () =
+  F.with_orders (fun env ->
+      let o = F.seed env () in
+      S.drop_order_column env.db;
+      let* ack, logs =
+        S.with_log_capture (fun () -> F.say env ~user:"U456" "pause SO-1")
+      in
+      check_string "acknowledged" "ok" ack;
+      check_bool "no post" false (called env "chat.postMessage");
+      check_bool "no member check" false (called env "users.info");
+      check_bool "consumed, no turn" true (!(env.seen) = []);
+      check_bool "warned with the real cause" true
+        (warned logs [ "pause of SO-1"; "no such column" ]);
+      check_bool "never logged as an empty channel" false
+        (List.exists
+           (fun (_, msg) -> contains msg "no standing orders in this channel")
+           logs);
+      Alcotest.(check (list string))
+        "order untouched" [ "active" ] (raw_state env o);
+      Lwt.return_unit)
+
+(* The Decision 20 check after a miss: a failed read is an error with its
+   cause, never "this channel has no orders". *)
+let test_has_orders_read_failure () =
+  F.with_orders (fun env ->
+      let _ = F.seed env () in
+      let route : Slack_thread_route.t =
+        { team = "T123"; app = "A123"; channel = "C123"; root = F.thread_root }
+      in
+      check_bool "readable" true
+        (P.channel_has_orders env.base.manager route = Ok true);
+      S.drop_order_column env.db;
+      (match P.channel_has_orders env.base.manager route with
+      | Error cause ->
+          check_bool ("the cause: " ^ cause) true
+            (contains cause "no such column")
+      | Ok has -> Alcotest.failf "a failed read answered %b" has);
+      Lwt.return_unit)
+
 let case name f = (name, `Quick, f)
 
 let suite =
@@ -470,4 +558,8 @@ let suite =
     case "get-only egress still pauses" test_get_only_egress;
     case "DMs and lookalikes fall through" test_lookalikes;
     case "pending order is withdrawn" test_pending_withdrawn;
+    case "store failure refuses a known order" test_store_failure_known_order;
+    case "store failure leaves a typed pause unanswered"
+      test_store_failure_typed;
+    case "a failed has-orders read is an error" test_has_orders_read_failure;
   ]

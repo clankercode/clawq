@@ -166,6 +166,32 @@ let fire db (o : T.order) ?state ?claim_until ?dispatched_at ?reposts ?relay_ts
   | Some f -> f
   | None -> Alcotest.fail ("S.fire: fire does not read back in room " ^ room)
 
+(* ---- Store read failures ---- *)
+
+(* Prepares, then fails at its first step ([abs] of the smallest integer
+   overflows), as a BUSY or IOERR read would. *)
+let overflow_sql = "SELECT abs(-9223372036854775807 - 1)"
+
+(* Every later read of an order row raises, while [Store.ensure_schema] and the
+   other tables (cards, snapshots, audit, ledger) keep working. *)
+let drop_order_column db =
+  Sql_util.exec_exn db
+    "ALTER TABLE slack_standing_orders DROP COLUMN api_app_id"
+
+(* Two of [o]'s fires dispatched a minute ago whose [1 + reposts] overflows
+   SUM, so the daily-cap read fails at step time, after a good prepare. *)
+let overflow_dispatches db (o : T.order) =
+  List.iter
+    (fun room ->
+      ignore (fire db o ~dispatched_at:(now -. 60.) ~room () : T.fire))
+    [ "R1"; "R2" ];
+  Sql_util.exec_exn db "PRAGMA ignore_check_constraints = ON";
+  Sql_util.exec_with_params db
+    "UPDATE slack_standing_order_fires SET reposts = 4611686018427387904 WHERE \
+     order_id = ?"
+    [ Sqlite3.Data.TEXT o.id ];
+  Sql_util.exec_exn db "PRAGMA ignore_check_constraints = OFF"
+
 (* ---- Config ---- *)
 
 (* An allow rule for [slack.com] at [path] ([method_] [None] = any method). *)

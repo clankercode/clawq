@@ -539,6 +539,34 @@ let test_codecs () =
          "SO-+3";
        ])
 
+let raises name f =
+  match f () with
+  | _ -> Alcotest.failf "%s: a failed read returned a result" name
+  | exception exn when Store.is_db_error exn -> ()
+
+(* A read that fails is an error, never "no rows" or a count of 0. *)
+let test_strict_reads () =
+  let db = S.fresh_db () in
+  raises "a failed step is not an empty result" (fun () ->
+      Store.query db S.overflow_sql [] (fun _ -> ()));
+  raises "a failed aggregate is not 0" (fun () ->
+      Store.int_query db S.overflow_sql []);
+  let o = S.seed db () in
+  S.overflow_dispatches db o;
+  raises "dispatches_since" (fun () ->
+      Store.dispatches_since db ~order_id:o.id ~since:0.);
+  ignore (S.seed db ~channel:"C999" ~state:T.Pending_confirmation () : T.order);
+  S.drop_order_column db;
+  raises "find" (fun () -> Store.find db o.id);
+  raises "find_by_display" (fun () ->
+      Store.find_by_display db ~team_id:"T123" ~channel_id:"C123" 1);
+  raises "channel_has_orders" (fun () ->
+      Store.channel_has_orders db ~team_id:"T123" ~api_app_id:"A123"
+        ~channel_id:"C123");
+  raises "list" (fun () -> Store.list db ());
+  check_int "expire_pending logs a failed read and never raises" 0
+    (Store.expire_pending db ~now:(S.now +. 601.))
+
 let suite =
   [
     S.case "display numbers" test_display_numbers;
@@ -561,6 +589,7 @@ let suite =
     S.case "fire uniqueness" test_fire_uniqueness;
     S.case "fires newest first" test_fires_newest_first;
     S.case "dispatch window" test_dispatch_window;
+    S.case "a failed read is never empty" test_strict_reads;
     S.case "cards" test_cards;
     S.case "undecodable rows" test_undecodable_rows;
     S.case "instruction validation counts code points"

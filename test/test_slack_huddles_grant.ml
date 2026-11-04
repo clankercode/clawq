@@ -72,6 +72,20 @@ let expect_refusal label ~needle result =
   | Error reason ->
       check_bool (label ^ ": " ^ reason) true (contains reason needle)
 
+(* A definite share (hard) and an unreported share state (transient) read
+   differently. *)
+let unreported = "did not report"
+
+let expect_shared label result =
+  expect_refusal label ~needle:"shared" result;
+  match result with
+  | Error reason ->
+      check_bool
+        (label ^ ": not the unreported text")
+        false
+        (contains reason unreported)
+  | Ok _ -> ()
+
 let test_pinned_channel () =
   with_fixture (fun f ->
       unshared f;
@@ -131,7 +145,7 @@ let test_shared_denied () =
           in
           f.calls := [];
           let* result = authorize f (grant f) in
-          expect_refusal (key ^ " grant") ~needle:"shared" result;
+          expect_shared (key ^ " grant") result;
           check_bool "no member paging" false (called f "conversations.members");
           Lwt.return_unit))
     share_flags
@@ -147,9 +161,50 @@ let test_unreported_share_state () =
       in
       f.calls := [];
       let* result = authorize f (grant f) in
-      expect_refusal "missing share flags" ~needle:"shared" result;
+      expect_refusal "missing share flags" ~needle:unreported result;
       check_bool "no member paging" false (called f "conversations.members");
+      (* A reported share outranks the unreported flags. *)
+      channel_flag f "is_shared";
+      let* result = authorize f (grant f) in
+      expect_shared "shared, other flags unreported" result;
       Lwt.return_unit)
+
+(* The one rule Grant_fire and every standing-order evaluation share. *)
+let test_channel_sharing () =
+  let name = function
+    | Slack_huddles.Not_shared -> "not shared"
+    | Slack_huddles.Shared -> "shared"
+    | Slack_huddles.Sharing_unreported -> "unreported"
+  in
+  let all_false = List.map (fun k -> (k, `Bool false)) share_flags in
+  let with_flags edits =
+    `Assoc
+      (List.filter (fun (k, _) -> not (List.mem_assoc k edits)) all_false
+      @ edits)
+  in
+  List.iter
+    (fun (label, channel, want) ->
+      Alcotest.(check string)
+        label want
+        (name (Slack_huddles.channel_sharing channel)))
+    ([
+       ("all four reported false", with_flags [], "not shared");
+       ( "only is_ext_shared reported",
+         `Assoc [ ("is_ext_shared", `Bool false) ],
+         "unreported" );
+       ( "is_org_shared missing",
+         `Assoc (List.remove_assoc "is_org_shared" all_false),
+         "unreported" );
+       ( "is_pending_ext_shared a string",
+         with_flags [ ("is_pending_ext_shared", `String "false") ],
+         "unreported" );
+       ( "is_shared true, is_org_shared missing",
+         `Assoc [ ("is_shared", `Bool true) ],
+         "shared" );
+     ]
+    @ List.map
+        (fun k -> (k ^ " true", with_flags [ (k, `Bool true) ], "shared"))
+        share_flags)
 
 let test_no_admin_override () =
   with_fixture (fun f ->
@@ -204,6 +259,7 @@ let cases =
     ("grantor is the reader, not a requester", test_grantor_not_requester);
     ("shared denied", test_shared_denied);
     ("unreported share state denied", test_unreported_share_state);
+    ("one share-flag rule", test_channel_sharing);
     ("no admin override", test_no_admin_override);
     ("guest grantor refused", test_guest_grantor);
     ("team pinned", test_team_pinned);

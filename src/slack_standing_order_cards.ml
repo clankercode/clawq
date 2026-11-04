@@ -321,10 +321,19 @@ let apply_confirm c (v : Grant.validated) (o : T.order) ~action_ts ~plan_id
            (Setup_plan_apply.string_of_reject_reason reason))
   | Applied { first_time = false; _ } -> ignored "the plan was already applied"
   | Applied { first_time = true; _ } ->
+      (* After the commit a failed read must not skip the notice (an order
+         nobody was told about must pause), so it falls back to the row the
+         transaction wrote. *)
+      let committed () = Option.value !activated ~default:o in
       let active =
         match Store.find c.db o.id with
         | Some fresh -> fresh
-        | None -> Option.value !activated ~default:o
+        | None -> committed ()
+        | exception exn when Store.is_db_error exn ->
+            Logs.warn (fun m ->
+                m "standing-order %s re-read after confirm failed: %s" o.id
+                  (Printexc.to_string exn));
+            committed ()
       in
       use_card c;
       ledger c ~event_type:"standing_order_confirmed" active;

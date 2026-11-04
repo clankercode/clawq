@@ -110,6 +110,19 @@ type authority =
 let share_flags =
   [ "is_ext_shared"; "is_shared"; "is_org_shared"; "is_pending_ext_shared" ]
 
+type sharing = Not_shared | Shared | Sharing_unreported
+
+(* The one share-flag rule for grant authority, used by every [Grant_fire] read
+   here and by every standing-order evaluation: any flag reported true is
+   sharing (a hard deny); otherwise each flag must be a reported [false], and a
+   missing or untyped one leaves the state unknown (transient), never "not
+   shared". *)
+let channel_sharing channel =
+  let flags = List.map (fun key -> get key channel) share_flags in
+  if List.mem (`Bool true) flags then Shared
+  else if List.for_all (( = ) (`Bool false)) flags then Not_shared
+  else Sharing_unreported
+
 let authorize ~check ~http ~authority ~channel_id =
   let config, origin, user, grant =
     match authority with
@@ -239,8 +252,9 @@ let authorize ~check ~http ~authority ~channel_id =
                 with
                 | Room_policy.Denied reason -> fail reason
                 (* A grant needs typed [false] flags: a guest grantor or any
-                   sharing, even unreported, is a hard deny whatever the room
-                   policy says. *)
+                   sharing is a deny whatever the room policy says, and an
+                   unreported share state ([channel_sharing]) is refused too,
+                   with its own text. *)
                 | _
                   when is_grant
                        && (get "is_restricted" human <> `Bool false
@@ -248,15 +262,17 @@ let authorize ~check ~http ~authority ~channel_id =
                     fail
                       "Grant authority needs a full (non-guest) member as \
                        grantor; no content was read."
-                | _
-                  when is_grant
-                       && List.exists
-                            (fun key -> get key channel <> `Bool false)
-                            share_flags ->
+                | _ when is_grant && channel_sharing channel = Shared ->
                     fail
-                      "Grant authority refuses shared channels (or channels \
-                       whose sharing state Slack did not report); no content \
-                       was read."
+                      "Grant authority refuses shared channels; no content was \
+                       read."
+                | _
+                  when is_grant && channel_sharing channel = Sharing_unreported
+                  ->
+                    fail
+                      "Slack did not report whether this channel is shared, so \
+                       grant authority refuses it for now; try again later. No \
+                       content was read."
                 | Room_policy.Proceed | Room_policy.Proceed_with_warning _
                 | Room_policy.Denied_admin_override _ ->
                     let rec members cursor pages =

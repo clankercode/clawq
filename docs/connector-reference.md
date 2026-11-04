@@ -599,7 +599,9 @@ calls from the CLI process too.
 
 - **Create.** The create tool re-validates the grant (target allowlisted, a bot
   and a channel member; clawq a member; channel not shared with another org and
-  without guests; creator policy; all three capability names; no other live
+  without guests (Slack must report all four share flags as false: a share
+  state it leaves out is refused as temporary, so try again later); creator
+  policy; all three capability names; no other live
   order for this channel and target) and posts a code-rendered confirm card in
   the request's thread: when, do, the instruction in full as inert plain text,
   what happens with no transcript, who it runs as, spoken requests, privacy,
@@ -637,11 +639,14 @@ calls from the CLI process too.
   too, and never starts a turn. Slackbot messages never pause. Pausing a
   pending order withdraws it. Every pause ends in a code-rendered receipt or
   reason in the thread, and the grantor is notified. The one exception is a
-  typed `pause SO-n` in a channel with no standing order at all: it is consumed
-  and logged with no Slack post, so clawq never speaks in a channel no grant
-  check admitted. Huddles that become ready while an order is paused are never
-  relayed, even after a resume. Pause messages sent while the daemon is down or
-  shutting down are not seen.
+  typed `pause SO-n` in a channel with no standing order at all, or when clawq
+  can't read its standing orders (logged as a warning with the cause): it is
+  consumed and logged with no Slack post, so clawq never speaks in a channel no
+  grant check admitted. A button or tool pause that hits an unreadable store
+  gets a "Pause not applied" reason instead, and the order is unchanged.
+  Huddles that become ready while an order is paused are never relayed, even
+  after a resume. Pause messages sent while the daemon is down or shutting down
+  are not seen.
 
 Management replies, receipts and notices are fixed templates with ids and
 enumerated reasons. They never quote Slack error bodies, display names or file

@@ -582,6 +582,39 @@ let test_pause_llm_down () =
       check_bool "no provider call" true (!(env.seen) = []);
       Lwt.return_unit)
 
+(* The button's order is known, so a store that can't be read gets the
+   refusal, never "There is no standing order". The click is built directly:
+   binding reads the order too, and an unbound click is ignored. *)
+let test_pause_store_failure () =
+  F.with_orders (fun env ->
+      let* o, button = confirmed env in
+      S.drop_order_column env.db;
+      let before = List.length !(env.posted) in
+      let* () =
+        Slack_standing_order_cards.pause
+          {
+            Slack_standing_order_cards.manager = env.base.manager;
+            db = env.db;
+            now = S.now;
+            card = button;
+            order = o;
+            clicker = "U456";
+            message_ts = posted_ts button;
+            action_ts = None;
+          }
+      in
+      Alcotest.(check (list string))
+        "one refusal receipt"
+        [
+          Slack_standing_order_pause.receipt ~display_no:1 ~by:"U456"
+            (Slack_standing_order_pause.Refused
+               (G.Member_indeterminate "standing_order_store"));
+        ]
+        (List.filteri (fun i _ -> i >= before) (F.texts env));
+      check_bool "never not-found" false
+        (mentions env "There is no standing order");
+      Lwt.return_unit)
+
 (* ---- Activation notice ---- *)
 
 let test_notice_failure () =
@@ -637,5 +670,6 @@ let suite =
       ("pause button any member", test_pause_any_member);
       ("pause button refusal", test_pause_refusal);
       ("pause button with the llm down", test_pause_llm_down);
+      ("pause button store failure refuses", test_pause_store_failure);
       ("activation notice failure pauses the order", test_notice_failure);
     ]
