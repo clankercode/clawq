@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-11-05T00:55:22Z"
+depends_on: []
+estimate_hours: 1
+id: B845
+priority: high
+status: pending
+tags: []
+title: 'Slack: empty final reply posts ''Sorry, an error occurred: chat.postMessage: no_text'''
+updated_at: "2026-11-05T00:55:22Z"
+---
+2026-11-05 11:41:19 #core-sync huddle thread 1793836939.367439: after 'Task queued. Stop applies only to this request.', clawq posted 'Sorry, an error occurred processing your message: Failure("chat.postMessage: no_text")' (daemon.log ERROR 'Slack agent error ... user=U0CA6TRSEN6'). A turn that ends with empty text must not call chat.postMessage with empty text; it should post nothing (or a short explicit no-output note) and never surface a raw Failure to the channel. Also seen in the same thread: the 'Task finished.' status edit lands before the next 'Working…', which reads out of order.
