@@ -84,6 +84,7 @@ let all_suites =
     ("ambient_inspection", Test_ambient_inspection.suite);
     ("room_progress", Test_room_progress.suite);
     ("session", Test_session.suite);
+    ("session_turn_drain", Test_session_turn_drain.suite);
     ("session_key_canonicalization", Test_session_key_canonicalization.suite);
     ("legacy_session_keys", Test_legacy_session_keys.suite);
     ("session_observer", Test_session_observer.suite);
