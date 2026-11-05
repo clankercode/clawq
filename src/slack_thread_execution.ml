@@ -13,16 +13,30 @@ let requester (route : Slack_thread_route.t) (q : Session_types.queued_message)
         "Native Slack request lacks original verified human/message/room \
          provenance; retained"
 
+(** A retained reason can reach the requester (see [Slack_api.error_reply_for]),
+    so it is the exception's own message, never OCaml's printed form. *)
+let retained_reason = function
+  | Session_queue.Request_retained reason
+  | Failure reason
+  | Slack_thread_api.Delivery_denied reason ->
+      reason
+  | exn ->
+      Logs.warn (fun m ->
+          m "Slack task preparation failed: %s" (Printexc.to_string exn));
+      "Slack task preparation failed; request retained"
+
 let notify manager route text =
-  let* _ =
-    Slack_thread_api.call_current_exn ~manager ~route "chat.postMessage"
-      [
-        ("channel", `String route.Slack_thread_route.channel);
-        ("thread_ts", `String route.root);
-        ("text", `String text);
-      ]
-  in
-  Lwt.return_unit
+  Slack_api.skip_blank ~channel_id:route.Slack_thread_route.channel
+    ~what:"thread reply" text (fun () ->
+      let* _ =
+        Slack_thread_api.call_current_exn ~manager ~route "chat.postMessage"
+          [
+            ("channel", `String route.Slack_thread_route.channel);
+            ("thread_ts", `String route.root);
+            ("text", `String text);
+          ]
+      in
+      Lwt.return_unit)
 
 let execute manager ~key ~(message : Session_types.queued_message) ~run =
   match Slack_thread_route.of_key key with
@@ -96,7 +110,7 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                           Lwt.return (Ok classification))
                         (function
                           | Lwt.Canceled -> Lwt.fail Lwt.Canceled
-                          | exn -> Lwt.return (Error (Printexc.to_string exn)))
+                          | exn -> Lwt.return (Error (retained_reason exn)))
                     in
                     match started with
                     | Error _ when r.stopped ->

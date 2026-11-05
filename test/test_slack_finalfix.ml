@@ -352,8 +352,10 @@ let test_prepared ?(interruption = "") mode denied () =
             check_bool "fresh refusal reports current policy" true
               (List.exists
                  (fun (m, p) ->
+                   let text = Slack_huddles.field "text" p in
                    m = "chat.postMessage"
-                   && contains (Slack_huddles.field "text" p) "fix3 shared role")
+                   && contains text "fix3 shared role"
+                   && not (contains text "Request_retained"))
                  !calls);
           Lwt.return_unit))
 
