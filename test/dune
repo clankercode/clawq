@@ -343,6 +343,9 @@
   test_slack_standing_order_pickup
   test_slack_standing_order_slack
   test_slack_file_upload
+  test_slack_canvas
+  test_slack_final_text
+  test_slack_reply_delivery
   test_slack_standing_order_upload
   test_slack_standing_order_grant
   test_slack_standing_order_grant_support

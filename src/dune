@@ -561,6 +561,9 @@
   slack_standing_order_store
   slack_standing_order_slack
   slack_file_upload
+  slack_canvas
+  slack_final_text
+  slack_reply_delivery
   slack_standing_order_upload
   slack_standing_order_grant
   slack_standing_order_target
