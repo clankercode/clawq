@@ -84,17 +84,34 @@ let observe e event =
          ("event", event);
        ])
 
-let test_pass () =
+let test_pass ?(sentinel = fun _ -> ()) () =
   with_env (fun e ->
       setup e;
       enable_transcript e;
-      let e =
+      let cfg = Session.get_config e.manager in
+      let config =
         {
-          e with
-          manager =
-            Session.create ~config:(Session.get_config e.manager) ~db:e.db ();
+          cfg with
+          providers =
+            [
+              ( "executor-fixture",
+                {
+                  Runtime_config.default_provider_config with
+                  api_key = "fixture";
+                  kind = Some "openai-compat";
+                  base_url = Some "http://provider.invalid";
+                  default_model = Some "fixture-model";
+                } );
+            ];
+          agent_defaults =
+            {
+              cfg.agent_defaults with
+              primary_model = "executor-fixture:fixture-model";
+            };
         }
       in
+      sentinel config;
+      let e = { e with manager = Session.create ~config ~db:e.db () } in
       let ingress event =
         Lwt_main.run
           (let+ _ =
@@ -156,42 +173,63 @@ let test_provider () =
   and streams = !Provider.native_stream in
   let calls = ref 0 in
   Provider.native_complete :=
-    List.map
-      (fun (kind, _) ->
-        ( kind,
-          fun ~config:_
-            ~provider:_
-            ~model:_
-            ~messages:_
-            ?tools:_
-            ?session_key:_
-            ()
-          ->
-            incr calls;
-            Lwt.fail_with "executor called Provider" ))
-      previous;
+    ( Provider.OpenAICompat,
+      fun ~config:_
+        ~provider:_
+        ~model:_
+        ~messages:_
+        ?tools:_
+        ?session_key:_
+        ()
+      ->
+        incr calls;
+        Lwt.fail_with "executor called Provider" )
+    :: previous;
   Provider.native_stream :=
-    List.map
-      (fun (kind, _) ->
-        ( kind,
-          fun ~config:_
-            ~provider:_
-            ~model:_
-            ~messages:_
-            ?tools:_
-            ?session_key:_
-            ~on_chunk:_
-            ()
-          ->
-            incr calls;
-            Lwt.fail_with "executor streamed Provider" ))
-      streams;
+    ( Provider.OpenAICompat,
+      fun ~config:_
+        ~provider:_
+        ~model:_
+        ~messages:_
+        ?tools:_
+        ?session_key:_
+        ~on_chunk:_
+        ()
+      ->
+        incr calls;
+        Lwt.fail_with "executor streamed Provider" )
+    :: streams;
   Fun.protect
     ~finally:(fun () ->
       Provider.native_complete := previous;
       Provider.native_stream := streams)
     (fun () ->
-      test_pass ();
+      let sentinel config =
+        let name, provider, model = Provider.select_provider ~config () in
+        Alcotest.(check string)
+          "explicit fixture selected" "executor-fixture" name;
+        Alcotest.(check string) "fixture model selected" "fixture-model" model;
+        check "selected native counter registered" true
+          (Provider.detect_kind ~name provider = Provider.OpenAICompat);
+        let fails work =
+          Lwt_main.run
+            (Lwt.catch
+               (fun () ->
+                 let+ _ = work () in
+                 false)
+               (function Failure _ -> Lwt.return_true | exn -> Lwt.fail exn))
+        in
+        check "completion sentinel reachable" true
+          (fails (fun () -> Provider.complete ~config ~messages:[] ()));
+        check "stream sentinel reachable" true
+          (fails (fun () ->
+               Provider.complete_stream ~config ~messages:[]
+                 ~on_chunk:(fun _ -> Lwt.return_unit)
+                 ()));
+        Alcotest.(check int) "both sentinels invoked" 2 !calls;
+        calls := 0
+      in
+      test_pass ~sentinel ();
       Alcotest.(check int) "zero Provider calls" 0 !calls)
 
 let test_reload () =
@@ -260,7 +298,7 @@ let test_capabilities ~reload () =
                 Report.Authority_refused
                   (Slack_standing_order_grant.Tool_denied name)
               in
-              if queued then seed_report e cause;
+              if queued then seed_report e Report.No_pickup;
               let changed = ref false and uploads = ref 0 in
               let deny () =
                 changed := true;
@@ -290,14 +328,21 @@ let test_capabilities ~reload () =
                    e);
               Alcotest.(check int) "zero subsequent raw uploads" 0 !uploads;
               check "deny applied" true !changed;
+              let suspended = Option.get (Store.find e.db e.order.id) in
               check "epoch-safe suspension" true
-                ((Option.get (Store.find e.db e.order.id)).state = T.Suspended);
+                (suspended.state = T.Suspended
+                && suspended.epoch = e.order.epoch + 1);
               Alcotest.(check int)
                 "zero subsequent Slack calls" 0
                 (List.length !(e.mock.calls));
               Alcotest.(check (list (pair string string)))
                 "one inspectable local notification"
-                [ (Report.cause_key cause, "local_only") ]
+                (List.sort compare
+                   ((Report.cause_key cause, "local_only")
+                   ::
+                   (if queued then
+                      [ (Report.cause_key Report.No_pickup, "local_only") ]
+                    else [])))
                 (Report.statuses ~db:e.db ~order_id:e.order.id);
               Session.update_config e.manager (S.config ());
               Lwt_main.run (pass e);
@@ -545,6 +590,11 @@ let test_worker_drain () =
              check "complete was dispatched" true !dispatched;
              let stopped = E.stop () in
              check "stop waits for receipt" true (Lwt.is_sleeping stopped);
+             let before = Option.get (runtime e (one_fire e).id).claim in
+             let* () = W.advance c 30. in
+             check "outstanding complete retains renewal during drain" true
+               ((Option.get (runtime e (one_fire e).id).claim).until
+              > before.until);
              Lwt.wakeup wake ();
              let* () = stopped in
              let r = runtime e (one_fire e).id in
@@ -793,8 +843,10 @@ let test_outcome_reports () =
 
 let suite =
   Test_slack_standing_order_fetch.suite @ Test_slack_standing_order_worker.suite
+  @ Test_slack_standing_order_exec_review.suite
   @ [
-      S.case "daemon event to relay to pickup without Provider" test_pass;
+      S.case "daemon event to relay to pickup without Provider" (fun () ->
+          test_pass ());
       S.case "fire path never calls Provider" test_provider;
       S.case "every executor call site is covered by an egress rule" test_egress;
       S.case "reload kill switch target and profile gate next dispatch"

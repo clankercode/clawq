@@ -206,7 +206,10 @@ let cancel p =
   Lwt.cancel p;
   settled p
 
-let with_lease ~ctx ~db ~fire_id work =
+let with_lease ~ctx ~db ?renew_wait ~fire_id work =
+  (* Drain cancels operation waits, but outstanding completion requests retain
+     their renewable lease until their receipt has settled. *)
+  let renew_wait = Option.value renew_wait ~default:ctx.Ctx.wait in
   match
     Store.claim db ~fire_id
       ~owner:(Store.new_id ~prefix:"executor")
@@ -227,7 +230,7 @@ let with_lease ~ctx ~db ~fire_id work =
       in
       let local = { ctx with Ctx.accepting } in
       let rec renew () =
-        let* () = ctx.wait ~seconds:30. in
+        let* () = renew_wait ~seconds:30. in
         match Store.renew db ~fire_id ~lease:!latest ~now:(ctx.now ()) with
         | Ok (Some lease) ->
             latest := lease;

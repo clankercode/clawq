@@ -188,15 +188,17 @@ let capabilities_allowed (config : Runtime_config.t) ~channel_id =
         | Tool_authz.Denied _ -> false)
       Grant.capability_names
 
-let post_once ~(ctx : Ctx.t) ~db ~manager ?http ?fire_id (order : T.order) cause
-    =
+let post_once ~(ctx : Ctx.t) ~db ~manager ?http ?fire_id ?period
+    (order : T.order) cause =
   init db;
   (* Reload the immutable management route and grantor from persistence. *)
   match Store.find db order.id with
   | None -> Lwt.return_unit
   | Some o -> (
       let key = cause_key cause in
-      let period = period_key ~now:(ctx.now ()) cause in
+      let period =
+        Option.value period ~default:(period_key ~now:(ctx.now ()) cause)
+      in
       let identity = [ SQL.text o.id; SQL.text key; SQL.text period ] in
       SQL.exec db
         "INSERT INTO \

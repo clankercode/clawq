@@ -17,6 +17,7 @@ type wait = Ctx.wait
 let default_wait = Ctx.default_wait
 
 exception Stop
+exception Tracking_refused of T.order * Grant.failure
 
 let current db fire_id =
   match Store.runtime db ~fire_id with Some r -> r | None -> raise Stop
@@ -644,7 +645,7 @@ let track ~ctx ~db ~manager ?http (r : Store.fire_runtime) (order : T.order) =
   in
   accepting ctx;
   match result with
-  | Error _ -> raise Stop
+  | Error failure -> Lwt.fail (Tracking_refused (order, failure))
   | Ok v ->
       let call method_ params =
         accepting ctx;
@@ -932,6 +933,7 @@ let reconcile ~ctx ~db ~manager ?http ?upload_http ?(allow_new = true) ~lease
               (current db fire_id) payload
   in
   Lwt.catch run (function
+    | Tracking_refused _ as exn -> Lwt.fail exn
     | Lwt.Canceled -> Lwt.fail Lwt.Canceled
     | _ -> Lwt.return_unit)
 

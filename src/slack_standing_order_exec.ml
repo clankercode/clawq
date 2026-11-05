@@ -78,14 +78,15 @@ let pending_reports ~ctx ~db ~manager ?http (order : T.order) =
   else
     let rows =
       Sql.query db
-        "SELECT cause_key,fire_id FROM slack_standing_order_reports WHERE \
-         order_id=? AND status='pending'"
+        "SELECT cause_key,fire_id,period_key FROM slack_standing_order_reports \
+         WHERE order_id=? AND status='pending'"
         [ Sql.text order.id ]
         (fun s ->
           ( Sql_util.text_column s 0,
-            match Sqlite3.column s 1 with
+            (match Sqlite3.column s 1 with
             | Sqlite3.Data.TEXT s -> Some s
-            | _ -> None ))
+            | _ -> None),
+            Sql_util.text_column s 2 ))
     in
     let causes =
       Report.
@@ -119,11 +120,12 @@ let pending_reports ~ctx ~db ~manager ?http (order : T.order) =
           else None
     in
     Lwt_list.iter_s
-      (fun (key, fire_id) ->
+      (fun (key, fire_id, period) ->
         match decode key with
         | None -> Lwt.return_unit
         | Some cause ->
-            Report.post_once ~ctx ~db ~manager ?http ?fire_id order cause)
+            Report.post_once ~ctx ~db ~manager ?http ?fire_id ~period order
+              cause)
       rows
 
 let report_order ~ctx ~db ~manager ?http (original : T.order) =
@@ -180,9 +182,9 @@ let account ~db ~(order : T.order) ~now =
            ~by:"automatic_failures" ~now)
   | _ -> ()
 
-let process_fire ~ctx ~db ~manager ?http ?upload_http ~allow_new (fire : T.fire)
-    =
-  with_lease ~ctx ~db ~fire_id:fire.id (fun ctx lease ->
+let process_fire ~ctx ~db ~manager ?http ?upload_http ?renew_wait ~allow_new
+    (fire : T.fire) =
+  with_lease ~ctx ~db ?renew_wait ~fire_id:fire.id (fun ctx lease ->
       let current () = Dispatch.current db fire.id in
       let* () =
         if not (ctx.Ctx.accepting ()) then Lwt.return_unit
@@ -245,8 +247,8 @@ let process_fire ~ctx ~db ~manager ?http ?upload_http ~allow_new (fire : T.fire)
 
 let channel_locks = Hashtbl.create 8
 
-let pass ~ctx ~db ~manager ?http ?upload_http ?orders ?roots ?(held = [])
-    ?(read_only = []) () =
+let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
+    ?(held = []) ?(read_only = []) () =
   Pickup.init db;
   let orders =
     Option.value orders ~default:(Store.list db ~include_cancelled:true ())
@@ -292,10 +294,21 @@ let pass ~ctx ~db ~manager ?http ?upload_http ?orders ?roots ?(held = [])
                             Lwt.catch
                               (fun () ->
                                 process_fire ~ctx ~db ~manager ?http
-                                  ?upload_http
+                                  ?upload_http ?renew_wait
                                   ~allow_new:(not (List.mem fire.id read_only))
                                   fire)
                               (function
+                                | Dispatch.Tracking_refused (tracked, failure)
+                                  ->
+                                    if failure.Grant.cls = Grant.Hard then
+                                      ignore
+                                        (Store.suspend_if_epoch db
+                                           ~order_id:tracked.T.id
+                                           ~epoch:tracked.epoch
+                                           ~reason:
+                                             (Grant.reason_code failure.reason)
+                                           ~now:(ctx.now ()));
+                                    Lwt.return_unit
                                 | Dispatch.Stop | Lwt.Canceled ->
                                     Lwt.return_unit
                                 | exn -> Lwt.fail exn))
@@ -367,28 +380,28 @@ let start ~ctx ~db ~manager ?http ?upload_http () =
         }
       in
       let accepting () = w.running && ctx.Ctx.accepting () in
-      let wait ~seconds =
-        let timer = ctx.wait ~seconds in
+      let cancellable pending =
         Lwt.finalize
-          (fun () -> Lwt.pick [ timer; Lwt.protected drain ])
-          (fun () -> cancel timer)
+          (fun () ->
+            Lwt.pick
+              [
+                pending;
+                (let* () = Lwt.protected drain in
+                 Lwt.fail Lwt.Canceled);
+              ])
+          (fun () -> cancel pending)
       in
+      let wait ~seconds = cancellable (ctx.wait ~seconds) in
       let local =
         {
           ctx with
           Ctx.accepting;
+          wait;
           limit =
             (fun ~channel_id ->
               if not (accepting ()) then Lwt.fail Lwt.Canceled
               else
-                let* () =
-                  Lwt.pick
-                    [
-                      ctx.limit ~channel_id;
-                      (let* () = Lwt.protected drain in
-                       Lwt.fail Lwt.Canceled);
-                    ]
-                in
+                let* () = cancellable (ctx.limit ~channel_id) in
                 if accepting () then Lwt.return_unit else Lwt.fail Lwt.Canceled);
         }
       in
@@ -396,11 +409,24 @@ let start ~ctx ~db ~manager ?http ?upload_http () =
       let rows () =
         List.concat_map
           (fun (o : T.order) ->
-            L.list_rows ~db ~team:o.team_id ~channel:o.channel_id)
+            L.list_rows ~db ~team:o.team_id ~channel:o.channel_id
+            |> List.map (fun r -> (o, r)))
           (orders ())
       in
-      let baseline = ref (rows ()) in
-      let roots = ref [] in
+      (* Provenance belongs to the installation/channel/root, never to a
+         mutable row snapshot. Replays and late ready hints cannot promote a
+         pre-start root, even if its ledger row is replaced or pruned. *)
+      let started_at = ctx.now () in
+      let origins = Hashtbl.create 32 in
+      let keys (o : T.order) (r : L.row) =
+        List.filter_map Fun.id
+          [ r.root_ts; r.notes_thread_ts; r.thread_root_ts; r.canvas_thread_ts ]
+        |> List.map (fun ts -> (o.team_id, o.api_app_id, o.channel_id, ts))
+      in
+      List.iter
+        (fun (o, r) ->
+          List.iter (fun key -> Hashtbl.replace origins key false) (keys o r))
+        (rows ());
       let persisted =
         List.concat_map
           (fun (o : T.order) ->
@@ -424,15 +450,24 @@ let start ~ctx ~db ~manager ?http ?upload_http () =
       in
       w.collect <-
         (fun () ->
-          let current = rows () in
           List.iter
-            (fun (r : L.row) ->
-              if not (List.mem r !baseline) then
-                match (r.root_ts, r.notes_thread_ts) with
-                | Some ts, _ | _, Some ts -> roots := ts :: !roots
-                | _ -> ())
-            current;
-          baseline := current);
+            (fun (o, (r : L.row)) ->
+              let keys = keys o r in
+              let eligible =
+                accepting () && r.source = "event"
+                && r.first_seen_at >= started_at
+                && not
+                     (List.exists
+                        (fun key -> Hashtbl.find_opt origins key = Some false)
+                        keys)
+              in
+              List.iter
+                (fun key ->
+                  if not eligible then Hashtbl.replace origins key false
+                  else if not (Hashtbl.mem origins key) then
+                    Hashtbl.add origins key eligible)
+                keys)
+            (rows ()));
       let tick () =
         let all = orders () in
         let channels =
@@ -446,16 +481,27 @@ let start ~ctx ~db ~manager ?http ?upload_http () =
                 Lwt.finalize
                   (fun () ->
                     let* () = Lwt.pause () in
-                    pass ~ctx:local ~db ~manager ?http ?upload_http
-                      ~roots:!roots ~held ~read_only
-                      ~orders:
-                        (List.filter
-                           (fun (o : T.order) -> o.channel_id = channel)
-                           all)
-                      ())
+                    Lwt_list.iter_s
+                      (fun (order : T.order) ->
+                        let roots =
+                          Hashtbl.to_seq origins |> List.of_seq
+                          |> List.filter_map
+                               (fun ((team, app, ch, ts), eligible) ->
+                                 if
+                                   eligible && team = order.team_id
+                                   && app = order.api_app_id
+                                   && ch = order.channel_id
+                                 then Some ts
+                                 else None)
+                        in
+                        pass ~ctx:local ~db ~manager ?http ?upload_http
+                          ~renew_wait:ctx.wait ~roots ~held ~read_only
+                          ~orders:[ order ] ())
+                      (List.filter
+                         (fun (o : T.order) -> o.channel_id = channel)
+                         all))
                   (fun () ->
                     Hashtbl.remove w.jobs channel;
-                    baseline := rows ();
                     Lwt.return_unit)
               in
               Hashtbl.add w.jobs channel job;
