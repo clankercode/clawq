@@ -27,7 +27,7 @@ type cause =
   | Authority_refused of Grant.reason
 
 let method_code s =
-  if List.mem_assoc s SO.methods then s
+  if List.mem s SO.operations then s
   else invalid_arg "standing-order report: invalid method code"
 
 let window_code s =

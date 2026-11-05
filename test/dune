@@ -326,6 +326,7 @@
   test_slack_standing_order_fetch
   test_slack_standing_order_worker
   test_slack_standing_order_exec_review
+  test_slack_standing_order_final_fix
   test_slack_standing_order_exec
   test_slack_standing_order_config
   test_slack_standing_order_support

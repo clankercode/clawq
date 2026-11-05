@@ -526,6 +526,34 @@ let rate_wait db (r : Store.fire_runtime) =
        ~some:(fun (a : Store.relay_attempt) -> a.rate_limited_at <> None)
        (Store.attempt r 0)
 
+let terminal_tracking (r : Store.fire_runtime) =
+  r.fire.dispatched_at <> None
+  && (List.mem r.fire.state
+        T.
+          [
+            Picked_up;
+            No_pickup;
+            Not_delivered;
+            Failed;
+            Denied;
+            Skipped_cap;
+            Skipped_inactive;
+          ]
+     || r.fire.state = T.Acknowledged
+        && r.fire.reason = Some "acknowledged_no_reply")
+
+let tracking_poll_seconds = 300.
+
+let queued db ~order_id =
+  init db;
+  Store.query db
+    "SELECT DISTINCT f.id FROM slack_standing_order_observations o JOIN \
+     slack_standing_order_fires f ON f.id=o.fire_id WHERE f.order_id=? ORDER \
+     BY f.rowid"
+    [ Store.text order_id ]
+    (fun s -> Sql_util.text_column s 0)
+  |> List.filter_map (fun fire_id -> Store.runtime db ~fire_id)
+
 let schedule db (r : Store.fire_runtime) ~complete ~now =
   let current = Store.attempt r r.current_attempt in
   let start =
@@ -535,6 +563,7 @@ let schedule db (r : Store.fire_runtime) ~complete ~now =
   let pending due =
     Some (if due > now then due else now +. Store.renewal_seconds)
   in
+  let poll = Some (now +. tracking_poll_seconds) in
   if rate_wait db r then
     let due =
       Option.get (Option.get (Store.attempt r 0)).rate_limited_at +. 300.
@@ -549,7 +578,7 @@ let schedule db (r : Store.fire_runtime) ~complete ~now =
               r with
               fire =
                 { r.fire with state = T.No_pickup; reason = Some "no_pickup" };
-              next_attempt_at = None;
+              next_attempt_at = poll;
             }
         | Some due -> { r with next_attempt_at = pending due }
         | None -> r)
@@ -566,11 +595,11 @@ let schedule db (r : Store.fire_runtime) ~complete ~now =
             {
               r with
               fire = { r.fire with reason = Some "acknowledged_no_reply" };
-              next_attempt_at = None;
+              next_attempt_at = poll;
             }
         | due :: _ -> { r with next_attempt_at = pending due }
         | [] -> r)
-    | _ -> { r with next_attempt_at = None }
+    | _ -> { r with next_attempt_at = poll }
 
 let confirm ~db ~call ~lease (r : Store.fire_runtime) ~now =
   init db;

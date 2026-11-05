@@ -42,8 +42,8 @@ let hard_reason code =
   in
   let methods =
     List.concat_map
-      (fun (m, _) -> Grant.[ Missing_scope m; Egress_denied m ])
-      SO.methods
+      (fun m -> Grant.[ Missing_scope m; Egress_denied m ])
+      SO.operations
   in
   List.find_opt
     (fun r -> Grant.reason_code r = code)
@@ -151,6 +151,28 @@ let report_order ~ctx ~db ~manager ?http (original : T.order) =
             Report.Repeated_failures
         else Lwt.return_unit
       in
+      (* Recover a missed outcome report without reopening historical tracking.
+         At most one representative of each of the five reportable states. *)
+      let* () =
+        Store.query_fires db
+          "WHERE order_id=? AND state IN \
+           ('no_notes','no_pickup','not_delivered','skipped_cap','acknowledged') \
+           AND (state<>'acknowledged' OR reason='acknowledged_no_reply') AND \
+           (dispatched_at IS NULL OR EXISTS (SELECT 1 FROM \
+           slack_standing_order_dispatches d WHERE \
+           d.fire_id=slack_standing_order_fires.id AND d.dispatched_at>=?)) \
+           GROUP BY state HAVING rowid=MAX(rowid)"
+          [
+            Store.text order.id;
+            Sqlite3.Data.FLOAT (ctx.Ctx.now () -. (30. *. 86400.));
+          ]
+        |> Lwt_list.iter_s (fun fire ->
+            match Report.of_fire fire with
+            | None -> Lwt.return_unit
+            | Some cause ->
+                Report.post_once ~ctx ~db ~manager ?http ~fire_id:fire.id order
+                  cause)
+      in
       pending_reports ~ctx ~db ~manager ?http order
 
 let local_gate ~db ~manager (order : T.order) ~now =
@@ -169,9 +191,11 @@ let local_gate ~db ~manager (order : T.order) ~now =
 
 let account ~db ~(order : T.order) ~now =
   let latest_failure =
-    Store.list_fires db ~order_id:order.id ~limit:max_int
-    |> List.find_opt (fun (f : T.fire) ->
-        List.mem f.state T.[ No_pickup; Not_delivered; Failed ])
+    Store.query_fires db
+      "WHERE order_id=? AND state IN ('no_pickup','not_delivered','failed') \
+       ORDER BY created_at DESC,rowid DESC LIMIT 1"
+      [ Store.text order.id ]
+    |> fun fires -> List.nth_opt fires 0
   in
   match latest_failure with
   | Some fire
@@ -183,7 +207,7 @@ let account ~db ~(order : T.order) ~now =
   | _ -> ()
 
 let process_fire ~ctx ~db ~manager ?http ?upload_http ?renew_wait ~allow_new
-    (fire : T.fire) =
+    ?(poll = true) (fire : T.fire) =
   with_lease ~ctx ~db ?renew_wait ~fire_id:fire.id (fun ctx lease ->
       let current () = Dispatch.current db fire.id in
       let* () =
@@ -191,7 +215,11 @@ let process_fire ~ctx ~db ~manager ?http ?upload_http ?renew_wait ~allow_new
         else (
           ignore (Pickup.drain db ~lease ~fire_id:fire.id ~now:(ctx.now ()));
           let r = current () in
-          if
+          if not poll then (
+            Dispatch.save ~ctx ~db ~lease ~before:r
+              ~after:(Pickup.schedule db r ~complete:false ~now:(ctx.now ()));
+            Lwt.return_unit)
+          else if
             Option.fold ~none:false
               ~some:(fun due -> due > ctx.now ())
               r.next_attempt_at
@@ -210,8 +238,16 @@ let process_fire ~ctx ~db ~manager ?http ?upload_http ?renew_wait ~allow_new
                     Report.Transcript_unavailable
                 else Lwt.return_unit
             | _ -> Lwt.return_unit
-          else if r.fire.dispatched_at <> None then
+          else if r.fire.dispatched_at <> None then (
             let order = Option.get (Store.find db r.fire.order_id) in
+            if Pickup.terminal_tracking r then
+              Dispatch.save ~ctx ~db ~lease ~before:r
+                ~after:
+                  {
+                    r with
+                    next_attempt_at =
+                      Some (ctx.now () +. Pickup.tracking_poll_seconds);
+                  };
             let* call = Dispatch.track ~ctx ~db ~manager ?http r order in
             let* () =
               Pickup.confirm ~db ~call ~lease (current ()) ~now:(ctx.now ())
@@ -223,7 +259,7 @@ let process_fire ~ctx ~db ~manager ?http ?upload_http ?renew_wait ~allow_new
             then
               Dispatch.reconcile ~ctx ~db ~manager ?http ?upload_http ~allow_new
                 ~lease (current ())
-            else Lwt.return_unit
+            else Lwt.return_unit)
           else Lwt.return_unit)
       in
       let r = current () in
@@ -268,6 +304,8 @@ let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
             lock
       in
       Lwt_mutex.with_lock lock (fun () ->
+          (* Leave room for new arrivals even with a month of retained relays. *)
+          let terminal_polled = ref false in
           Lwt_list.iter_s
             (fun (order : T.order) ->
               let work () =
@@ -281,6 +319,16 @@ let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
                     if allowed () && order.state = T.Active && roots <> Some []
                     then resolve_pending ~ctx ~db ~manager ?http ?roots order
                     else Lwt.return_unit
+                  in
+                  let* () =
+                    Lwt_list.iter_s
+                      (fun (r : Store.fire_runtime) ->
+                        if ctx.accepting () && not (List.mem r.fire.id held)
+                        then
+                          process_fire ~ctx ~db ~manager ?http ?upload_http
+                            ?renew_wait ~allow_new:false ~poll:false r.fire
+                        else Lwt.return_unit)
+                      (Pickup.queued db ~order_id:order.id)
                   in
                   let* () =
                     if ctx.accepting () && allowed () then
@@ -312,7 +360,17 @@ let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
                                 | Dispatch.Stop | Lwt.Canceled ->
                                     Lwt.return_unit
                                 | exn -> Lwt.fail exn))
-                        (Store.list_fires db ~order_id:order.id ~limit:max_int)
+                        (Store.due db ~now:(ctx.now ())
+                        |> List.filter (fun (r : Store.fire_runtime) ->
+                            r.fire.order_id = order.id
+                            && not (List.mem r.fire.id held))
+                        |> List.filter (fun r ->
+                            if not (Pickup.terminal_tracking r) then true
+                            else if !terminal_polled then false
+                            else (
+                              terminal_polled := true;
+                              true))
+                        |> List.map (fun (r : Store.fire_runtime) -> r.fire))
                     else Lwt.return_unit
                   in
                   ignore (allowed ());

@@ -145,6 +145,14 @@ let fence ~ctx ~db ~manager ~lease ~(v : Grant.validated)
       || r.fire.cancel_requested || r.fire.repost_forbidden
     then raise Stop;
     let order = Option.get v.order in
+    (match v.config.channels.slack with
+    | None -> raise Stop
+    | Some sc -> (
+        match Grant.grantor_policy ~db sc (Grant.subject_of_order order) with
+        | Ok () -> ()
+        | Error reason ->
+            refuse ~ctx ~db ~lease ~fire_id:r.fire.id (Grant.failure reason);
+            raise Stop));
     (match
        Grant.stage_rows db ~now:(ctx.Ctx.now ())
          ~stage:(Grant.Fire { fire_epoch = r.fire.epoch; fire_id = r.fire.id })
@@ -393,7 +401,15 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
       (Some (ctx.Ctx.now () +. 120.));
     raise Stop
   in
-  let precomplete_error reason = function
+  let hard_error method_ error =
+    let failure = P.grant_failure ~method_ error in
+    if failure.cls = Grant.Hard then (
+      refuse ~ctx ~db ~lease ~fire_id failure;
+      raise Stop)
+  in
+  let precomplete_error ~method_ reason error =
+    hard_error method_ error;
+    match error with
     | SO.Dispatch_refused -> dispatch_refused ~ctx ~db ~lease ~fire_id ()
     | SO.Rate_limited | SO.Transport | SO.Audit_unavailable
     | SO.Snapshot_unavailable ->
@@ -515,7 +531,8 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
                     | Ok json ->
                         (P.field "file_id" json, P.field "upload_url" json)
                     | Error error ->
-                        precomplete_error "upload_allocation_failed" error
+                        precomplete_error ~method_:"files.getUploadURLExternal"
+                          "upload_allocation_failed" error
                   in
                   if
                     (not (Slack_config_types.valid_id "F" id))
@@ -549,7 +566,8 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
                   accepting ctx;
                   (match uploaded with
                   | Ok () -> ()
-                  | Error error -> precomplete_error "upload_failed" error);
+                  | Error error ->
+                      precomplete_error ~method_:"upload" "upload_failed" error);
                   upload (id :: acc) rest
             in
             let* ids = upload [] files in
@@ -587,6 +605,9 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
             in
             (* No accepting/epoch fence here: an in-flight send belongs to the
                 retained attempt even when pause won while HTTP was pending. *)
+            (match completed with
+            | Error error -> hard_error "files.completeUploadExternal" error
+            | Ok _ -> ());
             match completed with
             | Error SO.Dispatch_refused ->
                 dispatch_refused ~ctx ~db ~lease ~fire_id ()

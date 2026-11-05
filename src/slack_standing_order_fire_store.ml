@@ -329,7 +329,8 @@ let due db ~now =
      f.lease_until IS NULL OR f.lease_until <= ?) AND (f.state IN \
      ('detected','fetching','uploading','posting','posting_unknown') OR EXISTS \
      (SELECT 1 FROM slack_standing_order_dispatches d WHERE d.fire_id=f.id AND \
-     d.dispatched_at >= ?)) ORDER BY f.rowid"
+     d.dispatched_at >= ?)) ORDER BY (f.dispatched_at IS NOT NULL), \
+     COALESCE(f.next_attempt_at,0),f.rowid"
     [
       Sqlite3.Data.FLOAT now;
       Sqlite3.Data.FLOAT now;
@@ -820,7 +821,9 @@ let pause_if_epoch db ~order_id ~epoch ~by ~now =
       in_tx db ~on_error:Fun.id (fun () ->
           pause_if_epoch_in_tx db ~order_id ~epoch ~by ~now))
 
-(* A failed suspension must leave the fire due for retry. Keep the lease CAS,
+(* Unreserved attempts are denied; dispatched completion failures keep their
+   debit and evidence. Never regress pickup observed while completion awaited.
+   A failed suspension must leave the fire due for retry. Keep the lease CAS,
    epoch check and lifecycle sweep in one transaction, before ledger writes. *)
 let deny_and_suspend_if_epoch db ~lease ~(before : fire_runtime) ~reason ~now =
   guard (fun () ->
@@ -829,7 +832,17 @@ let deny_and_suspend_if_epoch db ~lease ~(before : fire_runtime) ~reason ~now =
           let after =
             {
               before with
-              fire = { before.fire with state = T.Denied; reason = Some reason };
+              fire =
+                {
+                  before.fire with
+                  state =
+                    (match attempt before before.current_attempt with
+                    | Some a when a.dispatched_at <> None ->
+                        if before.fire.state = T.Posting then T.Failed
+                        else before.fire.state
+                    | _ -> T.Denied);
+                  reason = Some reason;
+                };
               next_attempt_at = None;
             }
           in

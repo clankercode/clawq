@@ -50,6 +50,8 @@ let methods =
     ("files.delete", "POST");
   ]
 
+(* Raw capability uploads are audited operations, never Web API methods. *)
+let operations = "upload" :: List.map fst methods
 let api_uri method_ = "https://slack.com/api/" ^ method_
 let upload_prefix = "https://files.slack.com/"
 let auth_headers token = [ ("Authorization", "Bearer " ^ token) ]

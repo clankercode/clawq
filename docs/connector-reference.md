@@ -651,8 +651,9 @@ from huddle end, with a one-time automatic-notes hint.
 Upload v2 posts markdown files in the order's channel only.
 `files.completeUploadExternal` uses that `channel_id` with no `thread_ts`, so
 the relay is one top-level target mention with its own reply thread. All
-meeting content travels in the files. The fixed comment carries an
-Australia/Sydney date window, `SO-n`, the grantor's plain id, the escaped
+meeting content travels in the files. The fixed comment carries a
+date window in the daemon's local timezone (Australia/Sydney when configured),
+with each endpoint's timezone abbreviation, `SO-n`, the grantor's plain id, the escaped
 instruction, and a link to the verified huddle thread using the workspace URL
 already returned by `auth.test`. It says: "If you already summarised this
 huddle from Slack’s notes, reply with only what the transcript adds or changes."
@@ -673,8 +674,13 @@ After 180 s without acknowledgement, successful reaction/reply confirmation
 reads are required before `no_pickup`; failed reads stay pending. An
 acknowledged relay without a reply after 3600 s gets an informational report.
 Recognized spend-limit/disabled notices mean `not_delivered`, even after pickup.
+Retained terminal relays are polled at most once per 300 s for 30 days, with
+one terminal poll per channel pass and new dispatch first for each order.
+Queued late observations drain promptly without waiting for the next poll.
 
-Timeouts, 5xx responses and unresolved shares become `posting_unknown`.
+Allocation and raw-upload transport/5xx failures retry preparation after 120 s.
+Timeouts and 5xx responses after completion dispatch, and unresolved shares,
+become `posting_unknown`.
 Reconciliation is read-only; never blindly retry an ambiguous completion or
 manually repeat a potentially billed relay. At most 1 re-post is allowed ever
 per order/huddle, only after proving no share occurred, or after a recognized

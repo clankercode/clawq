@@ -726,7 +726,7 @@ let test_complete_limiter_reload ?(policy = false) () =
         "zero complete" 0
         (E.count e "files.completeUploadExternal");
       E.check_state e r.fire.id
-        (if policy then T.Failed else T.Skipped_inactive);
+        (if policy then T.Denied else T.Skipped_inactive);
       Alcotest.(check int)
         "no preflight reservation" 0
         (Store.dispatches_since e.db ~order_id:e.order.id ~since:0.))

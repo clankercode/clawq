@@ -33,7 +33,7 @@ type reason =
    never an egress refusal's text or an arbitrary caller-supplied method. *)
 let grant_failure ~method_ error =
   let reason =
-    if not (List.mem_assoc method_ SO.methods) then
+    if not (List.mem method_ SO.operations) then
       Grant.Indeterminate "provenance_method"
     else
       match error with
