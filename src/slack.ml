@@ -7,30 +7,38 @@ let handle_message ?thread_run ?(thread_context = "")
   let root =
     Option.map (fun (r : Slack_thread_runs.run) -> r.route.root) thread_run
   in
+  (* Every post and edit below skips blank text: Slack rejects it with
+     [no_text], and an empty reply has nothing to say (B845). *)
   let send_message_reply ~bot_token ~channel_id ~text ?thread_ts () =
     match thread_run with
     | None -> send_message_reply ~bot_token ~channel_id ~text ?thread_ts ()
     | Some r ->
-        let* _ =
-          Slack_thread_api.call_current_exn ~manager:session_manager
-            ~route:r.route "chat.postMessage"
-            ([ ("channel", `String channel_id); ("text", `String text) ]
-            @
-            match thread_ts with
-            | None -> []
-            | Some ts -> [ ("thread_ts", `String ts) ])
-        in
-        Lwt.return_unit
+        skip_blank ~channel_id ~what:"thread reply" text (fun () ->
+            let* _ =
+              Slack_thread_api.call_current_exn ~manager:session_manager
+                ~route:r.route "chat.postMessage"
+                ([ ("channel", `String channel_id); ("text", `String text) ]
+                @
+                match thread_ts with
+                | None -> []
+                | Some ts -> [ ("thread_ts", `String ts) ])
+            in
+            Lwt.return_unit)
   in
   let send_message_fn ~bot_token ~channel_id ~text =
     match root with
     | Some thread_ts ->
         send_message_reply ~bot_token ~channel_id ~text ~thread_ts ()
-    | None -> send_message_fn ~bot_token ~channel_id ~text
+    | None ->
+        skip_blank ~channel_id ~what:"message" text (fun () ->
+            send_message_fn ~bot_token ~channel_id ~text)
   in
   let send_message_with_id ~bot_token ~channel_id ~text =
     match root with
     | None -> send_message_with_id ~bot_token ~channel_id ~text
+    | Some _ when blank_text text ->
+        log_blank ~channel_id ~what:"thread message";
+        Lwt.return ""
     | Some thread_ts ->
         let r = Option.get thread_run in
         let* result =
@@ -48,16 +56,17 @@ let handle_message ?thread_run ?(thread_context = "")
     match thread_run with
     | None -> edit_message ~bot_token ~channel_id ~ts ~text
     | Some r ->
-        let* _ =
-          Slack_thread_api.call_current_exn ~manager:session_manager
-            ~route:r.route "chat.update"
-            [
-              ("channel", `String channel_id);
-              ("ts", `String ts);
-              ("text", `String text);
-            ]
-        in
-        Lwt.return_unit
+        skip_blank ~channel_id ~what:"edit" text (fun () ->
+            let* _ =
+              Slack_thread_api.call_current_exn ~manager:session_manager
+                ~route:r.route "chat.update"
+                [
+                  ("channel", `String channel_id);
+                  ("ts", `String ts);
+                  ("text", `String text);
+                ]
+            in
+            Lwt.return_unit)
   in
   let delete_message ~bot_token ~channel_id ~ts =
     match thread_run with
@@ -283,11 +292,12 @@ let handle_message ?thread_run ?(thread_context = "")
                           in
                           Lwt.return_unit)
                         (fun exn ->
-                          notify
-                            (Printf.sprintf
-                               "Sorry, an error occurred processing your \
-                                message: %s"
-                               (Printexc.to_string exn))))
+                          Logs.err (fun m ->
+                              m
+                                "Slack /update failed for channel=%s user=%s: \
+                                 %s"
+                                channel_id user_id (Printexc.to_string exn));
+                          notify (error_reply_for exn)))
                     (fun () ->
                       Session.unregister_channel_notifier session_manager ~key;
                       Lwt.return_unit));
@@ -1000,8 +1010,7 @@ let handle_message ?thread_run ?(thread_context = "")
                                       Access_snapshot.Room_turn ~on_chunk ())
                             in
                             Lwt.return (Ok response))
-                          (fun exn ->
-                            Lwt.return (Error (Printexc.to_string exn))))
+                          (fun exn -> Lwt.return (Error exn)))
                   in
                   let* () =
                     match (thread_run, result) with
@@ -1066,19 +1075,14 @@ let handle_message ?thread_run ?(thread_context = "")
                               ~on_response:(fun text -> reply ~text)
                               session_manager ~key ~response);
                         Lwt.return "ok"
-                  | Error err ->
+                  | Error exn ->
                       Logs.err (fun m ->
                           m "Slack agent error for channel=%s user=%s: %s"
-                            channel_id user_id err);
+                            channel_id user_id (Printexc.to_string exn));
                       let* () = handler.finalize () in
-                      let* () =
-                        reply
-                          ~text:
-                            (Printf.sprintf
-                               "Sorry, an error occurred processing your \
-                                message: %s"
-                               err)
-                      in
+                      (* The detail is logged above; never post raw
+                         exception text to the channel. *)
+                      let* () = reply ~text:(error_reply_for exn) in
                       let* () =
                         set_reaction (Connector_status.Slack.phase_emoji Failed)
                       in

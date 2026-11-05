@@ -28,6 +28,30 @@ let current_thinking_message current =
   Printf.sprintf "Current thinking level: %s"
     (Slash_commands.thinking_level_to_string current)
 
+(** Posted when a turn fails. The exception detail goes only to the log. *)
+let error_reply = "Sorry, an error occurred processing your message."
+
+(** Slack rejects a post or edit without text ([no_text]). Blank text has
+    nothing to say, so every send helper skips it instead of calling Slack. *)
+let blank_text text = String.trim text = ""
+
+let log_blank ~channel_id ~what =
+  Logs.info (fun m -> m "Slack %s: empty %s; nothing posted" channel_id what)
+
+let skip_blank ~channel_id ~what text f =
+  if blank_text text then (
+    log_blank ~channel_id ~what;
+    Lwt.return_unit)
+  else f ()
+
+(** The reply for a failed turn. A retained request carries a reason written for
+    the requester, such as a room-policy refusal. Any other exception is a
+    fault: its detail belongs in the log, never in the channel. *)
+let error_reply_for = function
+  | Session_queue.Request_retained reason when not (blank_text reason) ->
+      "Sorry, I couldn't run that request: " ^ String.trim reason
+  | _ -> error_reply
+
 let is_allowed_allowlist ~kind ~id allowlist =
   let coq_allowed = Clawq_core.is_allowed0 id allowlist in
   let ocaml_allowed =
@@ -254,53 +278,61 @@ let build_post_body ~channel_id ~text ~(thread_ts : string option) =
   |> Yojson.Safe.to_string
 
 let send_message ~bot_token ~channel_id ~text =
-  let open Lwt.Syntax in
-  let uri = "https://slack.com/api/chat.postMessage" in
-  let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
-  let body = build_post_body ~channel_id ~text ~thread_ts:None in
-  let* _status, _body = Slack_transport.post_json ~uri ~headers ~body in
-  Lwt.return_unit
+  skip_blank ~channel_id ~what:"message" text (fun () ->
+      let open Lwt.Syntax in
+      let uri = "https://slack.com/api/chat.postMessage" in
+      let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
+      let body = build_post_body ~channel_id ~text ~thread_ts:None in
+      let* _status, _body = Slack_transport.post_json ~uri ~headers ~body in
+      Lwt.return_unit)
 
+(** Blank text posts nothing and returns [""], which is no message id. *)
 let send_message_with_id ~bot_token ~channel_id ~text =
-  let open Lwt.Syntax in
-  let uri = "https://slack.com/api/chat.postMessage" in
-  let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
-  let body = build_post_body ~channel_id ~text ~thread_ts:None in
-  let* _status, resp_body = Slack_transport.post_json ~uri ~headers ~body in
-  let ts =
-    try
-      let json = Yojson.Safe.from_string resp_body in
-      json |> Yojson.Safe.Util.member "ts" |> Yojson.Safe.Util.to_string
-    with _ -> "0"
-  in
-  Lwt.return ts
+  if blank_text text then (
+    log_blank ~channel_id ~what:"message";
+    Lwt.return "")
+  else
+    let open Lwt.Syntax in
+    let uri = "https://slack.com/api/chat.postMessage" in
+    let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
+    let body = build_post_body ~channel_id ~text ~thread_ts:None in
+    let* _status, resp_body = Slack_transport.post_json ~uri ~headers ~body in
+    let ts =
+      try
+        let json = Yojson.Safe.from_string resp_body in
+        json |> Yojson.Safe.Util.member "ts" |> Yojson.Safe.Util.to_string
+      with _ -> "0"
+    in
+    Lwt.return ts
 
 (** Send a message, optionally replying in a Slack thread. When [thread_ts] is
     provided the message is posted as a reply in that thread; otherwise it is an
     ordinary channel message. *)
 let send_message_reply ~bot_token ~channel_id ~text ?thread_ts () =
-  let open Lwt.Syntax in
-  let uri = "https://slack.com/api/chat.postMessage" in
-  let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
-  let body = build_post_body ~channel_id ~text ~thread_ts in
-  let* _status, _body = Slack_transport.post_json ~uri ~headers ~body in
-  Lwt.return_unit
+  skip_blank ~channel_id ~what:"reply" text (fun () ->
+      let open Lwt.Syntax in
+      let uri = "https://slack.com/api/chat.postMessage" in
+      let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
+      let body = build_post_body ~channel_id ~text ~thread_ts in
+      let* _status, _body = Slack_transport.post_json ~uri ~headers ~body in
+      Lwt.return_unit)
 
 let edit_message ~bot_token ~channel_id ~ts ~text =
-  let open Lwt.Syntax in
-  let uri = "https://slack.com/api/chat.update" in
-  let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
-  let body =
-    `Assoc
-      [
-        ("channel", `String channel_id);
-        ("ts", `String ts);
-        ("text", `String text);
-      ]
-    |> Yojson.Safe.to_string
-  in
-  let* _status, _body = Slack_transport.post_json ~uri ~headers ~body in
-  Lwt.return_unit
+  skip_blank ~channel_id ~what:"edit" text (fun () ->
+      let open Lwt.Syntax in
+      let uri = "https://slack.com/api/chat.update" in
+      let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
+      let body =
+        `Assoc
+          [
+            ("channel", `String channel_id);
+            ("ts", `String ts);
+            ("text", `String text);
+          ]
+        |> Yojson.Safe.to_string
+      in
+      let* _status, _body = Slack_transport.post_json ~uri ~headers ~body in
+      Lwt.return_unit)
 
 let delete_message ~bot_token ~channel_id ~ts =
   let open Lwt.Syntax in

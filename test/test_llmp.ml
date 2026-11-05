@@ -78,21 +78,20 @@ let with_home dir f =
     f
 
 let test_resolve_api_key_from_file () =
-  let dir = Filename.concat (Filename.get_temp_dir_name ()) "clawq-llmp-test" in
-  (try Unix.mkdir dir 0o700 with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
-  let path = Filename.concat dir "llmp-api.key" in
-  let oc = open_out path in
-  output_string oc "sk-llmp-from-file\n";
-  close_out oc;
-  Llmp.reset_key_cache ();
-  with_home dir (fun () ->
-      Alcotest.(check string)
-        "file key" "sk-llmp-from-file" (Llmp.resolve_api_key "");
-      Alcotest.(check bool)
-        "file key is routable" true
-        (Provider_routing.provider_has_routable_auth ~name:"llmp"
-           (provider "llmp")));
-  Llmp.reset_key_cache ()
+  Test_helpers.with_temp_dir (fun dir ->
+      let path = Filename.concat dir "llmp-api.key" in
+      let oc = open_out path in
+      output_string oc "sk-llmp-from-file\n";
+      close_out oc;
+      Llmp.reset_key_cache ();
+      with_home dir (fun () ->
+          Alcotest.(check string)
+            "file key" "sk-llmp-from-file" (Llmp.resolve_api_key "");
+          Alcotest.(check bool)
+            "file key is routable" true
+            (Provider_routing.provider_has_routable_auth ~name:"llmp"
+               (provider "llmp")));
+      Llmp.reset_key_cache ())
 
 let test_has_routable_auth_empty () =
   Alcotest.(check bool) "empty" false (Llmp.has_routable_auth "")

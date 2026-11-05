@@ -50,6 +50,11 @@ let default_orders (cfg : Runtime_config.t) =
           };
       })
 
+(* The shipped default: channel messages need a mention (B843). *)
+let mention_mode (cfg : Runtime_config.t) =
+  S.with_slack cfg (fun sc ->
+      { sc with reply_mode = Slack_config_types.Mention })
+
 let with_orders ?(config = Fun.id) f =
   Test_slack_threads.with_ingress ~key:thread_key
     (fun base calls handler seen provider run ->

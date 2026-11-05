@@ -2475,37 +2475,35 @@ let test_request_resume_rejects_non_worktree_task () =
          with Not_found -> false)
 
 let test_request_resume_rejects_non_git_direct_run () =
-  let repo_path =
-    Filename.concat (Filename.get_temp_dir_name ()) "clawq-b398-nongit"
-  in
-  (try Unix.mkdir repo_path 0o755
-   with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
-  let db = Memory.init ~db_path:":memory:" () in
-  Background_task.init_schema db;
-  let id =
-    match
-      Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
-        ~require_git:false ~use_worktree:true ~prompt:"resume me" ()
-    with
-    | Ok id -> id
-    | Error msg -> Alcotest.fail msg
-  in
-  ignore
-    (Background_task.set_running ~db ~id ~branch:"" ~worktree_path:repo_path
-       ~log_path:(Filename.concat repo_path "task.log")
-       ~pid:0);
-  Background_task.finish ~db ~id ~status:Background_task.Succeeded
-    ~result_preview:"done";
-  match Background_task.request_resume ~db ~id ~message:None with
-  | Ok _ -> Alcotest.fail "expected resume rejection"
-  | Error msg ->
-      Alcotest.(check bool)
-        "mentions isolated worktree" true
-        (try
-           ignore
-             (Str.search_forward (Str.regexp_string "isolated worktree") msg 0);
-           true
-         with Not_found -> false)
+  Test_helpers.with_temp_dir (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~require_git:false ~use_worktree:true ~prompt:"resume me" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"" ~worktree_path:repo_path
+           ~log_path:(Filename.concat repo_path "task.log")
+           ~pid:0);
+      Background_task.finish ~db ~id ~status:Background_task.Succeeded
+        ~result_preview:"done";
+      match Background_task.request_resume ~db ~id ~message:None with
+      | Ok _ -> Alcotest.fail "expected resume rejection"
+      | Error msg ->
+          Alcotest.(check bool)
+            "mentions isolated worktree" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string "isolated worktree")
+                    msg 0);
+               true
+             with Not_found -> false))
 
 let test_finalize_completed_task_preserves_resume_queue () =
   with_temp_git_repo (fun repo_path ->
@@ -4473,7 +4471,9 @@ let test_recover_rejects_healthy_running () =
         Process_group.start ~cwd:repo_path ~env:(Unix.environment ())
           (Process_group.Exec [| "sleep"; "10" |])
       in
-      let log_path = Filename.temp_file "clawq-test" ".log" in
+      let log_path =
+        Filename.temp_file ~temp_dir:repo_path "clawq-test" ".log"
+      in
       ignore
         (Background_task.set_running ~db ~id ~branch:"test"
            ~worktree_path:repo_path ~log_path ~pid:proc.Process_group.pid);
@@ -4516,7 +4516,8 @@ let test_recover_from_stuck_task () =
       ignore
         (Background_task.set_running ~db ~id ~branch:"test"
            ~worktree_path:repo_path
-           ~log_path:(Filename.temp_file "clawq-test" ".log")
+           ~log_path:
+             (Filename.temp_file ~temp_dir:repo_path "clawq-test" ".log")
            ~pid:999999);
       match Background_task.recover ~db ~id () with
       | Error msg -> Alcotest.fail msg
@@ -7186,7 +7187,9 @@ let test_external_runner_readopt_unchanged () =
   with_temp_git_repo (fun repo_path ->
       let db = Memory.init ~db_path:":memory:" () in
       Background_task.init_schema db;
-      let log_path = Filename.temp_file "clawq-bg-ext-readopt" ".log" in
+      let log_path =
+        Filename.temp_file ~temp_dir:repo_path "clawq-bg-ext-readopt" ".log"
+      in
       let id =
         match
           Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path

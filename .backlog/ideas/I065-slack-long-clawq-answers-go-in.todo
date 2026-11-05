@@ -1,0 +1,40 @@
+---
+complexity: medium
+created_at: "2026-11-05T01:58:20Z"
+depends_on: []
+estimate_hours: 10
+id: I065
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: 'Slack: long clawq answers go into a Slack canvas (or attached .md) with a short summary in the thread, instead of a wall of chat. Max 2026-11-05 on a 4k-char research reply: ''we probably want to like upload a md doc or something instead of putting it straight in chat''. Scopes canvases:write and files:write are already granted. Today send_file on Slack only posts a download link. Proposal: (1) agent tool slack_canvas_create(title, markdown), which creates a channel canvas, shares it and returns the link; (2) a Slack send-path overflow rule: a final reply over ~2,500 chars becomes a canvas plus its first paragraph and the link; (3) prompt guidance for research write-ups. HTML docs don''t render in Slack, so they would need a host the team can reach.'
+updated_at: "2026-11-05T01:58:20Z"
+---
+
+# Original Idea
+
+Slack: long clawq answers go into a Slack canvas (or attached .md) with a short summary in the thread, instead of a wall of chat. Max 2026-11-05 on a 4k-char research reply: 'we probably want to like upload a md doc or something instead of putting it straight in chat'. Scopes canvases:write and files:write are already granted. Today send_file on Slack only posts a download link. Proposal: (1) agent tool slack_canvas_create(title, markdown), which creates a channel canvas, shares it and returns the link; (2) a Slack send-path overflow rule: a final reply over ~2,500 chars becomes a canvas plus its first paragraph and the link; (3) prompt guidance for research write-ups. HTML docs don't render in Slack, so they would need a host the team can reach.
+
+## Planning Task (Equivalent of /plan-task)
+
+- Run `/plan-task I065` to decompose this idea into actionable work.
+- Confirm placement in the current backlog hierarchy before creating work items.
+
+## Ingest Plan Into backlog
+
+- Create implementation items with `backlog add` and related hierarchy commands (`backlog add-epic`, `backlog add-milestone`, `backlog add-phase`) as needed.
+- Create follow-up defects with `backlog bug` when bug-style work is identified.
+- Record all created IDs below and wire dependencies.
+
+## Created Work Items
+
+- Add created task IDs
+- Add created bug IDs (if any)
+
+## Completion Criteria
+
+- Idea has been decomposed into concrete backlog work items.
+- New items include clear acceptance criteria and dependencies.
+- This idea intake is updated with created IDs and marked done.

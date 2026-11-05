@@ -26,6 +26,9 @@ let target ?session_key channel_id =
 
 let send ~bot_token ~channel_id ~text =
   match of_key channel_id with
+  | Some r when Slack_api.blank_text text ->
+      Slack_api.log_blank ~channel_id:r.channel ~what:"thread message";
+      Lwt.return_unit
   | Some r ->
       let open Lwt.Syntax in
       let* status, body =

@@ -80,9 +80,12 @@ let content_revision (entries : entry list) =
 let generate_id ?(now = Unix.gettimeofday ()) () =
   Printf.sprintf "tcat_%d_%06d" (int_of_float now) (Random.int 1_000_000)
 
+(* [unavailable] names tools that cannot work for this turn (B844: room tools
+   in a room without the setup they need). They are left out like denied
+   tools, whichever of their names is listed. *)
 let freeze ~registry ?(allowed_tools = []) ?(denied_tools = [])
-    ?(access_revision = "") ?room_id ?session_key ?(now = Unix.gettimeofday ())
-    ?id () =
+    ?(unavailable = []) ?(access_revision = "") ?room_id ?session_key
+    ?(now = Unix.gettimeofday ()) ?id () =
   let skill_names = registry.Tool_registry.skill_names in
   let tools = Tool_registry.list registry in
   let entries =
@@ -92,6 +95,8 @@ let freeze ~registry ?(allowed_tools = []) ?(denied_tools = [])
         if
           Tool_authz.is_allowed ~equivalence_names ~allowed_tools ~denied_tools
             ()
+          && not
+               (List.exists (fun n -> List.mem n unavailable) equivalence_names)
         then Some (entry_of_tool ~registry ~skill_names tool)
         else None)
   in
@@ -106,9 +111,11 @@ let freeze ~registry ?(allowed_tools = []) ?(denied_tools = [])
     entries;
   }
 
-let freeze_from_snapshot ~registry ~snap ?room_id ?session_key ?now () =
+let freeze_from_snapshot ~registry ~snap ?unavailable ?room_id ?session_key ?now
+    () =
   freeze ~registry ~allowed_tools:snap.Access_snapshot.allowed_tools
-    ~denied_tools:snap.denied_tools ~access_revision:snap.config_hash ?room_id
+    ~denied_tools:snap.denied_tools ?unavailable
+    ~access_revision:snap.config_hash ?room_id
     ?session_key:
       (match session_key with Some s -> Some s | None -> snap.session_key)
     ?now ()
@@ -221,7 +228,9 @@ let search (cat : t) ~query ~limit =
   in
   take limit scored []
 
-let freeze_for_access ~registry ?snap ?room_id ?session_key () =
+let freeze_for_access ~registry ?snap ?unavailable ?room_id ?session_key () =
   match snap with
-  | Some s -> freeze_from_snapshot ~registry ~snap:s ?room_id ?session_key ()
-  | None -> freeze ~registry ?room_id ?session_key ()
+  | Some s ->
+      freeze_from_snapshot ~registry ~snap:s ?unavailable ?room_id ?session_key
+        ()
+  | None -> freeze ~registry ?unavailable ?room_id ?session_key ()

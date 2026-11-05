@@ -41,6 +41,10 @@ type t = {
      execution don't alter in-flight access. *)
   mutable access_snapshot_id : string option;
   mutable access_snapshot : Access_snapshot.t option;
+  (* B844: room tools that cannot work in this turn's room (no profile binding,
+     no GitHub feed). Refreshed at the start of every Room turn and left out of
+     its tool catalog and system prompt. [] outside Room turns. *)
+  mutable unavailable_tools : string list;
   (* Lifecycle hooks loaded from config. Empty list = hooks disabled. *)
   mutable hooks : Hooks.hook_config list;
 }

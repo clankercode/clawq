@@ -62,4 +62,14 @@ let refresh_profiled_room_flag agent ?db ?session_key ?room_id () =
   agent.profiled_room <-
     room_profile_prompt_active agent.room_profile_system_prompt || has_binding
 
+(* B844: in a Room turn (a snapshot naming the room), recompute which room
+   tools cannot work there; elsewhere nothing is hidden. *)
+let refresh_unavailable_tools agent ?db ?session_key () =
+  agent.unavailable_tools <-
+    (match (db, agent.access_snapshot) with
+    | Some db, Some { Access_snapshot.room_id = Some room_id; _ }
+      when String.trim room_id <> "" ->
+        Room_tool_availability.unavailable_tools ~db ?session_key ~room_id ()
+    | _ -> [])
+
 let unscoped_memory_context_allowed agent = not agent.profiled_room

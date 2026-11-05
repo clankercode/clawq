@@ -1,0 +1,18 @@
+---
+claimed_at: "2026-11-05T06:49:48Z"
+claimed_by: cli-user
+completed_at: "2026-11-05T06:49:49Z"
+complexity: medium
+created_at: "2026-11-05T04:34:39Z"
+depends_on: []
+duration_minutes: 0.017510403383333335
+estimate_hours: 1
+id: B847
+priority: high
+started_at: "2026-11-05T06:49:48Z"
+status: done
+tags: []
+title: Queued follow-up is stranded until restart when the running turn fails (Slack thread waited ~4h)
+updated_at: "2026-11-05T06:49:49Z"
+---
+2026-11-05: in the #core-sync huddle thread (session slack:C0CA6UR8FFU:thread:...:1793836939.367439) Max's message to clawq was queued as a deferred follow-up at 11:41:13 while a turn ran. That turn then failed at 11:41:18 (ERROR Slack agent error ... Failure("chat.postMessage: no_text"), the B845 case). The follow-up was never drained and ran only after the daemon restart at 15:29 (Replay: claimed queue_id=418), so clawq answered ~4h late. Cause: src/session_turn.ml runs before_drain then drain_queued_messages only on the success path (around lines 957-964 and 1124-1131); an exception from the turn or from before_drain (where the Slack post happens) skips the drain, and the row sits in queued_messages/inbound_queue until replay_durable_inbound_queue at startup. B845 removes this one trigger but any turn error still strands queued messages. Fix: drain (or reschedule the drain) on the failure path too, e.g. Lwt.finalize around before_drain so drain_queued_messages always runs once the lock-holder finishes; keep retained-request semantics. Test: a turn that raises leaves a queued follow-up that is processed without restart.

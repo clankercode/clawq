@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-11-04T17:45:05Z"
+depends_on: []
+estimate_hours: 1
+id: B842
+priority: high
+status: pending
+tags: []
+title: Telegram setMyCommands fails with BOT_COMMAND_INVALID on daemon start
+updated_at: "2026-11-04T17:45:05Z"
+---
+Seen on every daemon start in ~/.clawq/daemon.log since at least 2026-11-04 14:53 (4 occurrences, including the 2026-11-05 04:44 restart on clawq-dce3a821): WARN Telegram: setMyCommands failed (HTTP 400): Bad Request: BOT_COMMAND_INVALID. Telegram requires each command to be 1-32 chars of lowercase a-z, 0-9 and underscore; one registered command probably breaks that. Effect: Telegram's command menu is not updated. Found as a side finding during the huddle standing-orders P2 deploy; cause not investigated.

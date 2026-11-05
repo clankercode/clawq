@@ -1,0 +1,18 @@
+---
+claimed_at: "2026-11-05T04:34:53Z"
+claimed_by: cli-user
+completed_at: "2026-11-05T04:34:53Z"
+complexity: medium
+created_at: "2026-11-05T00:55:22Z"
+depends_on: []
+duration_minutes: 0.014576699533333333
+estimate_hours: 1
+id: B843
+priority: high
+started_at: "2026-11-05T04:34:53Z"
+status: done
+tags: []
+title: 'Slack: clawq answers every human message in channels and huddle threads; default should be mention-only'
+updated_at: "2026-11-05T04:34:53Z"
+---
+2026-11-05 11:02 #core-sync huddle (thread 1793836939.367439): clawq started a turn for every human message in the huddle thread (Max's test question, Chris's 'musig2', a BIP link), posting Working…/Task finished. noise and failures. Max: 'we should probably figure out how to make you not reply to huddle threads automatically. You should respond only if tagged (and you can respond after in such a thread if recent messages are talking to you)' and 'that should be your default'. Cause: slack_thread_ingress has no mention gating (spec F-g); only the relay/peer gates exist. Wanted: channel messages start a turn only when clawq is @-mentioned, or in a thread whose recent exchange is clearly with clawq; DMs unchanged; pause parser unchanged.

@@ -1794,3 +1794,9 @@ bugs:
     - file: B839-slack-scopes-events-manifest-l.todo
     - file: B840-setup-guide-says-empty-slack-a.todo
     - file: B841-slack-huddle-content-can-t-rea.todo
+    - file: B842-telegram-setmycommands-fails-w.todo
+    - file: B843-slack-clawq-answers-every-huma.todo
+    - file: B844-slack-unconfigured-room-tools.todo
+    - file: B845-slack-empty-final-reply-posts.todo
+    - file: B846-tests-leak-temp-dirs-and-symli.todo
+    - file: B847-queued-follow-up-is-stranded-u.todo

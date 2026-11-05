@@ -6,12 +6,14 @@
  (modules
   test_main
   test_slack_standing_order_repost_support
+  test_helpers_cleanup
   test_ambient_policy
   test_plan_pipeline
   test_agent_loop_conformance
   test_agent_router
   test_agent_scoped_memory
   test_room_memory_tools
+  test_room_tool_availability
   test_agent_template
   test_audit
   test_b710
@@ -283,6 +285,7 @@
   test_tool_scope_conformance
   test_service
   test_session
+  test_session_turn_drain
   test_session_key_canonicalization
   test_legacy_session_keys
   test_session_observer
@@ -297,6 +300,8 @@
   test_slack_huddles
   test_slack_huddle_fix1
   test_slack_threads
+  test_slack_reply_gate
+  test_slack_empty_reply
   test_slack_thread_edges
   test_slack_transport_credentials
   test_slack_fix1_fixtures

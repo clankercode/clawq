@@ -216,6 +216,8 @@ let slack_json (s : slack_config) : Yojson.Safe.t =
          `String (private_channel_policy_to_string s.private_channel_policy) );
        ("app_token", `String s.app_token);
        ("socket_mode", `Bool s.socket_mode);
+       ( "reply_mode",
+         `String (Slack_config_types.reply_mode_to_string s.reply_mode) );
      ]
     @ default_model_json_fields s.default_model
     @ [

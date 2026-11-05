@@ -263,9 +263,11 @@ let tool_definitions () : Yojson.Safe.t list =
     openai_tool
       ~name:(tool_name_to_string Get_item)
       ~description:
-        "Read a GitHub item projection for the current Room. Requires the \
-         item_key to exist in this Room's projections or journal. Secret-free; \
-         no cross-Room leakage."
+        "Read one GitHub issue or PR that this room tracks through its GitHub \
+         feed projections (routed webhook events), by item_key. Needs a GitHub \
+         feed routed to this room. Not for general project questions, web \
+         facts, or anything that is not a GitHub issue/PR tracked in this \
+         room."
       ~parameters:
         (schema_object
            ~properties:
@@ -279,24 +281,31 @@ let tool_definitions () : Yojson.Safe.t list =
     openai_tool
       ~name:(tool_name_to_string Search_items)
       ~description:
-        "Search GitHub item projections in the current Room by title, state, \
-         labels, assignees, or item_key substring. Room-scoped only."
+        "Search the GitHub issues and PRs that this room tracks through its \
+         GitHub feed projections, by a substring of title, state, labels, \
+         assignees or item_key. Needs a GitHub feed routed to this room. It \
+         does not search chat history, room memory, the web or GitHub itself. \
+         Not for general project questions or anything that is not a GitHub \
+         issue/PR tracked in this room."
       ~parameters:
         (schema_object
            ~properties:
              [
                ( "query",
                  string_prop
-                   "Substring to match against \
-                    title/state/labels/assignees/item_key" );
+                   "Substring of a tracked GitHub issue/PR's title, state, \
+                    labels, assignees or item_key" );
                ("limit", int_prop "Max results to return (default 20)");
              ]
            ~required:[ "query" ]);
     openai_tool
       ~name:(tool_name_to_string Get_status)
       ~description:
-        "Get status fields for a Room-scoped GitHub item projection (state, \
-         draft, merged, head_sha, comment_count, revision)."
+        "Get the GitHub fields (state, draft, merged, head_sha, comment_count, \
+         revision) of one GitHub issue or PR that this room tracks through its \
+         GitHub feed projections, by item_key. Needs a GitHub feed routed to \
+         this room. Not for the status of a project, product or feature in \
+         general: only for a GitHub issue/PR tracked in this room."
       ~parameters:
         (schema_object
            ~properties:
@@ -308,8 +317,10 @@ let tool_definitions () : Yojson.Safe.t list =
     openai_tool
       ~name:(tool_name_to_string List_room_items)
       ~description:
-        "List all GitHub item projections visible in the current Room. Does \
-         not include other Rooms."
+        "List the GitHub issues and PRs that this room tracks through its \
+         GitHub feed projections. Needs a GitHub feed routed to this room. Not \
+         for general project questions, web facts, or anything that is not a \
+         GitHub issue/PR tracked in this room."
       ~parameters:
         (schema_object
            ~properties:
@@ -558,6 +569,13 @@ let dispatch ~db ~request ?auth ?installation () : tool_result =
 *)
 let runtime_tool_names =
   [ Get_item; Search_items; Get_status; List_room_items; Feed_settings ]
+  |> List.map tool_name_to_string
+
+(** The tools that read this Room's journal/projections, so they can only work
+    in a Room that has GitHub item data ([room_has_any_data]). Feed settings
+    reads subscription rows instead and is not among them. *)
+let item_tool_names =
+  [ Get_item; Search_items; Get_status; List_room_items ]
   |> List.map tool_name_to_string
 
 let runtime_auth ~(config : Runtime_config.t) =

@@ -78,6 +78,13 @@ let ensure_room_scope ~db ~room_id =
                 room profile first."
                room_id))
 
+(** Whether [ensure_room_scope] can succeed for [room_id]: the room has a memory
+    scope or a profile binding. Unlike [ensure_room_scope] it creates nothing.
+*)
+let room_scope_available ~db ~room_id =
+  Option.is_some (Memory.get_scope_by_kind_key ~db ~kind:"room" ~key:room_id)
+  || Option.is_some (Memory.get_room_profile_binding ~db ~room_id)
+
 (** Check if the principal has the required capability for the room scope.
     Supports: 1. Owner (bound profile owns scope) 2. Profile grant to bound
     profile 3. Direct room grant when no profile binding *)
@@ -156,10 +163,11 @@ let room_memory_list ~db =
   {
     Tool.name = "room_memory_list";
     description =
-      "List memories stored for the current room/channel. Returns memory IDs, \
-       references, content previews, and timestamps. Use this to discover what \
-       the room has remembered. To see full content of a specific memory, use \
-       room_memory_show.";
+      "List the notes saved to this room's bound memory profile (IDs, \
+       references, previews, timestamps). Needs a room profile binding for \
+       this room. Not for general questions, project status, chat history or \
+       web facts: it holds only notes saved here with room_memory_save. Use \
+       room_memory_show for one note's full text.";
     parameters_schema = schema;
     invoke =
       (fun ?context _args ->
@@ -267,8 +275,9 @@ let room_memory_show ~db =
   {
     Tool.name = "room_memory_show";
     description =
-      "Show the full content of a specific room memory by its ID. Use \
-       room_memory_list first to discover available memory IDs.";
+      "Show the full text of one note saved to this room's bound memory \
+       profile, by an ID from room_memory_list. Needs a room profile binding \
+       for this room.";
     parameters_schema = schema;
     invoke =
       (fun ?context args ->
@@ -409,10 +418,10 @@ let room_memory_save ~db ~ledger =
   {
     Tool.name = "room_memory_save";
     description =
-      "Save or update a memory for the current room. If a memory with the same \
-       reference already exists, it will be updated (upsert). Use this when \
-       the user tells you something to remember about this room, or when you \
-       derive a stable fact specific to this room.";
+      "Save or update (upsert by reference) a note in this room's bound memory \
+       profile. Needs a room profile binding for this room. Use it when \
+       someone asks you to remember something for this room, or for a stable \
+       fact specific to this room; not for general knowledge.";
     parameters_schema = schema;
     invoke =
       (fun ?context args ->
@@ -517,9 +526,9 @@ let room_memory_correct ~db ~ledger =
   {
     Tool.name = "room_memory_correct";
     description =
-      "Correct the content of an existing room memory. The old content is \
-       preserved in the correction trail. Use this when a memory needs to be \
-       updated with more accurate information.";
+      "Correct the content of one note in this room's bound memory profile, by \
+       ID; the old content stays in the correction trail. Needs a room profile \
+       binding for this room.";
     parameters_schema = schema;
     invoke =
       (fun ?context args ->
@@ -626,9 +635,9 @@ let room_memory_forget ~db ~ledger =
   {
     Tool.name = "room_memory_forget";
     description =
-      "Forget (redact) a room memory. The memory is soft-deleted and marked \
-       with a redaction timestamp and reason. Use this when the user asks to \
-       remove a memory or when a memory is no longer relevant.";
+      "Forget (soft-delete with a reason) one note in this room's bound memory \
+       profile, by ID, when asked to remove it or it is no longer relevant. \
+       Needs a room profile binding for this room.";
     parameters_schema = schema;
     invoke =
       (fun ?context args ->
@@ -690,6 +699,16 @@ let room_memory_forget ~db ~ledger =
     risk_level = Tool.Low;
     deferred = false;
   }
+
+(** Names of every tool [register_room_memory_tools] registers. *)
+let tool_names =
+  [
+    "room_memory_list";
+    "room_memory_show";
+    "room_memory_save";
+    "room_memory_correct";
+    "room_memory_forget";
+  ]
 
 (** Register all room memory tools. *)
 let register_room_memory_tools ~db ?(ledger = no_op_ledger) registry =

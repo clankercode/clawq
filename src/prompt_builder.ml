@@ -417,11 +417,12 @@ let build_project_docs_message ~(config : Runtime_config.t) ?effective_cwd
             let content_str = String.concat "\n" (List.rev !lines) in
             { content = Some content_str; digests; git_root = Some git_root })
 
-let tools_block tool_registry =
+let tools_block ?(hidden = []) tool_registry =
   match tool_registry with
   | None -> []
   | Some registry ->
       Tool_registry.list registry
+      |> List.filter (fun (t : Tool.t) -> not (List.mem t.name hidden))
       |> List.sort (fun (a : Tool.t) (b : Tool.t) ->
           String.compare a.name b.name)
       |> List.map (fun (t : Tool.t) ->
@@ -502,7 +503,7 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
     ?(channel_type = "dm") ?(workspace = None) ?(scheduled_jobs = [])
     ?agent_template ?room_profile_system_prompt
     ?(instruction_items : Runtime_config.effective_instruction_item list = [])
-    () =
+    ?(hidden_tools = []) () =
   (* Determine the effective system prompt source. Room profile overrides
      agent_template per the acceptance chain:
      session override > room profile > channel default > global. *)
@@ -719,7 +720,7 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
     if config.prompt.include_tools_section then begin
       add "";
       add "## Tools";
-      let tool_lines = tools_block tool_registry in
+      let tool_lines = tools_block ~hidden:hidden_tools tool_registry in
       if tool_lines = [] then add "- No tools registered."
       else List.iter add tool_lines;
       add "";

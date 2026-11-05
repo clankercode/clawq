@@ -74,7 +74,7 @@ let inject_runtime_context messages runtime_context =
 let build_messages ?runtime_context agent =
   agent.system_prompt <-
     Prompt_builder.build ~config:agent.config ~tool_registry:agent.tool_registry
-      ?agent_template:agent.agent_template
+      ~hidden_tools:agent.unavailable_tools ?agent_template:agent.agent_template
       ?room_profile_system_prompt:agent.room_profile_system_prompt
       ~instruction_items:agent.instruction_items ();
   let sys = Provider.make_message ~role:"system" ~content:agent.system_prompt in
@@ -122,15 +122,18 @@ let runtime_context_usage agent ~compacted_before_turn =
     compacted_before_turn;
   }
 
+(* The turn's frozen catalog: snapshot allow/deny, minus the room tools that
+   cannot work in this turn's room (B844). *)
+let turn_catalog agent registry =
+  Tool_catalog.freeze_for_access ~registry ?snap:agent.access_snapshot
+    ~unavailable:agent.unavailable_tools ()
+
 let tools_json agent =
   (* P19.M1.E2.T003: provider payloads come only from a frozen catalog so
      unauthorized names/schemas/aliases never reach the model. *)
   match agent.tool_registry with
   | Some r when agent.config.security.tools_enabled ->
-      let cat =
-        Tool_catalog.freeze_for_access ~registry:r ?snap:agent.access_snapshot
-          ()
-      in
+      let cat = turn_catalog agent r in
       if agent.config.agent_defaults.tool_search_enabled then
         Some (Tool_catalog.to_openai_json_with_search cat)
       else Some (Tool_catalog.to_openai_json cat)
