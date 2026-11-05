@@ -661,8 +661,44 @@ let test_no_http_debug_capture () =
             "HTTP debug creates no capture" []
             (Array.to_list (Sys.readdir dir))))
 
+let test_reload_capability_transport () =
+  List.iter
+    (fun name ->
+      let db = S.fresh_db () in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.db_close db))
+        (fun () ->
+          let mock = S.mock () and cfg = ref (S.config ()) in
+          let snap = snapshot db !cfg in
+          let call =
+            SO.make ~capability_fence:true ~db
+              ~current_config:(fun () -> !cfg)
+              ~snapshot:snap ~channel_id:"C123"
+              ~audit:"standing_order:so_1:fire" ~http:mock.http
+              ~limit:(fun () ->
+                cfg := S.profile !cfg ~denied:[ name ] ();
+                Lwt.pause ())
+              ()
+          in
+          List.iter
+            (fun (method_, params) ->
+              cfg := S.config ();
+              expect_error "capability reload refuses the next transport"
+                SO.Dispatch_refused (run call method_ params))
+            [
+              ("users.info", user_params);
+              ("files.getUploadURLExternal", []);
+              ( "files.completeUploadExternal",
+                [ ("channel_id", `String "C123") ] );
+              ("chat.postMessage", [ ("channel", `String "C123") ]);
+            ];
+          no_http "zero Slack calls across every reload deny" mock))
+    SO.capability_names
+
 let suite =
   [
+    S.case "reload capability denial fences reads and writes"
+      test_reload_capability_transport;
     S.case "default API adapter never captures HTTP bodies"
       test_no_http_debug_capture;
     S.case "snapshot scope and persisted row remain bound" test_snapshot_binding;

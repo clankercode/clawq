@@ -546,6 +546,7 @@
   slack_standing_order_dispatch
   slack_standing_order_pickup
   slack_standing_order_report
+  slack_standing_order_fetch
   slack_standing_order_exec
   slack_standing_order_types
   slack_standing_order_sql

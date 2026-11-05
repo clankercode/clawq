@@ -13,10 +13,7 @@ let get = Slack_huddles.get
 let field = Slack_huddles.field
 let flag = Slack_huddles.flag
 let valid_id = Slack_huddles.valid_id
-
-let capability_names =
-  [ "slack_huddles"; "slack_huddle_content"; "slack_standing_order_fire" ]
-
+let capability_names = SO.capability_names
 let max_pages = 5
 let page_size = 200
 let max_scan_members = max_pages * page_size
@@ -620,7 +617,8 @@ let evaluate ~db ~current_config ?http ?limit ?now ~stage ~unit_label
         | Error r -> Lwt.return (Error (failure r))
         | Ok () ->
             let call =
-              SO.make ~db ~current_config ~snapshot ~channel_id:s.channel_id
+              SO.make ~capability_fence:true ~db ~current_config ~snapshot
+                ~channel_id:s.channel_id
                 ~audit:(SO.audit_label ~order_id:(Some s.order_id) ~unit_label)
                 ?http ?limit ()
             in
@@ -631,7 +629,15 @@ let evaluate ~db ~current_config ?http ?limit ?now ~stage ~unit_label
             (* Step 11, with no yield from here to the caller's action: the
                same config, then step 3's admin read, then the rows, last. *)
             Result.map_error failure
-              (let*? bot_user_id, bot_id, enterprise_id, team_url = reads in
+              (let*? () =
+                 match
+                   SO.capability_denied (current_config ())
+                     ~channel_id:s.channel_id
+                 with
+                 | Some name -> Error (Tool_denied name)
+                 | None -> Ok ()
+               in
+               let*? bot_user_id, bot_id, enterprise_id, team_url = reads in
                let*? () =
                  if current_config () != cfg then Error Config_changed
                  else Ok ()

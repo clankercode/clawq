@@ -323,6 +323,8 @@
   test_slack_standing_order_relay
   test_slack_standing_order_dispatch_retry
   test_slack_standing_order_exec_support
+  test_slack_standing_order_fetch
+  test_slack_standing_order_worker
   test_slack_standing_order_exec
   test_slack_standing_order_config
   test_slack_standing_order_support

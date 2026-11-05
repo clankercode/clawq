@@ -1,698 +1,825 @@
-module E = Slack_standing_order_exec
+open Lwt.Syntax
 open Test_slack_standing_order_exec_support
-module G = Slack_standing_order_grant
+module E = Slack_standing_order_exec
+module Ctx = Slack_standing_order_ctx
+module Report = Slack_standing_order_report
 
 let check = Alcotest.(check bool)
 
-let test_stub () =
-  with_env (fun e ->
-      ready e ();
-      e.canvas :=
-        set "canvas_metadata"
-          (obj [ ("room_id", str "RWRONG"); ("date_start", `Int 1) ])
-          !(e.canvas);
-      resolve e;
-      resolve e;
-      let f = one_fire e in
-      Alcotest.(check string) "root supplies room" "R123" f.room_id;
-      Alcotest.(check string)
-        "root supplies start" (string_of_int start) f.date_start;
-      check "root persisted before fetch" true
-        ((runtime e f.id).root_ts = Some root_ts);
-      check "all history reads pinned" true
-        (List.for_all
-           (fun (_, m, p) ->
-             m <> "conversations.history"
-             || get "oldest" p = str root_ts
-                && get "latest" p = str root_ts
-                && get "inclusive" p = `Bool true
-                && get "limit" p = `Int 1)
-           !(e.mock.calls));
-      Alcotest.(check int)
-        "resolve does not fetch canvas metadata" 0 (count e "files.info");
-      check "worker pacing used" true (!(e.limits) > 0);
-      no_upload e)
-
-let test_eligibility () =
-  with_env (fun e ->
-      let order = { e.order with active_since = Some "999999999.999999" } in
-      let eligible ?(order = order) ?(date_start = 1000000000)
-          ?(ts = "1000000001.1") ?(epoch = order.epoch) () =
-        E.eligible ~order ~date_start ~notes_ready_ts:ts ~fire_epoch:epoch
-      in
-      check "digit boundary eligible" true (eligible ());
-      check "reverse boundary" false
-        (eligible
-           ~order:{ order with active_since = Some "1000000000.000001" }
-           ~date_start:999999999 ());
-      List.iter
-        (fun active_since ->
-          check "malformed or absent activation" false
-            (eligible ~order:{ order with active_since } ()))
-        [
-          None;
-          Some "";
-          Some "bogus";
-          Some "nan";
-          Some "100.1.2";
-          Some ".1";
-          Some "100.";
-        ];
-      check "confirm or resume during huddle" false
-        (eligible
-           ~order:{ order with active_since = Some "1000000000.000001" }
-           ());
-      check "notes before activation" false (eligible ~ts:"999999999.999998" ());
-      check "malformed notes" false (eligible ~ts:"broken" ());
-      check "epoch mismatch" false (eligible ~epoch:(order.epoch - 1) ()))
-
-let test_upgrade () =
-  with_env (fun e ->
-      seen e;
-      ready e ();
-      resolve e;
-      let id = (one_fire e).id in
-      let first = Option.get (fetch e id) in
-      check "initial notes only" true (first.transcript = None);
-      let later = "1700000070.000100" in
-      ready e ~ts:later ();
-      e.replies :=
-        F.page
+let setup e =
+  let cfg = Session.get_config e.manager in
+  let rule : Runtime_config.egress_rule =
+    {
+      host = "files.slack.com";
+      path = Some "/upload/*";
+      method_ = Some "POST";
+      action = Allow;
+      log_policy = No_log;
+    }
+  in
+  Session.update_config e.manager
+    {
+      cfg with
+      egress =
+        {
+          cfg.egress with
+          default_allowlist = rule :: cfg.egress.default_allowlist;
+        };
+    };
+  let seq = ref 0 in
+  S.override e.mock "conversations.history" (fun p ->
+      ( 200,
+        S.ok
           [
-            !(e.root);
-            set "ts" (str later) (set "thread_ts" (str root_ts) F.ready);
-          ];
+            ( "messages",
+              if get "limit" p = `Int 1 then `List [ !(e.root) ] else `List []
+            );
+            S.no_more;
+          ] ));
+  S.override e.mock "files.getUploadURLExternal" (fun _ ->
+      incr seq;
+      ( 200,
+        S.ok
+          [
+            ("file_id", str ("FUPLOAD" ^ string_of_int !seq));
+            ("upload_url", str "https://files.slack.com/upload/fixture");
+          ] ));
+  let shares =
+    obj
+      [
+        ( "private",
+          obj [ ("C123", `List [ obj [ ("ts", str "1700000100.000001") ] ]) ] );
+      ]
+  in
+  S.override e.mock "files.completeUploadExternal" (fun _ ->
+      (200, S.ok [ ("files", `List [ obj [ ("shares", shares) ] ]) ]));
+  S.override e.mock "reactions.get" (fun p ->
+      ( 200,
+        S.ok
+          [
+            ( (if get "file" p = `Null then "message" else "file"),
+              obj [ ("reactions", `List []) ] );
+          ] ))
+
+let raw _ =
+  Lwt.return
+    Slack_standing_order_upload.{ status = 200; headers = []; body = "" }
+
+let pass ?context ?http ?(upload_http = raw) e =
+  E.pass
+    ~ctx:(Option.value context ~default:(ctx e))
+    ~db:e.db ~manager:e.manager
+    ~http:(Option.value http ~default:e.mock.http)
+    ~upload_http ()
+
+let observe e event =
+  Slack_huddle_observer.observe_db ~db:e.db
+    ~watch:(Slack_huddle_watch.of_db e.db)
+    ~now:(Store.now ())
+    (obj
+       [
+         ("type", str "event_callback");
+         ("team_id", str "T123");
+         ("api_app_id", str "A123");
+         ("event", event);
+       ])
+
+let test_pass () =
+  with_env (fun e ->
+      setup e;
       enable_transcript e;
-      let second = Option.get (fetch e id) in
-      check "upgraded payload" true (second.transcript <> None);
-      check "latest ready retained" true
-        ((runtime e id).notes_ready_ts = Some later);
-      with_claim e id (fun lease r ->
-          let after =
+      let e =
+        {
+          e with
+          manager =
+            Session.create ~config:(Session.get_config e.manager) ~db:e.db ();
+        }
+      in
+      let ingress event =
+        Lwt_main.run
+          (let+ _ =
+             Slack.handle_event
+               ~config:
+                 (Option.get (Session.get_config e.manager).channels.slack)
+               ~session_manager:e.manager
+               (Yojson.Safe.to_string
+                  (obj
+                     [
+                       ("type", str "event_callback");
+                       ("team_id", str "T123");
+                       ("api_app_id", str "A123");
+                       ("event", event);
+                     ]))
+           in
+           ())
+      in
+      ingress
+        (set "channel" (str "C123") (set "type" (str "message") !(e.root)));
+      ingress
+        (set "channel" (str "C123")
+           (set "type" (str "message") (set "thread_ts" (str root_ts) F.ready)));
+      let uploads = ref 0 in
+      Lwt_main.run
+        (pass
+           ~upload_http:(fun r ->
+             incr uploads;
+             raw r)
+           e);
+      let f = one_fire e in
+      check_state e f.id T.Posted;
+      Alcotest.(check int)
+        "one complete" 1
+        (count e "files.completeUploadExternal");
+      Alcotest.(check int) "notes and transcript" 2 !uploads;
+      check "receipt persisted" true
+        ((runtime e f.id).fire.relay_ts = Some "1700000100.000001");
+      ingress
+        (obj
+           [
+             ("type", str "message");
+             ("channel", str "C123");
+             ("user", str "UCLAUDE");
+             ("bot_id", str "BCLAUDE");
+             ("app_id", str "ACLAUDE");
+             ("thread_ts", str "1700000100.000001");
+             ("ts", str "1700000101.000001");
+             ("text", str "done");
+           ]);
+      Lwt_main.run (pass e);
+      check_state e f.id T.Picked_up;
+      Alcotest.(check int)
+        "zero Agent sessions" 0
+        (Hashtbl.length e.manager.sessions))
+
+let test_provider () =
+  let previous = !Provider.native_complete
+  and streams = !Provider.native_stream in
+  let calls = ref 0 in
+  Provider.native_complete :=
+    List.map
+      (fun (kind, _) ->
+        ( kind,
+          fun ~config:_
+            ~provider:_
+            ~model:_
+            ~messages:_
+            ?tools:_
+            ?session_key:_
+            ()
+          ->
+            incr calls;
+            Lwt.fail_with "executor called Provider" ))
+      previous;
+  Provider.native_stream :=
+    List.map
+      (fun (kind, _) ->
+        ( kind,
+          fun ~config:_
+            ~provider:_
+            ~model:_
+            ~messages:_
+            ?tools:_
+            ?session_key:_
+            ~on_chunk:_
+            ()
+          ->
+            incr calls;
+            Lwt.fail_with "executor streamed Provider" ))
+      streams;
+  Fun.protect
+    ~finally:(fun () ->
+      Provider.native_complete := previous;
+      Provider.native_stream := streams)
+    (fun () ->
+      test_pass ();
+      Alcotest.(check int) "zero Provider calls" 0 !calls)
+
+let test_reload () =
+  List.iter
+    (fun change ->
+      with_env (fun e ->
+          setup e;
+          seen e;
+          ready e ();
+          let changed = ref false in
+          let context =
             {
-              r with
-              fire = { r.fire with state = T.Uploading };
-              attempts =
-                [
-                  {
-                    (Store.empty_attempt 0) with
-                    uploaded_file_ids = [ "FPREPARED" ];
-                    upload_started_at = Some (Store.now ());
-                  };
-                ];
+              (ctx e) with
+              Ctx.limit =
+                (fun ~channel_id:_ ->
+                  if count e "canvases.getContent" > 0 && not !changed then (
+                    changed := true;
+                    Session.update_config e.manager
+                      (change (Session.get_config e.manager)));
+                  Lwt.pause ());
             }
           in
-          check "upload transition" true
-            (Store.cas e.db ~lease ~before:r ~after ~now:(Store.now ())
-            = Ok true);
-          ());
-      let latest = "1700000080.000100" in
-      with_claim e id (fun lease r ->
-          check "CAS refuses changing source while retaining stale uploads" true
-            (Result.is_error
-               (Store.cas e.db ~lease ~before:r
-                  ~after:{ r with transcript_id = Some "FSTALE" }
-                  ~now:(Store.now ()))));
-      ready e ~ts:latest ();
-      e.replies :=
-        F.page
-          [
-            !(e.root);
-            set "ts" (str latest) (set "thread_ts" (str root_ts) F.ready);
-          ];
-      e.canvas := set "huddle_transcript_file_id" (str "FNEW") !(e.canvas);
-      e.transcript := set "id" (str "FNEW") !(e.transcript);
-      ignore (Option.get (fetch e id));
-      check "new transcript replaces previous source before dispatch" true
-        ((runtime e id).transcript_id = Some "FNEW");
-      check "new ready invalidates prepared uploads" true
-        (List.for_all
-           (fun (a : Store.relay_attempt) ->
-             a.uploaded_file_ids = [] && a.upload_started_at = None)
-           (runtime e id).attempts);
-      with_claim e id (fun lease _ ->
-          check "one reservation" true
-            (Store.reserve_dispatch e.db ~fire_id:id ~lease ~repost:false
-               ~now:(Store.now ())
-            = Ok true));
-      let before = runtime e id in
-      ready e ~ts:"1700000090.000100" ();
-      resolve e;
-      let calls = List.length !(e.mock.calls) in
-      check "posting has no fetch" true (fetch e id = None);
-      check "source ids frozen" true
-        ((runtime e id).transcript_id = before.transcript_id
-        && (runtime e id).notes_ready_ts = before.notes_ready_ts);
-      with_claim e id (fun lease r ->
-          check "CAS refuses source replacement after posting" true
-            (Result.is_error
-               (Store.cas e.db ~lease ~before:r
-                  ~after:{ r with transcript_id = Some "FTOOLATE" }
-                  ~now:(Store.now ()))));
-      Alcotest.(check int) "still one fire" 1 (List.length (fires e));
-      Alcotest.(check int)
-        "no reads after posting" calls
-        (List.length !(e.mock.calls));
-      Alcotest.(check int)
-        "one complete reservation" 1
-        (Store.dispatches_since e.db ~order_id:e.order.id ~since:0.);
-      no_upload e)
-
-let test_no_notes () =
-  with_env (fun e ->
-      seen e;
-      e.replies := F.page [ !(e.root) ];
-      resolve e;
-      let id = (one_fire e).id in
-      let attempt at delay =
-        S.at at;
-        check "waiting" true (fetch e id = None);
-        check_state e id T.Fetching;
-        Alcotest.(check (option (float 0.)))
-          "relative next attempt"
-          (Some (min (ended +. 3600.) (at +. delay)))
-          (runtime e id).next_attempt_at
-      in
-      attempt (ended +. 10.) 120.;
-      attempt (ended +. 130.) 300.;
-      attempt (ended +. 430.) 600.;
-      attempt (ended +. 1030.) 1200.;
-      attempt (ended +. 2230.) 1200.;
-      attempt (ended +. 3430.) 1200.;
-      S.at (ended +. 3600.);
-      check "final deadline" true (fetch e id = None);
-      check_state e id T.No_notes;
-      check "fixed reason" true ((runtime e id).fire.reason = Some "no_notes");
-      no_upload e)
-
-let test_feature_absent () =
-  List.iter
-    (fun when_no ->
-      with_env (fun e ->
-          let action = S.relay_action ~when_no () in
-          Sql_util.exec_with_params e.db
-            "UPDATE slack_standing_orders SET action_json=? WHERE id=?"
-            [
-              Sqlite3.Data.TEXT
-                (Yojson.Safe.to_string (T.action_to_json action));
-              Sqlite3.Data.TEXT e.order.id;
-            ];
-          seen e;
-          ready e ();
-          enable_transcript e;
-          e.transcript := obj [ ("id", str "FTRANS") ];
-          resolve e;
-          let id = (one_fire e).id in
-          (match (when_no, fetch e id) with
-          | T.Relay_notes, Some v ->
-              check "verified notes with API warning" true
-                (v.transcript = None && v.transcript_unavailable)
-          | Skip, None -> check_state e id T.Skipped_no_transcript
-          | _ -> Alcotest.fail "wrong transcript fallback");
-          no_upload e))
-    [ T.Relay_notes; T.Skip ]
-
-let test_refusals () =
-  List.iter
-    (fun kind ->
-      with_env (fun e ->
-          seen e;
-          resolve e;
-          let id = (one_fire e).id in
-          e.mock.calls := [];
-          (match kind with
-          | `Hard -> Session.update_config e.manager (S.config ~targets:[] ())
-          | `Transient ->
-              S.override e.mock "auth.test" (fun _ -> (503, S.ok []))
-          | `Inactive ->
-              Session.update_config e.manager (S.config ~enabled:false ())
-          | `Cap ->
-              List.iter
-                (fun i ->
-                  ignore
-                    (S.fire e.db e.order ~dispatched_at:(Store.now ())
-                       ~room:("RCAP" ^ string_of_int i)
-                       ()))
-                (List.init 10 Fun.id));
-          check "refusal has no payload" true (fetch e id = None);
-          List.iter
-            (fun m -> Alcotest.(check int) "zero content HTTP" 0 (count e m))
-            [
-              "conversations.history";
-              "conversations.replies";
-              "files.info";
-              "canvases.getContent";
-            ];
-          (match kind with
-          | `Hard ->
-              check_state e id T.Denied;
-              check "suspends same epoch" true
-                ((Option.get (Store.find e.db e.order.id)).state = T.Suspended)
-          | `Transient ->
-              check_state e id T.Detected;
-              Alcotest.(check (option (float 0.)))
-                "transient backoff"
-                (Some (Store.now () +. 120.))
-                (runtime e id).next_attempt_at
-          | `Inactive -> check_state e id T.Skipped_inactive
-          | `Cap -> check_state e id T.Skipped_cap);
-          no_upload e))
-    [ `Hard; `Transient; `Inactive; `Cap ]
-
-let test_api_and_rejection () =
-  List.iter
-    (fun kind ->
-      with_env (fun e ->
-          seen e;
-          ready e ();
-          resolve e;
-          let id = (one_fire e).id in
-          (match kind with
-          | `Rejected ->
-              e.root :=
-                set "room"
-                  (set "id" (str "RWRONG") (get "room" !(e.root)))
-                  !(e.root)
-          | `Scope ->
-              S.override e.mock "files.info" (fun _ ->
-                  ( 200,
-                    obj [ ("ok", `Bool false); ("error", str "missing_scope") ]
-                  ))
-          | `Transport ->
-              S.override e.mock "files.info" (fun _ -> (503, S.ok []))
-          | `Audit ->
-              S.override e.mock "conversations.replies" (fun _ ->
-                  Sql_util.exec_exn e.db
-                    "CREATE TRIGGER fail_content_audit BEFORE INSERT ON \
-                     egress_audit BEGIN SELECT RAISE(FAIL,'private audit \
-                     failure'); END";
-                  (200, set "ok" (`Bool true) !(e.replies))));
-          check "never falls back from failed source" true (fetch e id = None);
-          (match kind with
-          | `Rejected -> check_state e id T.Unavailable
-          | `Scope ->
-              check_state e id T.Denied;
-              check "typed scope reason" true
-                ((runtime e id).fire.reason = Some "missing_scope:files.info");
-              check "missing scope suspends" true
-                ((Option.get (Store.find e.db e.order.id)).state = T.Suspended)
-          | `Transport | `Audit ->
-              check_state e id T.Fetching;
-              check "retry scheduled" true
-                ((runtime e id).next_attempt_at = Some (Store.now () +. 120.)));
-          no_upload e))
-    [ `Rejected; `Scope; `Transport; `Audit ]
-
-let test_reason_codes () =
-  with_env (fun e ->
-      seen e;
-      ready e ();
-      resolve e;
-      let id = (one_fire e).id in
-      let private_text = "Private transcript Alice said secret budget" in
-      S.override e.mock "files.info" (fun _ ->
-          ( 200,
-            obj
-              [
-                ("ok", `Bool false);
-                ("error", str private_text);
-                ("body", str private_text);
-              ] ));
-      ignore (fetch e id);
-      check "enumerated code only" true
-        ((runtime e id).fire.reason = Some "indeterminate:files.info");
-      let shown =
-        Yojson.Safe.to_string
-          (Slack_standing_order_render.order_detail_json ~fires:(fires e)
-             (Option.get (Store.find e.db e.order.id)))
-      in
-      check "show contains no response body" false
-        (let n = String.length private_text in
-         let rec contains i =
-           i + n <= String.length shown
-           && (String.sub shown i n = private_text || contains (i + 1))
-         in
-         contains 0))
-
-let test_resolve_grant () =
-  with_env (fun e ->
-      List.iter
-        (fun i ->
-          ignore
-            (S.fire e.db e.order ~dispatched_at:(Store.now ())
-               ~room:("RCAP" ^ string_of_int i)
-               ()))
-        (List.init 10 Fun.id);
-      let grant () =
-        Lwt_main.run
-          (G.evaluate ~db:e.db
-             ~current_config:(fun () -> Session.get_config e.manager)
-             ~http:e.mock.http ~stage:G.Resolve ~unit_label:"resolve"
-             (G.subject_of_order e.order))
-      in
-      (match grant () with
-      | Ok v ->
-          check "resolve snapshot has no fire" true
-            (v.snapshot.standing_order
-            = Some { Access_snapshot.order_id = e.order.id; fire_id = None })
-      | Error _ -> Alcotest.fail "Resolve must not refuse at cap");
-      seen e;
-      ready e ();
-      resolve e;
-      let f = List.find (fun (f : T.fire) -> f.room_id = "R123") (fires e) in
-      check_state e f.id T.Skipped_cap;
-      Sql_util.exec_exn e.db "DELETE FROM slack_standing_order_cards";
-      e.mock.calls := [];
-      (match grant () with
-      | Error f ->
-          check "unannounced Resolve refuses" true
-            (f.reason = G.Activation_unannounced)
-      | Ok _ -> Alcotest.fail "unannounced Resolve passed");
-      Alcotest.(check int)
-        "unannounced costs zero HTTP" 0
-        (List.length !(e.mock.calls)))
-
-let test_transient_backoff () =
-  with_env (fun e ->
-      seen e;
-      ready e ();
-      resolve e;
-      let id = (one_fire e).id in
-      S.override e.mock "files.info" (fun _ -> (503, S.ok []));
-      List.iter
-        (fun delay ->
-          let now = Store.now () in
-          check "transient waits" true (fetch e id = None);
-          check_state e id T.Fetching;
-          check "exact transient delay" true
-            ((runtime e id).next_attempt_at = Some (now +. delay));
-          S.at (now +. delay))
-        [ 120.; 300.; 600.; 1200.; 1200. ];
-      e.replies := F.page [ !(e.root) ];
-      S.at (ended +. 3590.);
-      check "no-notes deadline independent of transient retries" true
-        (fetch e id = None);
-      check "no-notes retry capped to end" true
-        ((runtime e id).next_attempt_at = Some (ended +. 3600.));
-      S.at (ended +. 3600.);
-      ignore (fetch e id);
-      check_state e id T.No_notes)
-
-let test_conflict () =
-  with_env (fun e ->
-      let other = S.seed e.db ~channel:"C999" () in
-      let f = S.fire e.db other ~room:"ROTHER" () in
-      Sql_util.exec_with_params e.db
-        "UPDATE slack_standing_order_fires SET transcript_file_id='FTRANS' \
-         WHERE id=?"
-        [ Sqlite3.Data.TEXT f.id ];
-      seen e;
-      ready e ();
-      enable_transcript e;
-      resolve e;
-      let id = (one_fire e).id in
-      check "conflicting transcript withheld" true (fetch e id = None);
-      check_state e id T.Unavailable;
-      check "fixed conflict reason" true
-        ((runtime e id).fire.reason = Some "transcript_conflict");
-      Alcotest.(check int)
-        "conflict blocks content fetch" 0
-        (count e "canvases.getContent");
-      no_upload e)
-
-let test_checkpoint () =
-  with_env (fun e ->
-      seen e;
-      ready e ();
-      enable_transcript e;
-      resolve e;
-      let id = (one_fire e).id in
-      S.override e.mock "canvases.getContent" (fun _ ->
-          let r = runtime e id in
-          check "ids persisted before content HTTP" true
-            (r.root_ts = Some root_ts
-            && r.canvas_id = Some "FCANVAS"
-            && r.transcript_id = Some "FTRANS"
-            && r.notes_ready_ts = Some ready_ts);
-          (200, S.ok [ ("content", str "private meeting notes") ]));
-      ignore (Option.get (fetch e id));
-      let new_start = start + 3600 in
-      let room =
-        Option.get
-          (Slack_huddle_classify.room_of_json
-             (set "date_start" (`Int new_start) (get "room" !(e.root))))
-      in
-      L.record_seen ~db:e.db ~team:"T123" ~channel:"C123" ~source:"event"
-        ~now:(Store.now ()) ~root_ts:"1700003601.000100" ~file_ids:[] room;
-      e.root :=
-        set "room" (set "id" (str "RWRONG") (get "room" !(e.root))) !(e.root);
-      ignore (fetch e id);
-      check_state e id T.Unavailable;
-      let row =
-        List.find
-          (fun (r : L.row) -> r.kind = L.Room)
-          (L.list_rows ~db:e.db ~team:"T123" ~channel:"C123")
-      in
-      check "old fetch cannot mutate reused room" true
-        (row.date_start = Some new_start
-        && row.transcript_file_id = None
-        && not row.finalised))
-
-let test_no_content_cache () =
-  with_env (fun e ->
-      seen e;
-      ready e ();
-      resolve e;
-      let id = (one_fire e).id in
-      ignore (Option.get (fetch e id));
-      List.iter
-        (fun table ->
-          let values =
-            Slack_standing_order_sql.query e.db ("SELECT * FROM " ^ table) []
-              (fun stmt ->
-                List.init (Sqlite3.column_count stmt) (fun i ->
-                    Sqlite3.column stmt i))
-            |> List.concat
-          in
-          check "meeting content absent from storage" false
-            (List.mem (Sqlite3.Data.TEXT "private meeting notes") values))
-        [
-          "slack_huddles";
-          "slack_standing_order_fires";
-          "slack_standing_order_fetch";
-        ])
-
-let test_epoch_guard () =
-  with_env (fun e ->
-      seen e;
-      ready e ();
-      resolve e;
-      let id = (one_fire e).id in
-      S.override e.mock "files.info" (fun _ ->
-          Sql_util.exec_with_params e.db
-            "UPDATE slack_standing_orders SET epoch=epoch+1 WHERE id=?"
-            [ Sqlite3.Data.TEXT e.order.id ];
-          (200, obj [ ("ok", `Bool false); ("error", str "missing_scope") ]));
-      check "hard refusal with a newer epoch" true (fetch e id = None);
-      check_state e id T.Denied;
-      check "late refusal cannot suspend new epoch" true
-        ((Option.get (Store.find e.db e.order.id)).state = T.Active))
-
-let test_suspension_failure_recovers () =
-  List.iter
-    (fun content_refusal ->
-      with_env (fun e ->
-          seen e;
-          ready e ();
-          resolve e;
-          let id = (one_fire e).id in
-          if content_refusal then
-            S.override e.mock "files.info" (fun _ ->
-                ( 200,
-                  obj [ ("ok", `Bool false); ("error", str "missing_scope") ] ))
-          else Session.update_config e.manager (S.config ~targets:[] ());
-          Sql_util.exec_exn e.db
-            "CREATE TEMP TRIGGER fail_suspension BEFORE UPDATE OF state ON \
-             slack_standing_orders WHEN NEW.state='suspended' BEGIN SELECT \
-             RAISE(ABORT,'injected suspension failure'); END";
-          let result =
-            with_claim e id (fun lease r ->
-                Lwt_main.run
-                  (E.fetch ~ctx:(ctx e) ~db:e.db ~manager:e.manager
-                     ~http:e.mock.http ~lease r))
-          in
-          check "suspension failure is reported" true
-            (result = Error "fetch_store_failed");
-          check_state e id (if content_refusal then T.Fetching else T.Detected);
-          let order = Option.get (Store.find e.db e.order.id) in
-          check "failed transaction keeps order active" true
-            (order.state = T.Active && order.epoch = e.order.epoch);
-          check "failed denial remains due after lease release" true
-            (List.exists
-               (fun (r : Store.fire_runtime) -> r.fire.id = id)
-               (Store.due e.db ~now:(Store.now ())));
-          check "failed denial does not finalise the ledger" true
-            (List.for_all
-               (fun (row : L.row) -> not row.finalised)
-               (L.list_rows ~db:e.db ~team:"T123" ~channel:"C123"));
-          Sql_util.exec_exn e.db "DROP TRIGGER fail_suspension";
-          check "retry completes without payload" true (fetch e id = None);
-          check_state e id T.Denied;
-          let order = Option.get (Store.find e.db e.order.id) in
-          check "retry suspends the same epoch" true (order.state = T.Suspended);
+          Lwt_main.run (pass ~context e);
+          check "reload occurred inside limiter" true !changed;
           Alcotest.(check int)
-            "suspension advances epoch once" (e.order.epoch + 1) order.epoch;
-          check "denial clears retry scheduling" true
-            ((runtime e id).next_attempt_at = None);
-          check "completed denial is no longer due" true
-            (not
-               (List.exists
-                  (fun (r : Store.fire_runtime) -> r.fire.id = id)
-                  (Store.due e.db ~now:(Store.now ()))));
-          no_upload e))
-    [ false; true ]
+            "zero completes" 0
+            (count e "files.completeUploadExternal");
+          Alcotest.(check int)
+            "zero upload allocation" 0
+            (count e "files.getUploadURLExternal")))
+    [
+      (fun cfg ->
+        S.with_slack cfg (fun sc ->
+            {
+              sc with
+              standing_orders =
+                { sc.standing_orders with orders_enabled = false };
+            }));
+      (fun cfg ->
+        S.with_slack cfg (fun sc ->
+            {
+              sc with
+              standing_orders = { sc.standing_orders with allowed_targets = [] };
+            }));
+      (fun cfg -> S.profile cfg ~denied:[ "slack_huddle_content" ] ());
+    ]
 
-let test_ledger_failure_cannot_prevent_suspension () =
-  with_env (fun e ->
-      seen e;
-      resolve e;
-      let id = (one_fire e).id in
-      Session.update_config e.manager (S.config ~targets:[] ());
-      Sql_util.exec_exn e.db
-        "CREATE TEMP TRIGGER fail_finalisation BEFORE UPDATE OF finalised ON \
-         slack_huddles WHEN NEW.finalised=1 BEGIN SELECT RAISE(ABORT,'injected \
-         ledger failure'); END";
-      let result =
-        with_claim e id (fun lease r ->
-            Lwt_main.run
-              (E.fetch ~ctx:(ctx e) ~db:e.db ~manager:e.manager
-                 ~http:e.mock.http ~lease r))
-      in
-      check "ledger failure is reported" true (result = Error "fetch_internal");
-      check_state e id T.Denied;
-      check "ledger failure cannot prevent suspension" true
-        ((Option.get (Store.find e.db e.order.id)).state = T.Suspended);
-      no_upload e)
+let seed_report e cause =
+  Report.init e.db;
+  Slack_standing_order_sql.exec e.db
+    "INSERT INTO \
+     slack_standing_order_reports(order_id,cause_key,period_key,status) \
+     VALUES(?,?,'once','pending')"
+    [ Sqlite3.Data.TEXT e.order.id; Sqlite3.Data.TEXT (Report.cause_key cause) ]
 
-let test_waiting_eligibility () =
-  with_env (fun e ->
-      e.root :=
-        set "room"
-          (set "date_start" (`Int 1700000000) (get "room" !(e.root)))
-          !(e.root);
-      ready e ();
-      resolve e;
-      Alcotest.(check int)
-        "confirm/resume during huddle inserts nothing" 0
-        (List.length (fires e));
-      let f = S.fire e.db e.order ~room:"R123" ~date_start:"1700000000" () in
-      check "legacy ineligible fire withheld" true (fetch e f.id = None);
-      check_state e f.id T.Skipped_inactive;
-      Alcotest.(check int)
-        "ineligible fire never fetches content" 0 (count e "files.info"))
-
-let test_stale_ready () =
-  with_env (fun e ->
-      seen e;
-      ready e ();
-      resolve e;
-      let id = (one_fire e).id in
-      ignore (Option.get (fetch e id));
-      let before = runtime e id and calls = count e "canvases.getContent" in
-      e.replies :=
-        F.page
-          [
-            !(e.root);
-            set "ts" (str "1700000050.000100")
-              (set "thread_ts" (str root_ts) F.ready);
-          ];
-      check "older ready waits" true (fetch e id = None);
-      check "latest evidence cannot regress" true
-        ((runtime e id).notes_ready_ts = before.notes_ready_ts);
-      Alcotest.(check int)
-        "no stale content read" calls
-        (count e "canvases.getContent"))
+let test_capabilities ~reload () =
+  List.iter
+    (fun name ->
+      List.iter
+        (fun queued ->
+          with_env (fun e ->
+              setup e;
+              seen e;
+              ready e ();
+              let cause =
+                Report.Authority_refused
+                  (Slack_standing_order_grant.Tool_denied name)
+              in
+              if queued then seed_report e cause;
+              let changed = ref false and uploads = ref 0 in
+              let deny () =
+                changed := true;
+                Session.update_config e.manager
+                  (S.profile (Session.get_config e.manager) ~denied:[ name ] ());
+                e.mock.calls := [];
+                uploads := 0
+              in
+              let context =
+                {
+                  (ctx e) with
+                  Ctx.limit =
+                    (fun ~channel_id:_ ->
+                      if
+                        reload && (not !changed)
+                        && count e "canvases.getContent" > 0
+                      then deny ();
+                      Lwt.pause ());
+                }
+              in
+              if not reload then deny ();
+              Lwt_main.run
+                (pass ~context
+                   ~upload_http:(fun r ->
+                     incr uploads;
+                     raw r)
+                   e);
+              Alcotest.(check int) "zero subsequent raw uploads" 0 !uploads;
+              check "deny applied" true !changed;
+              check "epoch-safe suspension" true
+                ((Option.get (Store.find e.db e.order.id)).state = T.Suspended);
+              Alcotest.(check int)
+                "zero subsequent Slack calls" 0
+                (List.length !(e.mock.calls));
+              Alcotest.(check (list (pair string string)))
+                "one inspectable local notification"
+                [ (Report.cause_key cause, "local_only") ]
+                (Report.statuses ~db:e.db ~order_id:e.order.id);
+              Session.update_config e.manager (S.config ());
+              Lwt_main.run (pass e);
+              Alcotest.(check int)
+                "re-enable never sends local receipt" 0
+                (count e "chat.postMessage")))
+        [ false; true ])
+    Slack_standing_order_grant.capability_names
 
 let test_drain () =
   with_env (fun e ->
+      setup e;
       seen e;
-      let ctx =
-        {
-          (ctx e) with
-          Slack_standing_order_ctx.limit =
-            (fun ~channel_id:_ ->
-              e.accepting := false;
-              Lwt.pause ());
-        }
+      ready e ();
+      let sent, wake = Lwt.task () in
+      let http ~verb ~token ~method_ ~params =
+        if method_ = "files.completeUploadExternal" then (
+          e.accepting := false;
+          let* () = sent in
+          e.mock.http ~verb ~token ~method_ ~params)
+        else e.mock.http ~verb ~token ~method_ ~params
       in
-      let cancelled =
-        Lwt_main.run
-          (Lwt.catch
-             (fun () ->
-               let open Lwt.Syntax in
-               let+ () =
-                 E.resolve_pending ~ctx ~db:e.db ~manager:e.manager
-                   ~http:e.mock.http e.order
-               in
-               false)
-             (function Lwt.Canceled -> Lwt.return true | exn -> Lwt.fail exn))
-      in
-      check "drain cancels after limiter await" true cancelled;
-      Alcotest.(check int)
-        "zero HTTP after drain" 0
-        (List.length !(e.mock.calls)))
+      Lwt_main.run
+        (let work = pass ~http e in
+         let* () = Lwt.pause () in
+         check "complete waiting" true (Lwt.is_sleeping work);
+         Lwt.wakeup wake ();
+         let* () = work in
+         let f = one_fire e in
+         check "receipt survives drain" true
+           ((runtime e f.id).fire.relay_ts <> None);
+         check "lease released" true ((runtime e f.id).claim = None);
+         Lwt.return_unit))
 
-let test_optional_end () =
+let test_routes () =
+  List.iter
+    (fun (reason, change) ->
+      with_env (fun e ->
+          setup e;
+          seen e;
+          ready e ();
+          change e;
+          Lwt_main.run (pass e);
+          Lwt_main.run (pass e);
+          let key = Report.cause_key (Report.of_hard_reason reason) in
+          check "hard refusal suspended" true
+            ((Option.get (Store.find e.db e.order.id)).state = T.Suspended);
+          Alcotest.(check (list (pair string string)))
+            "routed once"
+            [ (key, "sent") ]
+            (Report.statuses ~db:e.db ~order_id:e.order.id);
+          Alcotest.(check int)
+            "one management reply" 1
+            (count e "chat.postMessage")))
+    Slack_standing_order_grant.
+      [
+        ( Missing_scope "files.info",
+          fun e ->
+            S.override e.mock "files.info" (fun _ ->
+                ( 200,
+                  obj [ ("ok", `Bool false); ("error", str "missing_scope") ] ))
+        );
+        (Target_not_member, fun e -> S.remove_member e.mock.world "UCLAUDE");
+        ( Channel_shared,
+          fun e ->
+            S.override e.mock "conversations.info" (fun _ ->
+                ( 200,
+                  S.ok
+                    [
+                      ( "channel",
+                        obj
+                          [
+                            ("id", str "C123");
+                            ("is_member", `Bool true);
+                            ("is_private", `Bool false);
+                            ("is_shared", `Bool true);
+                          ] );
+                    ] )) );
+        (Grantor_not_member, fun e -> S.remove_member e.mock.world "U123");
+        ( Target_not_allowlisted,
+          fun e -> Session.update_config e.manager (S.config ~targets:[] ()) );
+      ]
+
+let test_transcript_reports () =
+  List.iter
+    (fun unavailable ->
+      with_env (fun e ->
+          setup e;
+          seen e;
+          ready e ();
+          if unavailable then (
+            enable_transcript e;
+            e.transcript := obj [ ("id", str "FTRANS") ]);
+          Lwt_main.run (pass e);
+          Lwt_main.run (pass e);
+          Alcotest.(check int)
+            "API disappearance only"
+            (if unavailable then 1 else 0)
+            (count e "chat.postMessage")))
+    [ false; true ]
+
+let test_no_notes_report () =
   with_env (fun e ->
-      e.root :=
-        set "room" (set "date_end" `Null (get "room" !(e.root))) !(e.root);
+      setup e;
       seen e;
       e.replies := F.page [ !(e.root) ];
+      Lwt_main.run (pass e);
+      S.at (ended +. 3600.);
+      Lwt_main.run (pass e);
+      Lwt_main.run (pass e);
+      check_state e (one_fire e).id T.No_notes;
+      Alcotest.(check int) "one no-notes hint" 1 (count e "chat.postMessage"))
+
+let test_egress () =
+  with_env (fun e ->
+      setup e;
+      seen e;
+      ready e ();
+      enable_transcript e;
+      let observed = ref [] in
+      let verify method_ verb =
+        check "closed egress method and verb" true
+          (List.assoc_opt method_ Slack_standing_order_slack.methods = Some verb
+          || (method_ = "upload" && verb = "POST"));
+        let audits = Egress_audit.query ~db:e.db ~limit:10000 () in
+        let audited =
+          List.exists
+            (fun (a : Egress_audit.event) ->
+              a.decision = Egress_audit.Allowed
+              && a.session_key = Some "slack:C123"
+              && Option.fold ~none:false
+                   ~some:(fun id ->
+                     match Access_snapshot.get_by_id ~db:e.db id with
+                     | Some snap ->
+                         snap.work_type = Access_snapshot.Standing_order
+                         && Option.fold ~none:false
+                              ~some:(fun ref_ ->
+                                ref_.Access_snapshot.order_id = e.order.id)
+                              snap.standing_order
+                     | None -> false)
+                   a.snapshot_id
+              && a.method_redacted = Some (Egress_audit.redact_method verb)
+              && a.path_redacted
+                 =
+                 if method_ = "upload" then None
+                 else Some (Egress_audit.redact_path ("/api/" ^ method_)))
+            audits
+        in
+        S.mock_checks :=
+          (fun () ->
+            check "Allowed persisted snapshot and access key before transport"
+              true audited)
+          :: !S.mock_checks;
+        observed := (method_, verb) :: !observed
+      in
+      let http ~verb ~token ~method_ ~params =
+        verify method_ verb;
+        e.mock.http ~verb ~token ~method_ ~params
+      in
+      let upload_http r =
+        verify "upload" "POST";
+        raw r
+      in
+      Lwt_main.run (pass ~http ~upload_http e);
+      (* Exercise report and policy refusal through the same production pass. *)
+      seed_report e Report.No_pickup;
+      Lwt_main.run (pass ~http ~upload_http e);
+      let cfg = Session.get_config e.manager in
+      Session.update_config e.manager
+        { cfg with egress = { cfg.egress with default_allowlist = [] } };
+      Lwt_main.run (pass ~http ~upload_http e);
+      let denied =
+        Egress_audit.query ~db:e.db ~decision:Egress_audit.Denied ()
+      in
+      check "Denied audit also present" true (denied <> []);
+      List.iter
+        (fun (a : Egress_audit.event) ->
+          check "Denied audit access key" true
+            (a.session_key = Some "slack:C123");
+          check "Denied audit order label" true
+            (List.mem a.tool_name
+               [
+                 Some ("standing_order:" ^ e.order.id ^ ":fire");
+                 Some ("standing_order:" ^ e.order.id ^ ":report");
+               ]);
+          check "Denied audit persisted order snapshot" true
+            (Option.fold ~none:false
+               ~some:(fun id ->
+                 match Access_snapshot.get_by_id ~db:e.db id with
+                 | Some snap ->
+                     snap.work_type = Access_snapshot.Standing_order
+                     && Option.fold ~none:false
+                          ~some:(fun ref_ ->
+                            ref_.Access_snapshot.order_id = e.order.id)
+                          snap.standing_order
+                 | None -> false)
+               a.snapshot_id))
+        denied;
+      List.iter
+        (fun m -> check ("covered " ^ m) true (List.mem_assoc m !observed))
+        [
+          "auth.test";
+          "bots.info";
+          "conversations.info";
+          "conversations.members";
+          "users.list";
+          "reactions.get";
+          "conversations.history";
+          "conversations.replies";
+          "files.info";
+          "canvases.getContent";
+          "files.getUploadURLExternal";
+          "upload";
+          "files.completeUploadExternal";
+          "chat.postMessage";
+        ];
+      Printf.printf
+        "Method/audit coverage: PASS (%d observed calls, Allowed/Denied \
+         snapshot+key checked)\n\
+         %!"
+        (List.length !observed))
+
+let test_worker_drain () =
+  with_env (fun e ->
+      setup e;
+      let module W = Test_slack_standing_order_worker in
+      let c = W.clock () in
+      let sent, wake = Lwt.task () and dispatched = ref false in
+      let http ~verb ~token ~method_ ~params =
+        if method_ = "files.completeUploadExternal" then (
+          dispatched := true;
+          let* () = sent in
+          e.mock.http ~verb ~token ~method_ ~params)
+        else e.mock.http ~verb ~token ~method_ ~params
+      in
+      Lwt_main.run
+        (Lwt.finalize
+           (fun () ->
+             E.start ~ctx:(W.context e c) ~db:e.db ~manager:e.manager ~http
+               ~upload_http:raw ();
+             seen e;
+             ready e ();
+             E.wake ();
+             let* () = W.flush 20 in
+             check "complete was dispatched" true !dispatched;
+             let stopped = E.stop () in
+             check "stop waits for receipt" true (Lwt.is_sleeping stopped);
+             Lwt.wakeup wake ();
+             let* () = stopped in
+             let r = runtime e (one_fire e).id in
+             check "receipt recorded during stop" true (r.fire.relay_ts <> None);
+             check "lease released on stop" true (r.claim = None);
+             W.cleanup c;
+             Lwt.return_unit)
+           (fun () ->
+             if Lwt.is_sleeping sent then Lwt.wakeup wake ();
+             E.stop ())))
+
+let test_shared_budget () =
+  with_env (fun e ->
+      setup e;
+      seen e;
+      ready e ();
+      let module W = Test_slack_standing_order_worker in
+      let c = W.clock () in
+      let context = E.context ~wait:(W.wait c) ~accepting:(fun () -> true) () in
+      let writes = ref [] in
+      let http ~verb ~token ~method_ ~params =
+        if
+          method_ = "files.completeUploadExternal"
+          || method_ = "chat.postMessage"
+        then writes := !writes @ [ (method_, c.now) ];
+        e.mock.http ~verb ~token ~method_ ~params
+      in
+      let rec finish work remaining =
+        if not (Lwt.is_sleeping work) then work
+        else if remaining = 0 then Alcotest.fail "pacing never completed"
+        else
+          let* () = W.advance c 1. in
+          finish work (remaining - 1)
+      in
+      Lwt_main.run
+        (let* () = finish (pass ~context ~http e) 300 in
+         seed_report e Report.No_pickup;
+         let r = runtime e (one_fire e).id in
+         Slack_standing_order_sql.exec e.db
+           "UPDATE slack_standing_order_dispatches SET \
+            first_reply_ts=?,rate_limited_at=? WHERE fire_id=? AND \
+            attempt_no=0"
+           [
+             Sqlite3.Data.TEXT "1700000101.000001";
+             Sqlite3.Data.FLOAT (c.now -. 300.);
+             Sqlite3.Data.TEXT r.fire.id;
+           ];
+         let module H = Test_slack_standing_order_repost_support in
+         let original =
+           set "text"
+             (str (Slack_relay_guard.footer ~nonce:(Option.get r.nonce)))
+             (H.message
+                (Option.get r.fire.relay_ts)
+                (Option.get (Store.attempt r 0)).uploaded_file_ids)
+         in
+         H.history e [ original ];
+         H.pickup_reads e;
+         let* () = finish (pass ~context ~http e) 500 in
+         match !writes with
+         | [
+          ("files.completeUploadExternal", first);
+          ("files.completeUploadExternal", second);
+          ("chat.postMessage", third);
+         ] ->
+             check "relay, repost and report use one budget" true
+               (second -. first >= 1. && third -. second >= 1.);
+             Alcotest.(check int)
+               "one repost" 1 (runtime e r.fire.id).fire.reposts;
+             W.cleanup c;
+             Lwt.return_unit
+         | _ -> Alcotest.fail "expected relay, repost and report"))
+
+let test_restart_read_only () =
+  with_env (fun e ->
+      setup e;
+      seen e;
+      ready e ();
       resolve e;
-      let first_observed_end = Store.now () and id = (one_fire e).id in
-      ignore (fetch e id);
-      S.at (first_observed_end +. 3590.);
-      ignore (fetch e id);
-      check "missing optional end cannot extend first observation deadline" true
-        ((runtime e id).next_attempt_at = Some (first_observed_end +. 3600.));
-      S.at (first_observed_end +. 3600.);
-      ignore (fetch e id);
-      check_state e id T.No_notes)
+      let id = (one_fire e).id in
+      ignore (Option.get (fetch e id));
+      let module H = Test_slack_standing_order_repost_support in
+      with_claim e id (fun lease r -> ignore (H.seed e lease r false));
+      H.history e [ H.message H.ts0 [ "FORIGINAL" ] ];
+      H.pickup_reads e;
+      let module W = Test_slack_standing_order_worker in
+      let c = W.clock () in
+      Lwt_main.run
+        (Lwt.finalize
+           (fun () ->
+             E.start ~ctx:(W.context e c) ~db:e.db ~manager:e.manager
+               ~http:e.mock.http ~upload_http:raw ();
+             let* () = W.advance c 300. in
+             Alcotest.(check int)
+               "persisted relay never reposts at startup" 0
+               (count e "files.completeUploadExternal");
+             Lwt.return_unit)
+           (fun () ->
+             let* () = E.stop () in
+             W.cleanup c;
+             Lwt.return_unit)))
+
+let test_two_orders () =
+  with_env (fun e ->
+      setup e;
+      seen e;
+      ready e ();
+      let target =
+        { S.claude with T.user_id = "U456"; app_id = "A123"; bot_id = "BOWN" }
+      in
+      let second = S.seed e.db ~target () in
+      let card =
+        Store.insert_card e.db ~kind:T.Pause_button ~order:second
+          ~created_by:"U123" ~now:(Store.now ()) ()
+      in
+      Store.set_card_message_ts e.db ~card_id:card.id "1700000000.000300";
+      Session.update_config e.manager
+        (S.with_slack (Session.get_config e.manager) (fun sc ->
+             {
+               sc with
+               standing_orders =
+                 {
+                   sc.standing_orders with
+                   allowed_targets =
+                     sc.standing_orders.allowed_targets
+                     @ [
+                         {
+                           Slack_config_types.app_id = "A123";
+                           label = "Other fixture";
+                         };
+                       ];
+                 };
+             }));
+      S.edit_user e.mock.world "U456" (fun u ->
+          set "is_bot" (`Bool true)
+            (set "profile"
+               (obj [ ("api_app_id", str "A123"); ("bot_id", str "BOWN") ])
+               u));
+      let module W = Test_slack_standing_order_worker in
+      let c = W.clock () in
+      let context = E.context ~wait:(W.wait c) ~accepting:(fun () -> true) () in
+      let posts = ref [] in
+      let http ~verb ~token ~method_ ~params =
+        if method_ = "files.completeUploadExternal" then
+          posts := c.now :: !posts;
+        e.mock.http ~verb ~token ~method_ ~params
+      in
+      let rec finish work n =
+        if not (Lwt.is_sleeping work) then work
+        else if n = 0 then Alcotest.fail "two orders stalled"
+        else
+          let* () = W.advance c 1. in
+          finish work (n - 1)
+      in
+      Lwt_main.run
+        (let* () = finish (pass ~context ~http e) 500 in
+         (match !posts with
+         | [ second; first ] ->
+             check "two orders complete at least one second apart" true
+               (second -. first >= 1.)
+         | _ -> Alcotest.fail "expected one complete per order");
+         W.cleanup c;
+         Lwt.return_unit))
+
+let test_other_channel () =
+  with_env (fun e ->
+      let other = S.seed e.db ~channel:"C456" () in
+      let card =
+        Store.insert_card e.db ~kind:T.Pause_button ~order:other
+          ~created_by:"U123" ~now:(Store.now ()) ()
+      in
+      Store.set_card_message_ts e.db ~card_id:card.id "1700000000.000300";
+      let blocked, wake = Lwt.task () and calls = ref 0 in
+      let http ~verb:_ ~token:_ ~method_:_ ~params:_ =
+        incr calls;
+        if !calls = 1 then
+          let* () = blocked in
+          Lwt.return (503, "{}")
+        else Lwt.return (503, "{}")
+      in
+      let context =
+        Ctx.make
+          ~accepting:(fun () -> true)
+          ~limit:(fun ~channel_id:_ -> Lwt.return_unit)
+          ()
+      in
+      Lwt_main.run
+        (let work = pass ~context ~http e in
+         Lwt.finalize
+           (fun () ->
+             let* () = Lwt.pause () in
+             Alcotest.(check int) "another channel made progress" 2 !calls;
+             Lwt.return_unit)
+           (fun () ->
+             if Lwt.is_sleeping blocked then Lwt.wakeup wake ();
+             work)))
+
+let test_failure_accounting () =
+  with_env (fun e ->
+      setup e;
+      List.iter
+        (fun i ->
+          ignore
+            (S.fire e.db e.order ~state:T.Failed
+               ~room:("RFAILED" ^ string_of_int i)
+               ()))
+        [ 1; 2; 3 ];
+      seen e;
+      ready e ();
+      Lwt_main.run (pass e);
+      Alcotest.(check int)
+        "K=3 prevents a fourth dispatch" 0
+        (count e "files.completeUploadExternal");
+      check "matching epoch pauses" true
+        ((Option.get (Store.find e.db e.order.id)).state = T.Paused);
+      Alcotest.(check (list (pair string string)))
+        "one failure-streak report"
+        [ ("repeated_failures", "sent") ]
+        (Report.statuses ~db:e.db ~order_id:e.order.id))
+
+let test_outcome_reports () =
+  List.iter
+    (fun (state, reason, expected) ->
+      with_env (fun e ->
+          setup e;
+          let fire = S.fire e.db e.order ~room:"R123" ~state () in
+          Slack_standing_order_sql.exec e.db
+            "UPDATE slack_standing_order_fires SET reason=? WHERE id=?"
+            [ Sqlite3.Data.TEXT reason; Sqlite3.Data.TEXT fire.id ];
+          Lwt_main.run (pass e);
+          Lwt_main.run (pass e);
+          let expected = List.map (fun key -> (key, "sent")) expected in
+          Alcotest.(check (list (pair string string)))
+            "complete pass routes the fixed cause once" expected
+            (Report.statuses ~db:e.db ~order_id:e.order.id)))
+    T.
+      [
+        (No_notes, "no_notes", [ "no_notes_hint" ]);
+        (No_pickup, "no_pickup", [ "no_pickup" ]);
+        (Not_delivered, "not_delivered", [ "not_delivered" ]);
+        (Skipped_cap, "daily_cap_reached", [ "cap_hit" ]);
+        (Acknowledged, "acknowledged_no_reply", [ "reply_delayed" ]);
+        (Skipped_inactive, "feature_disabled", []);
+        (Skipped_no_transcript, "no_transcript", []);
+        (Picked_up, "", []);
+      ]
 
 let suite =
-  [
-    S.case "stub resolves from thread root not canvas metadata" test_stub;
-    S.case
-      "eligibility compares slack ts numerically across digit-length boundaries"
-      test_eligibility;
-    S.case "second ready before dispatch upgrades; after dispatch ignored"
-      test_upgrade;
-    S.case "no notes retries 2 5 10 20 then finalises at 60" test_no_notes;
-    S.case "feature absent obeys notes or skip" test_feature_absent;
-    S.case "hard refusal zero content HTTP; transient schedules retry"
-      test_refusals;
-    S.case "rejected source unavailable; transport and audit never notes-only"
-      test_api_and_rejection;
-    S.case "fire reasons are enumerated codes" test_reason_codes;
-    S.case "Resolve is announced and uncapped with an unbound fire ref"
-      test_resolve_grant;
-    S.case
-      "transient retries repeat 20 minutes without extending notes deadline"
-      test_transient_backoff;
-    S.case "transcript uniqueness conflict is unavailable before content"
-      test_conflict;
-    S.case "source ids precede content; reused room is untouched"
-      test_checkpoint;
-    S.case "meeting content is never cached in database" test_no_content_cache;
-    S.case "hard refusal cannot suspend a newer epoch" test_epoch_guard;
-    S.case "waiting fires require activation before huddle start"
-      test_waiting_eligibility;
-    S.case "older ready evidence cannot regress sources" test_stale_ready;
-    S.case "shared worker context stops HTTP on drain" test_drain;
-    S.case "missing optional end retains the first observed deadline"
-      test_optional_end;
-    S.case "failed suspension recovers on the same epoch"
-      test_suspension_failure_recovers;
-    S.case "ledger failure cannot prevent hard-refusal suspension"
-      test_ledger_failure_cannot_prevent_suspension;
-  ]
+  Test_slack_standing_order_fetch.suite @ Test_slack_standing_order_worker.suite
+  @ [
+      S.case "daemon event to relay to pickup without Provider" test_pass;
+      S.case "fire path never calls Provider" test_provider;
+      S.case "every executor call site is covered by an egress rule" test_egress;
+      S.case "reload kill switch target and profile gate next dispatch"
+        test_reload;
+      S.case "drain while complete waits preserves receipt" test_drain;
+      S.case "stop cancels worker and renewal timers" test_worker_drain;
+      S.case "persisted dispatched fires remain read-only after restart"
+        test_restart_read_only;
+      S.case "relay repost and report share the worker pacing budget"
+        test_shared_budget;
+      S.case "two orders in one channel share a one-second post budget"
+        test_two_orders;
+      S.case "a blocked channel allows another channel to proceed"
+        test_other_channel;
+      S.case "pass capability denies remain local including report processing"
+        (test_capabilities ~reload:false);
+      S.case "reload capability deny blocks queued reports"
+        (test_capabilities ~reload:true);
+      S.case "hard refusal routes once by cause" test_routes;
+      S.case
+        "API disappearance reports once; notes only has no API change report"
+        test_transcript_reports;
+      S.case "no notes hint once" test_no_notes_report;
+      S.case "three failures pause before another dispatch"
+        test_failure_accounting;
+      S.case "complete pass routes terminal and informational outcomes"
+        test_outcome_reports;
+    ]

@@ -198,10 +198,40 @@ let persisted_snapshot ~scope ~db ~(snapshot : Access_snapshot.t) ~channel_id =
     && Access_snapshot.get_by_id ~db snapshot.id = Some snapshot
   with _ -> false
 
-let preflight ?uri ?(sensitive_uri = false) ~scope ~db ~(cfg : Runtime_config.t)
-    ~(snapshot : Access_snapshot.t) ~channel_id ~audit method_ verb =
+let capability_names =
+  [ "slack_huddles"; "slack_huddle_content"; "slack_standing_order_fire" ]
+
+let capability_denied (cfg : Runtime_config.t) ~channel_id =
+  let access =
+    Runtime_config.resolve_effective_access cfg
+      ~session_key:(access_key ~channel_id) ()
+  in
+  let values =
+    List.map (fun (i : Runtime_config.effective_access_item) -> i.value)
+  in
+  List.find_opt
+    (fun name ->
+      (not cfg.security.tools_enabled)
+      ||
+      match
+        Tool_authz.decide ~equivalence_names:[ name ]
+          ~allowed_tools:(values access.allowed_tools)
+          ~denied_tools:(values access.denied_tools)
+          ()
+      with
+      | Tool_authz.Allowed -> false
+      | Tool_authz.Denied _ -> true)
+    capability_names
+
+let preflight ?uri ?(sensitive_uri = false) ?(capability_fence = false) ~scope
+    ~db ~(cfg : Runtime_config.t) ~(snapshot : Access_snapshot.t) ~channel_id
+    ~audit method_ verb =
   try
     match cfg.channels.slack with
+    | _
+      when capability_fence && scope = Standing_order
+           && capability_denied cfg ~channel_id <> None ->
+        Error Dispatch_refused
     | Some sc when Runtime_config.slack_has_valid_credentials sc -> (
         if
           not
@@ -269,7 +299,7 @@ let channel_params_allowed ~channel_id method_ params =
 
 let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit
     ?(http = default_http) ?(limit = fun () -> Lwt.return_unit)
-    ?(before_send = fun () -> Ok ()) () : call =
+    ?(before_send = fun () -> Ok ()) ?(capability_fence = false) () : call =
  fun method_ params ->
   let permitted =
     match scope with
@@ -285,8 +315,8 @@ let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit
         (fun () ->
           let* () = limit () in
           match
-            preflight ~scope ~db ~cfg:(current_config ()) ~snapshot ~channel_id
-              ~audit method_ verb
+            preflight ~scope ~capability_fence ~db ~cfg:(current_config ())
+              ~snapshot ~channel_id ~audit method_ verb
           with
           | Error _ as denied -> Lwt.return denied
           | Ok token -> (

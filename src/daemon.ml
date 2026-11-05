@@ -853,6 +853,17 @@ let run ~(config : Runtime_config.t) =
   Daemon_runtime_loops.start ~db ~config ~current_config ~session_manager
     ~ip_limiter ~session_limiter ~chat_limiter ~discord_message_limiter
     ~slack_event_limiter ~teams_event_limiter ~telemetry ~runner_tokens;
+  (match db with
+  | None -> ()
+  | Some db ->
+      let ctx =
+        Slack_standing_order_exec.context
+          ~accepting:(fun () ->
+            (not !shutting_down) && (not !restarting)
+            && Slack_thread_runs.accepting session_manager)
+          ()
+      in
+      Slack_standing_order_exec.start ~ctx ~db ~manager:session_manager ());
   Daemon_heartbeat.start ~config ~workspace ~session_manager;
   Daemon_background_loops.start_subagent_status_loop ~db;
   let* picked_intent =
@@ -869,6 +880,7 @@ let run ~(config : Runtime_config.t) =
          Lwt.return Shutdown);
       ]
   in
+  let* () = Slack_standing_order_exec.stop () in
   let* final_intent =
     match picked_intent with
     | Shutdown ->

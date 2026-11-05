@@ -491,7 +491,7 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
                   let r = current db fire_id in
                   let* v = evaluate ~ctx ~db ~manager ?http ~lease r order in
                   let call =
-                    SO.make ~db
+                    SO.make ~capability_fence:true ~db
                       ~current_config:(fun () -> Session.get_config manager)
                       ~snapshot:v.snapshot ~channel_id:order.channel_id
                       ~audit:"standing_order:upload_url" ?http
@@ -563,7 +563,7 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
               result
             in
             let call =
-              SO.make ~db
+              SO.make ~capability_fence:true ~db
                 ~current_config:(fun () -> Session.get_config manager)
                 ~snapshot:v.snapshot ~channel_id:order.channel_id
                 ~audit:"standing_order:complete" ?http
@@ -740,8 +740,8 @@ let confirm_no_pickup ~call ~(order : T.order) (r : Store.fire_runtime) =
           replies a ts 5 [] "")
     r.attempts
 
-let repost ~ctx ~db ~manager ?http ?upload_http ~lease
-    (initial : Store.fire_runtime) (_payload : P.verified) =
+let reconcile ~ctx ~db ~manager ?http ?upload_http ?(allow_new = true) ~lease
+    (initial : Store.fire_runtime) =
   let fire_id = initial.fire.id in
   let run () =
     accepting ctx;
@@ -889,8 +889,10 @@ let repost ~ctx ~db ~manager ?http ?upload_http ~lease
                 | Ambiguous -> Lwt.return false)
             | _ -> Lwt.return false
           in
-          if (not allowed) || not (writable (current db fire_id)) then
-            Lwt.return_unit
+          if
+            (not allow_new) || (not allowed)
+            || not (writable (current db fire_id))
+          then Lwt.return_unit
           else
             let* () = confirm_no_pickup ~call ~order (current db fire_id) in
             let r = current db fire_id in
@@ -932,3 +934,7 @@ let repost ~ctx ~db ~manager ?http ?upload_http ~lease
   Lwt.catch run (function
     | Lwt.Canceled -> Lwt.fail Lwt.Canceled
     | _ -> Lwt.return_unit)
+
+let repost ~ctx ~db ~manager ?http ?upload_http ~lease initial
+    (_payload : P.verified) =
+  reconcile ~ctx ~db ~manager ?http ?upload_http ~lease initial

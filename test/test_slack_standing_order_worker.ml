@@ -1,0 +1,213 @@
+open Lwt.Syntax
+open Test_slack_standing_order_exec_support
+module E = Slack_standing_order_exec
+module Ctx = Slack_standing_order_ctx
+
+let check = Alcotest.(check bool)
+
+let rec flush n =
+  if n = 0 then Lwt.return_unit
+  else
+    let* () = Lwt.pause () in
+    flush (n - 1)
+
+type timer = { due : float; promise : unit Lwt.t; wake : unit Lwt.u }
+type clock = { mutable now : float; mutable timers : timer list }
+
+let clock () =
+  let c = { now = Store.now (); timers = [] } in
+  (Store.clock := fun () -> c.now);
+  c
+
+let wait c ~seconds =
+  let promise, wake = Lwt.task () in
+  c.timers <- { due = c.now +. seconds; promise; wake } :: c.timers;
+  promise
+
+let pending c = List.filter (fun t -> Lwt.is_sleeping t.promise) c.timers
+
+let advance c seconds =
+  c.now <- c.now +. seconds;
+  List.iter
+    (fun t ->
+      if Lwt.is_sleeping t.promise && t.due <= c.now then Lwt.wakeup t.wake ())
+    c.timers;
+  c.timers <- pending c;
+  flush 20
+
+let context e c = { (ctx e) with Ctx.wait = wait c }
+
+let cleanup c =
+  let stranded = pending c in
+  List.iter (fun t -> Lwt.cancel t.promise) stranded;
+  Alcotest.(check int)
+    "no stranded timers before cleanup" 0 (List.length stranded)
+
+let test_due () =
+  with_env (fun e ->
+      (* A reserved fire from a previous process may be tracked, never resent. *)
+      let fire =
+        S.fire e.db e.order ~room:"R123" ~state:T.Posted
+          ~dispatched_at:(Store.now ()) ~relay_ts:"1700000041.000001" ()
+      in
+      let c = clock () in
+      let calls = ref 0 in
+      let http ~verb:_ ~token:_ ~method_:_ ~params:_ =
+        incr calls;
+        Lwt.return (503, "{}")
+      in
+      Lwt_main.run
+        (Lwt.finalize
+           (fun () ->
+             E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager ~http ();
+             let* () = advance c 4. in
+             Alcotest.(check int) "no wake at four" 0 !calls;
+             let* () = advance c 1. in
+             Alcotest.(check int) "one wake at five" 1 !calls;
+             check "read-only fire retained" true
+               ((runtime e fire.id).fire.dispatched_at <> None);
+             Lwt.return_unit)
+           (fun () ->
+             let* () = E.stop () in
+             cleanup c;
+             Lwt.return_unit)))
+
+let test_renew () =
+  with_env (fun e ->
+      let fire = S.fire e.db e.order ~room:"R123" () in
+      let c = clock () in
+      let done_, wake = Lwt.task () and accepting = ref (fun () -> false) in
+      Slack_standing_order_sql.exec e.db "CREATE TABLE renewal_count(n INTEGER)"
+        [];
+      Slack_standing_order_sql.exec e.db "INSERT INTO renewal_count VALUES(0)"
+        [];
+      Slack_standing_order_sql.exec e.db
+        "CREATE TRIGGER count_renew AFTER UPDATE OF lease_until ON \
+         slack_standing_order_fires WHEN NEW.lease_until > OLD.lease_until \
+         BEGIN UPDATE renewal_count SET n=n+1; END"
+        [];
+      let renewals () =
+        Slack_standing_order_sql.int_query e.db "SELECT n FROM renewal_count" []
+      in
+      Lwt_main.run
+        (let work =
+           E.with_lease ~ctx:(context e c) ~db:e.db ~fire_id:fire.id
+             (fun ctx _ ->
+               accepting := ctx.Ctx.accepting;
+               done_)
+         in
+         let initial = Option.get (runtime e fire.id).claim in
+         let* () = advance c 29. in
+         check "no renewal at 29" true
+           ((Option.get (runtime e fire.id).claim).until = initial.until);
+         Alcotest.(check int) "zero renewals at 29" 0 (renewals ());
+         let* () = advance c 1. in
+         Alcotest.(check int) "one renewal at 30" 1 (renewals ());
+         Alcotest.(check (float 0.))
+           "renewal until now plus 120" (c.now +. 120.)
+           (Option.get (runtime e fire.id).claim).until;
+         let* () = advance c 100. in
+         check "accepting after original lease expiry" true (!accepting ());
+         Lwt.wakeup wake ();
+         let* () = work in
+         check "lease released" true ((runtime e fire.id).claim = None);
+         cleanup c;
+         Lwt.return_unit))
+
+let test_loss () =
+  with_env (fun e ->
+      let fire = S.fire e.db e.order ~room:"R123" () in
+      let c = clock () in
+      let done_, wake = Lwt.task () in
+      let accepted = ref (fun () -> true) in
+      Lwt_main.run
+        (let work =
+           E.with_lease ~ctx:(context e c) ~db:e.db ~fire_id:fire.id
+             (fun ctx _ ->
+               accepted := ctx.Ctx.accepting;
+               done_)
+         in
+         let* () = advance c 121. in
+         check "expired lease refuses dispatch" false (!accepted ());
+         Lwt.wakeup wake ();
+         let* () = work in
+         cleanup c;
+         Lwt.return_unit))
+
+let test_stop () =
+  with_env (fun e ->
+      let c = clock () in
+      Lwt_main.run
+        (E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager ();
+         E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager ();
+         Alcotest.(check int) "one worker timer" 1 (List.length (pending c));
+         E.wake ();
+         let* () = flush 20 in
+         Alcotest.(check int)
+           "wake cancels losing timer" 1
+           (List.length (pending c));
+         let* () = E.stop () in
+         check "worker uninstalled" true (!E.worker = None);
+         cleanup c;
+         E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager ();
+         Alcotest.(check int)
+           "restart installs one worker" 1
+           (List.length (pending c));
+         let* () = E.stop () in
+         cleanup c;
+         Lwt.return_unit))
+
+let test_hold () =
+  with_env (fun e ->
+      seen e;
+      ready e ();
+      let fire = S.fire e.db e.order ~room:"RPERSISTED" () in
+      let c = clock () in
+      Lwt_main.run
+        (Lwt.finalize
+           (fun () ->
+             E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager
+               ~http:e.mock.http ();
+             let* () = advance c 5. in
+             Alcotest.(check int)
+               "no old-root scan or claim" 0
+               (List.length !(e.mock.calls));
+             let r = runtime e fire.id in
+             check "P4-held retry" true
+               (r.claim = None
+               && r.fire.reason = Some "p4_recovery_held"
+               && r.next_attempt_at = None);
+             Lwt.return_unit)
+           (fun () ->
+             let* () = E.stop () in
+             cleanup c;
+             Lwt.return_unit)))
+
+let test_pacing () =
+  with_env (fun e ->
+      let c = clock () in
+      let ctx = E.context ~wait:(wait c) ~accepting:(fun () -> true) () in
+      Lwt_main.run
+        (let* () = ctx.limit ~channel_id:"C123" in
+         let next = ctx.limit ~channel_id:"C123" in
+         let other = ctx.limit ~channel_id:"C456" in
+         check "other channel proceeds" false (Lwt.is_sleeping other);
+         let* () = advance c 0.999 in
+         check "same-channel post still waits" true (Lwt.is_sleeping next);
+         let* () = advance c 0.001 in
+         let* () = next in
+         cleanup c;
+         Lwt.return_unit))
+
+let suite =
+  [
+    S.case "worker wakes due work at five fake seconds" test_due;
+    S.case "lease renews at thirty fake seconds" test_renew;
+    S.case "expired or lost lease stops dispatch" test_loss;
+    S.case "stop cancels idle worker timer" test_stop;
+    S.case "condition wake cancels losing timer" test_stop;
+    S.case "stop and restart do not duplicate hooks" test_stop;
+    S.case "startup holds pre-dispatch fires and never scans old roots"
+      test_hold;
+    S.case "post pacing at least one second" test_pacing;
+  ]
