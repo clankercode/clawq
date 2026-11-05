@@ -1,8 +1,8 @@
 # I065 Slack long-reply canvas implementation plan
 
-> **For agentic workers:** Execute task-by-task using the writing-plans checklist format. This assignment is DESIGN only: change the spec/plan and make the requested documentation commit; do not implement these tasks or spawn subagents.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Implementation is authorized (controller, 2026-11-05).
 
-**Prerequisite:** Implementation starts only after P3 (`feat/huddle-standing-orders`) merges to master and this branch is rebased onto that master. The controller/integrator performs that prerequisite in a later assignment; this DESIGN step does not rebase, merge or push. Task 1 extracts the actual merged P3 upload code before I065 adds any upload caller.
+**Prerequisite (satisfied):** P3 (`feat/huddle-standing-orders`) merged to master at 00a25ee3 and this branch was rebased onto it. Task 1 extracts the merged P3 upload code before I065 adds any upload caller.
 
 **Goal:** Readable final Slack answers: opening paragraph plus read-only channel canvas, DM/MPDM file-only overflow, exact file/full-text fallback, explicit channel research tool.
 
