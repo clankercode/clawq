@@ -650,11 +650,60 @@ let debate_tool ~(config : Runtime_config.t) ~db =
     deferred = false;
   }
 
+let slack_canvas_create () =
+  let string ~limit description =
+    `Assoc
+      [
+        ("type", `String "string");
+        ("minLength", `Int 1);
+        ("maxLength", `Int limit);
+        ("description", `String description);
+      ]
+  in
+  {
+    Tool.name = "slack_canvas_create";
+    description =
+      "Create a Slack canvas containing a complete Markdown write-up, share \
+       its link in the current Slack channel, and give that channel read \
+       access. Requires an authorized Slack channel turn; the destination \
+       comes from that turn. Use for long or structured answers and research \
+       reports. For short answers, reply normally. Supply title and markdown; \
+       on success use the returned permalink in a brief reply and do not \
+       repeat the write-up. The tool publishes a short title-and-link message \
+       to establish sharing. In DMs reply normally; Clawq attaches long \
+       answers as files. If canvas sharing fails, it returns an error so you \
+       can reply normally and let automatic fallback preserve the answer.";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ("title", string ~limit:120 "Short canvas title (required).");
+                ( "markdown",
+                  string ~limit:1048576 "Complete Markdown write-up (required)."
+                );
+              ] );
+          ("required", `List [ `String "title"; `String "markdown" ]);
+          ("additionalProperties", `Bool false);
+        ];
+    invoke =
+      (fun ?context:_ _ ->
+        Lwt.return
+          "slack_canvas_create is disabled in minimal build; use the full \
+           clawq binary.");
+    invoke_stream = None;
+    risk_level = Medium;
+    deferred = false;
+  }
+
 let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
     ?(send_fn = None) ?(rich_send_fn = None) ?(session_mgr = None) registry =
   let workspace_only = config.security.workspace_only in
   let workspace = Runtime_config.effective_workspace config in
   let extra_allowed_paths = config.security.extra_allowed_paths in
+  Tool_registry.register registry (slack_canvas_create ());
   Tool_registry.register registry
     (shell_exec_with_hooks ~workspace ~workspace_only
        ~allowed_commands:default_shell_allowlist ~extra_allowed_paths ~sandbox

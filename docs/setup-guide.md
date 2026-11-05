@@ -614,6 +614,12 @@ Under **OAuth & Permissions**, add these Bot Token Scopes:
 - `assistant:write`
 - `reactions:write`
 - `files:write`
+- `files:read`
+- `canvases:read`
+- `canvases:write`
+
+Long-answer canvases need these canvas/file scopes plus the normal metadata and
+chat scopes above. Reinstall the app after changing scopes.
 
 ### Step 3: Enable Socket Mode (Recommended)
 
@@ -733,6 +739,60 @@ To allow a private channel:
 For backward-compatible behaviour (pre-B735), set `private_channel_policy: "allow_if_listed"`.
 
 Refusals are logged to the room activity ledger under `private_channel_refused`.
+
+### Long-answer presentation
+
+`channels.slack.long_reply` defaults to `{"mode":"canvas","threshold":2500}`.
+A final answer strictly longer than the threshold (Unicode code points; equality
+stays in chat) becomes a read-only channel canvas. The opening paragraph is
+capped at 600 code points including ellipsis and accompanies the full-answer
+link. Slack controls link/unfurl rendering; the layout is not guaranteed.
+`file` selects Markdown files; `off` keeps buffered text. DMs and group DMs
+always use `.md` files in the originating conversation/thread unless off.
+Thresholds must be integers 1–40000. Missing fields default independently;
+invalid loaded fields warn and default, while `config set` rejects them and
+unknown keys. Live reload refreshes guidance on the next request, including
+static/compacted prompts, and final policy at the next delivery. Started
+deliveries retain presentation choice while checking current security.
+
+Standalone canvases are created without a channel tab, their permalink comes
+from `files.info`, then Clawq shares the summary/link before granting channel
+read access. A click can briefly show “no access.” No public, org-wide or user
+grants are made. Failed publication cleans its owned canvas/link where permitted,
+then falls back to exact Markdown, then full text subject to Slack size limits.
+Unsupported/oversized canvas Markdown (1048576 bytes/code points) also selects
+the file. Ambiguous file completion is reconciled by allocated ID; unresolved
+completion suppresses a second presentation unless owned-file deletion is
+confirmed, returning a safe failure without a sent marker. Cancellation and
+revocation stop writes. A delivery creates at most one canvas, but crash,
+restart or replay can duplicate a private canvas or summary/file post.
+
+Strict egress needs API GET metadata/file-info/allocation and POST canvas create,
+read-grant/delete, chat post/update/delete, file completion/delete under
+`https://slack.com/api/`, plus a separate POST rule for `https://files.slack.com/`
+(no redirects). Keep private-channel opt-in, room filters and membership checks.
+Executor logs/audit redact canvas arguments, results and failure diagnostics;
+answer text, titles, tokens and signed upload URLs must not enter logs.
+
+`slack_canvas_create` is an explicit channel-only tool taking a trimmed title
+(1–120 Unicode code points) and complete Markdown. Only researcher/documenter
+built-ins allow it by default; the full daemon replaces the minimal placeholder.
+It uses the authorized turn's channel/parent, never model-selected credentials
+or destinations. Success returns IDs/permalink after read grant; failure returns
+an actionable error and the model should reply normally. Automatic `file`/`off`
+modes do not disable this deliberate use. In DMs/MPDMs it directs normal replies
+for file attachment.
+
+Live Slack, native drain/replay, follow-ups, Slack agent commands and live
+autonomous finals use overflow. Direct background completions, generic resumed
+session/autonomous finals and non-native queued finals other than follow-ups
+remain ordinary sends. Progress, notices, receipts, cards and relays bypass it.
+
+**Coordinator-only post-deploy checks:** verify read-only canvases at channel
+root, in a thread and in an opted-in private channel; DM/MPDM files in the
+original conversation/thread; opening paragraph/link rendering and the brief
+share-before-read interval; file and full-text fallback. Implementers use fake
+HTTP tests and do not perform live Slack checks.
 
 ### Slack Channel ID Formats
 

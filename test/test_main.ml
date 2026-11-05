@@ -40,6 +40,7 @@ let all_suites =
     ("cli_exit", Test_cli_exit.suite);
     ("command_bridge", Test_command_bridge.suite);
     ("phase3", Test_phase3.suite);
+    ("agent_tool_redaction", Test_agent_tool_redaction.suite);
     ("postmortem", Test_postmortem.suite);
     ("scheduler", Test_scheduler.suite);
     ("cron_room_preflight", Test_cron_room_preflight.suite);
@@ -317,6 +318,7 @@ let all_suites =
     ("slack_standing_order_slack", Test_slack_standing_order_slack.suite);
     ("slack_file_upload", Test_slack_file_upload.suite);
     ("slack_canvas", Test_slack_canvas.suite);
+    ("slack_canvas_tool", Test_slack_canvas_tool.suite);
     ("slack_final_text", Test_slack_final_text.suite);
     ("slack_reply_delivery", Test_slack_reply_delivery.suite);
     ( "slack_reply_paths",

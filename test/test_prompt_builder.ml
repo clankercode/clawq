@@ -1436,8 +1436,232 @@ let test_developer_role_mapped_to_system_in_json () =
   let content = json |> member "content" |> to_string in
   Alcotest.(check string) "content preserved" "dev content" content
 
+(* I065: rebuild from request-local presentation metadata, including static
+   prompts and after applying the real compaction result. *)
+let canvas_context conversation : Slack_reply_context.t =
+  { connector = "slack"; conversation }
+
+let canvas_config ?(mode = Slack_config_types.Canvas) ?(threshold = 2500) () =
+  let base = Runtime_config.default in
+  let sc = Test_slack.make_config () in
+  {
+    base with
+    channels =
+      {
+        base.channels with
+        slack = Some { sc with long_reply = { mode; threshold } };
+      };
+    prompt =
+      {
+        base.prompt with
+        dynamic_enabled = false;
+        include_project_docs = false;
+        workspace_files = [];
+      };
+  }
+
+let canvas_registry () =
+  let registry = Tool_registry.create () in
+  Tool_registry.register registry
+    {
+      Tool.name = "slack_canvas_create";
+      description = "fixture";
+      parameters_schema = `Assoc [];
+      invoke = (fun ?context:_ _ -> Lwt.return "unused");
+      invoke_stream = None;
+      risk_level = Medium;
+      deferred = false;
+    };
+  registry
+
+let check_guidance text needle =
+  Alcotest.(check bool) needle true (Test_helpers.string_contains text needle)
+
+let test_canvas_reload () =
+  Test_helpers.with_temp_home (fun _ ->
+      let config = canvas_config () in
+      let registry = canvas_registry () in
+      let manager = Session.create ~config ~tool_registry:registry () in
+      let agent, _, _ =
+        Session_core.get_or_create_locked manager ~key:"slack:C123"
+      in
+      Lwt_main.run
+        (Slack_reply_context.with_context (canvas_context Channel) (fun () ->
+             let prompt () =
+               Agent.build_messages agent |> List.hd |> fun m ->
+               m.Provider.content
+             in
+             check_guidance (prompt ()) "longer than 2500 characters";
+             check_guidance (prompt ()) "automatically placed in a canvas";
+             check_guidance (prompt ()) "at most 600 characters";
+             check_guidance (prompt ()) "may call slack_canvas_create";
+             Session.update_config manager
+               (canvas_config ~mode:File ~threshold:3177 ());
+             check_guidance (prompt ()) "longer than 3177 characters";
+             check_guidance (prompt ()) "file attachment";
+             Session.update_config manager (canvas_config ~mode:Off ());
+             let off = prompt () in
+             Alcotest.(check bool)
+               "off has no automatic advice" false
+               (Test_helpers.string_contains off "automatically");
+             check_guidance off "may call slack_canvas_create";
+             Lwt.return_unit)))
+
+let test_canvas_dm () =
+  List.iter
+    (fun conversation ->
+      Lwt_main.run
+        (Slack_reply_context.with_context (canvas_context conversation)
+           (fun () ->
+             let text =
+               Prompt_builder.build ~config:(canvas_config ())
+                 ~tool_registry:(Some (canvas_registry ()))
+                 ()
+             in
+             check_guidance text "Markdown files";
+             check_guidance text "file attachment";
+             Alcotest.(check bool)
+               "DM omits tool advice" false
+               (Test_helpers.string_contains text "slack_canvas_create");
+             Lwt.return_unit)))
+    [ Direct; Group_direct; Unknown ]
+
+let test_canvas_hidden () =
+  Test_helpers.with_temp_home (fun _ ->
+      Lwt_main.run
+        (Slack_reply_context.with_context (canvas_context Channel) (fun () ->
+             let registry = canvas_registry () in
+             let filtered =
+               Agent_template.filter_tool_registry registry
+                 {
+                   Agent_template_builtins.researcher with
+                   allowed_tools = [ "file_read" ];
+                 }
+             in
+             List.iter
+               (fun (registry, hidden_tools, config) ->
+                 let text =
+                   Prompt_builder.build ~config ~tool_registry:(Some registry)
+                     ~hidden_tools ()
+                 in
+                 check_guidance text "longer than 2500 characters";
+                 Alcotest.(check bool)
+                   "filtered tool omits advice" false
+                   (Test_helpers.string_contains text
+                      "may call slack_canvas_create"))
+               [
+                 (filtered, [], canvas_config ());
+                 (registry, [ "slack_canvas_create" ], canvas_config ());
+                 ( registry,
+                   [],
+                   let c = canvas_config () in
+                   {
+                     c with
+                     security = { c.security with tools_enabled = false };
+                   } );
+               ];
+             let agent =
+               Agent.create ~config:(canvas_config ()) ~tool_registry:registry
+                 ()
+             in
+             Agent.refresh_unavailable_tools agent ();
+             Alcotest.(check bool)
+               "Slack channel availability composes" false
+               (List.mem "slack_canvas_create" agent.unavailable_tools);
+             let snapshot =
+               Access_snapshot.create ~config:(canvas_config ())
+                 ~work_type:Access_snapshot.Room_turn ~session_key:"slack:C123"
+                 ~room_id:"C123" ~room_policy_decision:"allow" ()
+             in
+             agent.access_snapshot <-
+               Some { snapshot with denied_tools = [ "slack_canvas_create" ] };
+             Agent.refresh_unavailable_tools agent ();
+             let denied =
+               (List.hd (Agent.build_messages agent)).Provider.content
+             in
+             Alcotest.(check bool)
+               "snapshot denial removes tool advice" false
+               (Test_helpers.string_contains denied
+                  "may call slack_canvas_create");
+             Lwt.return_unit)))
+
+let test_canvas_compact () =
+  Test_helpers.with_temp_home (fun _ ->
+      let agent =
+        Agent.create ~config:(canvas_config ())
+          ~tool_registry:(canvas_registry ()) ()
+      in
+      agent.history <-
+        List.init 25 (fun n ->
+            Provider.make_message ~role:"user" ~content:(string_of_int n));
+      let plan = Option.get (Agent.plan_force_compact agent) in
+      ignore
+        (Agent.apply_compact_result agent plan ~summary:"compacted fixture");
+      Lwt_main.run
+        (Slack_reply_context.with_context (canvas_context Channel) (fun () ->
+             let messages = Agent.build_messages agent in
+             check_guidance (List.hd messages).Provider.content
+               "automatically placed in a canvas";
+             Alcotest.(check bool)
+               "real compaction result applied" true
+               (List.exists
+                  (fun (m : Provider.message) ->
+                    m.content = "compacted fixture")
+                  messages);
+             Lwt.return_unit)))
+
+let test_canvas_non_slack () =
+  let build () =
+    Prompt_builder.build ~config:(canvas_config ())
+      ~tool_registry:(Some (canvas_registry ()))
+      ()
+  in
+  Alcotest.(check string)
+    "sessionless no advice" Prompt_builder.base_prompt (build ());
+  Lwt_main.run
+    (Slack_reply_context.with_context
+       { connector = "telegram"; conversation = Channel } (fun () ->
+         Alcotest.(check string)
+           "non Slack no advice" Prompt_builder.base_prompt (build ());
+         Lwt.return_unit));
+  let agent =
+    Agent.create ~config:(canvas_config ()) ~tool_registry:(canvas_registry ())
+      ()
+  in
+  Agent.refresh_unavailable_tools agent ();
+  Alcotest.(check bool)
+    "outside Slack hides canvas" true
+    (List.mem "slack_canvas_create" agent.unavailable_tools)
+
+let test_canvas_parallel () =
+  let open Lwt.Syntax in
+  let build conversation =
+    Slack_reply_context.with_context (canvas_context conversation) (fun () ->
+        let* () = Lwt.pause () in
+        Lwt.return
+          (Prompt_builder.build ~config:(canvas_config ()) ~tool_registry:None
+             ()))
+  in
+  let channel, direct =
+    Lwt_main.run (Lwt.both (build Channel) (build Direct))
+  in
+  check_guidance channel "automatically placed in a canvas";
+  check_guidance direct "Markdown files";
+  Alcotest.(check bool)
+    "context restored" true
+    (Slack_reply_context.current_context () = None)
+
 let suite =
   [
+    Alcotest.test_case "guidance rebuild follows current config" `Quick
+      test_canvas_reload;
+    Alcotest.test_case "DM guidance promises files" `Quick test_canvas_dm;
+    Alcotest.test_case "hidden tool omits advice" `Quick test_canvas_hidden;
+    Alcotest.test_case "static and compacted prompts retain guidance" `Quick
+      test_canvas_compact;
+    Alcotest.test_case "non Slack has no guidance" `Quick test_canvas_non_slack;
+    Alcotest.test_case "parallel context does not leak" `Quick
+      test_canvas_parallel;
     Alcotest.test_case "dynamic prompt disabled uses base prompt" `Quick
       test_dynamic_prompt_disabled_uses_base_prompt;
     Alcotest.test_case "default prompt enables dynamic workspace context" `Quick

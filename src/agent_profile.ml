@@ -62,14 +62,23 @@ let refresh_profiled_room_flag agent ?db ?session_key ?room_id () =
   agent.profiled_room <-
     room_profile_prompt_active agent.room_profile_system_prompt || has_binding
 
-(* B844: in a Room turn (a snapshot naming the room), recompute which room
-   tools cannot work there; elsewhere nothing is hidden. *)
+(* B844 room-data filters and I065 Slack canvas availability compose with the
+   current request's snapshot and template tool filtering. *)
 let refresh_unavailable_tools agent ?db ?session_key () =
   agent.unavailable_tools <-
-    (match (db, agent.access_snapshot) with
-    | Some db, Some { Access_snapshot.room_id = Some room_id; _ }
-      when String.trim room_id <> "" ->
-        Room_tool_availability.unavailable_tools ~db ?session_key ~room_id ()
-    | _ -> [])
+    ((match (db, agent.access_snapshot) with
+       | Some db, Some { Access_snapshot.room_id = Some room_id; _ }
+         when String.trim room_id <> "" ->
+           Room_tool_availability.unavailable_tools ~db ?session_key ~room_id ()
+       | _ -> [])
+    @
+    if
+      Room_tool_availability.slack_canvas_available
+        ~context:(Slack_reply_context.current_context ())
+      && room_profile_tool_denial agent ~session_key
+           ~tool_name:"slack_canvas_create"
+         = None
+    then []
+    else [ "slack_canvas_create" ])
 
 let unscoped_memory_context_allowed agent = not agent.profiled_room

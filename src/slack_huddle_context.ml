@@ -4,6 +4,7 @@ type request = {
   channel_id : string;
   user_id : string;
   message_id : string;
+  thread_ts : string option;
   received_at : float;
 }
 (** Slack ingress authority. Neither model arguments nor a session name can
@@ -55,8 +56,8 @@ let before_queued ~key message_id =
       | _ -> ())
   | _ -> ()
 
-let with_request ?(drained = false) ~session_manager ~key ~channel_id ~user_id
-    ~message_id f =
+let with_request ?(drained = false) ?thread_ts ~session_manager ~key ~channel_id
+    ~user_id ~message_id f =
   let key = Session.sanitize_session_key key in
   let now = Unix.gettimeofday () in
   Hashtbl.filter_map_inplace
@@ -69,6 +70,7 @@ let with_request ?(drained = false) ~session_manager ~key ~channel_id ~user_id
       channel_id;
       user_id;
       message_id;
+      thread_ts;
       received_at = now;
     }
   in

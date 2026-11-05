@@ -4,6 +4,8 @@ let handle_message ?thread_run ?(thread_context = "")
     ~(config : Runtime_config.slack_config) ~(session_manager : Session.t)
     ?send_message_fn ?run_update_command ?event_limiter body =
   let open Lwt.Syntax in
+  Slack_canvas_tool.with_ingress_reply_context ~session_manager ?thread_run body
+  @@ fun () ->
   let root =
     Option.map (fun (r : Slack_thread_runs.run) -> r.route.root) thread_run
   in
@@ -28,7 +30,7 @@ let handle_message ?thread_run ?(thread_context = "")
       let final_thread = match root with Some _ -> root | None -> thread_ts in
       let* transport, ordinary =
         Slack_huddle_context.with_request ~session_manager ~key ~channel_id
-          ~user_id ~message_id:ts (fun () ->
+          ~user_id ~message_id:ts ?thread_ts:final_thread (fun () ->
             let transport =
               Slack_message_transport.make ~manager:session_manager ~route
                 ~channel_id ~thread_ts:final_thread ?legacy_post:send_message_fn
@@ -966,7 +968,7 @@ let handle_message ?thread_run ?(thread_context = "")
                             let* response =
                               Slack_huddle_context.with_request ~session_manager
                                 ~key ~channel_id ~user_id ~message_id:ts
-                                (fun () ->
+                                ?thread_ts:final_thread (fun () ->
                                   turn_stream session_manager ~key
                                     ~message:(thread_context ^ message)
                                     ~content_parts ~attachments:att_list

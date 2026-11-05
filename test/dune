@@ -202,6 +202,7 @@
   test_pairing
   test_perf
   test_phase3
+  test_agent_tool_redaction
   test_postmortem
   test_prompt_builder
   test_provider
@@ -344,6 +345,7 @@
   test_slack_standing_order_slack
   test_slack_file_upload
   test_slack_canvas
+  test_slack_canvas_tool
   test_slack_final_text
   test_slack_reply_delivery
   test_slack_reply_paths
