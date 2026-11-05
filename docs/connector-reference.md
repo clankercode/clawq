@@ -419,6 +419,21 @@ References: [agent sessions](https://docs.slack.dev/ai/agent-sessions/),
 [stream lifetime](https://docs.slack.dev/reference/methods/chat.startStream/),
 [thread context](https://docs.slack.dev/ai/agent-context-management/).
 
+By default, `channels.slack.reply_mode` is `"mention"`: in channels and
+huddle threads, Clawq starts a turn only when a message explicitly @-mentions
+it. A thread reply continues without a mention when the newest earlier message
+in the thread is Clawq's own reply (a relay post does not count), at most 15
+minutes older than the reply, and the reply mentions no other user, bot, user
+group, `@here` or `@channel`. A `!` interrupt from the owner of the thread's
+active task also keeps its instruction. Any other message is acknowledged with
+no turn, post, reaction or model call. Top-level in-message slash commands
+follow the same rule. DMs keep only their existing authorization and silence
+gates. Set `reply_mode` to `"all"` to answer every message that passes the
+existing gates. An invalid value falls back to `"mention"` with a warning that
+omits the value. Config reloads apply the mode without a restart. Order:
+`pause SO-n` (needs no mention), then the relay gate, the peer gate and this
+mention gate.
+
 Clawq stays silent in its relay threads unless explicitly @-mentioned. It also
 starts no turn for a top-level message mentioning a peer assistant, or a reply
 whose root mentions a peer or whose fetched thread contains a peer post, unless
@@ -759,6 +774,7 @@ Or configure manually:
 | `allow_users`    | User ID allowlist                              | `["*"]`          |
 | `allow_private_channels` | Explicit opt-in list for private channels (required under `deny` policy) | `[]` |
 | `private_channel_policy` | `"deny"` (default) or `"allow_if_listed"` — controls whether private channels in `allow_channels` are permitted | `"deny"` |
+| `reply_mode` | Channel reply admission: `"mention"` answers messages that @-mention Clawq or continue a thread within 15 minutes of its reply; `"all"` answers every message that passes the existing gates. DMs are unaffected; invalid values mean `"mention"`; reloadable | `"mention"` |
 | `event_log` | Phase 0 diagnostic: metadata-only JSONL of every Slack event that reaches ingress (except `url_verification` handshakes, events received while the daemon is shutting down, and redeliveries already seen by event-id dedup) at `$CLAWQ_HOME/slack-events.jsonl` (0600, rotates at 16 MiB to `.1`); `capture_text_from` adds full text only for an exact `{channel, bot_id}` pair | `{"enabled": false, "capture_text_from": []}` |
 | `standing_orders` | Huddle relay grants: `enabled`, `allowed_targets`, `creator_policy`; see [Standing orders](#standing-orders-huddle-relay). An empty `allowed_targets` denies every order | `{"enabled": true, "allowed_targets": [], "creator_policy": "member"}` |
 

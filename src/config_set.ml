@@ -73,6 +73,7 @@ let channels_schema =
             ("allow_users", L);
             ("app_token", L);
             ("socket_mode", L);
+            ("reply_mode", L);
             ("default_model", L);
             ("event_log", O [ ("enabled", L); ("capture_text_from", L) ]);
             ( "standing_orders",

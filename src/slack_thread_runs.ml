@@ -557,18 +557,26 @@ let cancel ?(interrupt_reason = Agent.stop_interrupt_token) r user =
         r.stopped <- true;
         if !removed then finish r else Lwt.return_unit
 
+let owned_run ~manager ~route ~user =
+  let key = Slack_thread_route.key route in
+  Hashtbl.to_seq_values runs
+  |> Seq.find_map (fun r ->
+      if
+        r.manager == manager && r.key = key && r.owner = user && r.active
+        && (not r.finished)
+        && r.group.owner = Some r.reference
+      then Some r
+      else None)
+
+(** [text] is a [!] interrupt that [handle_text] would apply: [user] owns the
+    thread's active run. Its instruction is then addressed to clawq. *)
+let is_owner_interrupt ~manager ~route ~user text =
+  String.starts_with ~prefix:"!" text
+  && Option.is_some (owned_run ~manager ~route ~user)
+
 let handle_text ~manager ~route ~user text =
   let key = Slack_thread_route.key route in
-  let owned () =
-    Hashtbl.to_seq_values runs
-    |> Seq.find_map (fun r ->
-        if
-          r.manager == manager && r.key = key && r.owner = user && r.active
-          && (not r.finished)
-          && r.group.owner = Some r.reference
-        then Some r
-        else None)
-  in
+  let owned () = owned_run ~manager ~route ~user in
   match owned () with
   | None -> Lwt.return_false
   | Some r ->

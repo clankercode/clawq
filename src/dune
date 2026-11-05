@@ -535,6 +535,7 @@
   slack_event_log
   slack_relay_guard
   slack_peer_thread
+  slack_reply_gate
   slack_huddle_classify
   slack_huddle_ledger
   slack_huddle_watch

@@ -163,6 +163,8 @@ let parse ~resolve_secret json : Runtime_config.channel_config =
              default_model;
              event_log;
              standing_orders;
+             reply_mode =
+               Slack_config_types.reply_mode_of_json (s |> member "reply_mode");
            }
             : Runtime_config.slack_config)
       with exn ->

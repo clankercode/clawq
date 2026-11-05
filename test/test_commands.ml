@@ -390,6 +390,7 @@ let test_slack_credential_validation () =
       socket_mode = false;
       default_model = None;
       event_log = Slack_config_types.default_event_log;
+      reply_mode = Slack_config_types.Mention;
       standing_orders = Slack_config_types.default_standing_orders;
     }
   in

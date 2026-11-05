@@ -275,6 +275,7 @@ let all_suites =
     ("slack_huddles", Test_slack_huddles.suite);
     ("slack_huddle_fix1", Test_slack_huddle_fix1.suite);
     ("slack_threads", Test_slack_threads.suite);
+    ("slack_reply_gate", Test_slack_reply_gate.suite);
     ("slack_thread_edges", Test_slack_thread_edges.suite);
     ("slack_transport_credentials", Test_slack_transport_credentials.suite);
     ("slack_finalfix", Test_slack_finalfix.suite);

@@ -30,6 +30,16 @@ let with_ingress ?(delay = fun _ _ -> Lwt.return_unit) ?key f =
       let cfg =
         {
           cfg with
+          (* Legacy lifecycle/peer fixtures explicitly exercise all-message mode. *)
+          channels =
+            {
+              cfg.channels with
+              slack =
+                Option.map
+                  (fun (sc : Runtime_config.slack_config) ->
+                    { sc with reply_mode = Slack_config_types.All })
+                  cfg.channels.slack;
+            };
           egress =
             {
               cfg.egress with
@@ -188,6 +198,16 @@ let with_ingress ?(delay = fun _ _ -> Lwt.return_unit) ?key f =
           Provider.native_complete := old_complete;
           Provider.native_stream := old_stream;
           Lwt.return_unit))
+
+(* Reload through the config codec, as a file watcher does. *)
+let set_reply_mode base mode =
+  let json = Runtime_config.to_json (Session.get_config base.manager) in
+  let json =
+    Config_set.json_set [ "channels"; "slack"; "reply_mode" ] (str mode) json
+  in
+  let cfg = Config_loader.parse_config ~resolve_secrets:false json in
+  base.cfg := cfg;
+  Session.update_config base.manager cfg
 
 let test_mention () =
   with_ingress (fun _ calls _ seen _ run ->

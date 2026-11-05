@@ -296,6 +296,7 @@
   test_slack_huddles
   test_slack_huddle_fix1
   test_slack_threads
+  test_slack_reply_gate
   test_slack_thread_edges
   test_slack_transport_credentials
   test_slack_fix1_fixtures

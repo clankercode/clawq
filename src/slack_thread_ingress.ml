@@ -108,6 +108,12 @@ let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
                   let command =
                     String.starts_with ~prefix:"/" (String.trim text)
                   in
+                  (* Read before [handle_text] applies the interrupt. *)
+                  let interrupt =
+                    (not command)
+                    && Slack_thread_runs.is_owner_interrupt
+                         ~manager:session_manager ~route ~user text
+                  in
                   let* consumed =
                     if command then Lwt.return_false
                     else
@@ -186,6 +192,23 @@ let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
                             m
                               "Slack peer thread %s/%s: no turn without an \
                                explicit mention"
+                              channel root);
+                        Lwt.return "ok")
+                      else if
+                        Slack_reply_gate.silent ~reply_mode:sc.reply_mode
+                          ~channel ~bot ~reply ~interrupt ~current:ts ~text
+                          ~untrusted:
+                            (Slack_relay_guard.untrusted_in_history ~registry
+                               ~channel)
+                          ~thread:
+                            (match fetched with
+                            | Some (Ok thread) -> thread.messages
+                            | _ -> [])
+                      then (
+                        Logs.info (fun m ->
+                            m
+                              "Slack %s/%s: no turn without an explicit \
+                               mention (reply_mode=mention)"
                               channel root);
                         Lwt.return "ok")
                       else if not (Slack_thread_runs.accepting session_manager)
