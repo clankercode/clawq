@@ -470,6 +470,7 @@ let test_component_status_disabled_without_credentials () =
           socket_mode = false;
           default_model = None;
           event_log = Slack_config_types.default_event_log;
+          reply_mode = Slack_config_types.Mention;
           standing_orders = Slack_config_types.default_standing_orders;
         }
       in
@@ -555,6 +556,7 @@ let test_component_status_running_with_valid_credentials () =
           socket_mode = false;
           default_model = None;
           event_log = Slack_config_types.default_event_log;
+          reply_mode = Slack_config_types.Mention;
           standing_orders = Slack_config_types.default_standing_orders;
         }
       in

@@ -1,6 +1,6 @@
 # Memory & Governance Guide
 
-**Last updated**: 2026-06-30
+**Last updated**: 2026-11-05
 
 This guide covers Clawq's room-scoped memory system, visibility controls, grant management, isolation guarantees, prompt integration, and governance tooling.
 
@@ -21,6 +21,14 @@ Agents in a room session have access to five tools:
 | `room_memory_save` | Save or update a memory (upsert by reference) |
 | `room_memory_correct` | Correct memory content (preserves old provenance) |
 | `room_memory_forget` | Soft-delete (redact) a memory |
+
+A room turn offers these tools only when the room has a profile binding or a
+memory scope. In any other room they would fail with "No memory scope or
+profile binding found", so the turn leaves them out of the model's tool list
+and system prompt (B844). If the model calls one anyway, it gets an ordinary
+"not available in this room" tool error that does not abort the turn. Bind a
+profile (`clawq rooms bind <room_id> <profile_id>`) and the next turn in that
+room offers them again; no restart is needed.
 
 ### CRUD Operations (CLI)
 

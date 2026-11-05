@@ -73,6 +73,7 @@ let channels_schema =
             ("allow_users", L);
             ("app_token", L);
             ("socket_mode", L);
+            ("reply_mode", L);
             ("default_model", L);
             ("event_log", O [ ("enabled", L); ("capture_text_from", L) ]);
             ( "standing_orders",
@@ -659,6 +660,14 @@ let validate_set_value key json_val =
     && String.sub key 0 (String.length p) = p
   in
   match key with
+  | "channels.slack.reply_mode" -> (
+      match json_val with
+      | `String ("mention" | "all") -> Ok ()
+      | _ ->
+          Error
+            (Printf.sprintf
+               "Error: reply_mode must be \"mention\" or \"all\"; got %s"
+               (Yojson.Safe.to_string json_val)))
   | _ when has_prefix "model_context_limits." -> (
       match json_val with
       | `Int n when n > 0 -> Ok ()

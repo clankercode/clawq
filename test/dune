@@ -11,6 +11,7 @@
   test_agent_router
   test_agent_scoped_memory
   test_room_memory_tools
+  test_room_tool_availability
   test_agent_template
   test_audit
   test_b710
@@ -296,6 +297,8 @@
   test_slack_huddles
   test_slack_huddle_fix1
   test_slack_threads
+  test_slack_reply_gate
+  test_slack_empty_reply
   test_slack_thread_edges
   test_slack_transport_credentials
   test_slack_fix1_fixtures

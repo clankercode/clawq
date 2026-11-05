@@ -43,6 +43,15 @@ val dispatch :
 
 val runtime_tool_names : string list
 
+val item_tool_names : string list
+(** The tools that read this Room's journal/projections ([Get_item],
+    [Search_items], [Get_status], [List_room_items]); they can only work in a
+    Room with GitHub item data. [Feed_settings] is not among them. *)
+
+val room_has_any_data : db:Sqlite3.db -> room_id:string -> (bool, string) result
+(** Whether the Room has any GitHub projection or journal entry: the gate the
+    item tools apply before they read anything. *)
+
 val room_for_context :
   db:Sqlite3.db ->
   tool_name:string ->

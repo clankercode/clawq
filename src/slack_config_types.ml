@@ -228,3 +228,18 @@ let standing_orders_to_json o : Yojson.Safe.t =
       ( "creator_policy",
         `String (standing_order_creator_policy_to_string o.creator_policy) );
     ]
+
+(** Channel reply admission; DMs retain their existing gates. *)
+type reply_mode = Mention | All
+
+let reply_mode_to_string = function Mention -> "mention" | All -> "all"
+
+let reply_mode_of_json = function
+  | `Null | `String "mention" -> Mention
+  | `String "all" -> All
+  | _ ->
+      Logs.warn (fun m ->
+          m
+            "Config: 'channels.slack.reply_mode': expected mention or all; \
+             using mention");
+      Mention

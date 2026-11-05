@@ -255,6 +255,7 @@
   github_action_reconcile
   github_feed_settings_tool
   github_room_tools
+  room_tool_availability
   github_auth_selection
   github_attribution_policy
   github_attribution_fallback
@@ -535,6 +536,7 @@
   slack_event_log
   slack_relay_guard
   slack_peer_thread
+  slack_reply_gate
   slack_huddle_classify
   slack_huddle_ledger
   slack_huddle_watch

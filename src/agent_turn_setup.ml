@@ -94,6 +94,7 @@ let create ~config ?tool_registry ?agent_template ?cwd
     instruction_items;
     access_snapshot_id;
     access_snapshot;
+    unavailable_tools = [];
     hooks = configured_hooks ~config ?cwd ();
   }
 

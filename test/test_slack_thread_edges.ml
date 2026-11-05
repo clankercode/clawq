@@ -303,6 +303,8 @@ let test_socket ?(empty_secret = false) () =
                                ("app_token", str "xapp-fixture");
                                ("socket_mode", `Bool true);
                                ("signing_secret", str "");
+                               (* As [with_ingress]: all-message admission. *)
+                               ("reply_mode", str "all");
                              ] );
                        ] );
                  ])
