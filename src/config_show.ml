@@ -84,6 +84,28 @@ let resolve_dot_path json path =
   in
   walk json keys
 
+(* Display the same independently defaulted policy as the loader, without
+   changing the on-disk config or resolving unrelated config values. *)
+let effective_json json =
+  let map_member key f = function
+    | `Assoc fields ->
+        `Assoc (List.map (fun (k, v) -> (k, if k = key then f v else v)) fields)
+    | other -> other
+  in
+  let slack_view = function
+    | `Assoc fields ->
+        let policy =
+          Option.value ~default:`Null (List.assoc_opt "long_reply" fields)
+          |> Slack_config_types.long_reply_of_json
+          |> Slack_config_types.long_reply_to_json
+        in
+        if List.mem_assoc "long_reply" fields then
+          map_member "long_reply" (fun _ -> policy) (`Assoc fields)
+        else `Assoc (fields @ [ ("long_reply", policy) ])
+    | other -> other
+  in
+  map_member "channels" (map_member "slack" slack_view) json
+
 let show section =
   let path = Dot_dir.config_path () in
   if not (Sys.file_exists path) then
@@ -92,7 +114,7 @@ let show section =
     match try Some (Yojson.Safe.from_file path) with _ -> None with
     | None -> "Error: failed to parse " ^ path
     | Some json ->
-        let redacted = redact_json json in
+        let redacted = redact_json (effective_json json) in
         let target, prefix =
           match section with
           | Some key -> (

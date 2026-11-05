@@ -123,10 +123,19 @@ let adapt_token token =
 
 let adapt_line line =
   let b = Buffer.create (String.length line) in
+  let rec token_end i =
+    if i >= String.length line then None
+    else if line.[i] = '<' || line.[i] = '>' then Some i
+    else token_end (i + 1)
+  in
   let rec scan i =
     if i < String.length line then
       if line.[i] = '<' then
-        match String.index_from_opt line (i + 1) '>' with
+        match token_end (i + 1) with
+        | Some stop when line.[stop] = '<' ->
+            (* An ordinary '<' must not swallow a later Slack token. *)
+            Buffer.add_substring b line i (stop - i);
+            scan stop
         | Some stop ->
             Buffer.add_string b
               (adapt_token (String.sub line (i + 1) (stop - i - 1)));

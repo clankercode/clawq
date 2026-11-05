@@ -766,12 +766,107 @@ let test_long_reply_set_show () =
         "no invalid write" true
         (before = Config_set.load_json (Config_set.config_path ())))
 
+let test_long_reply_effective_view () =
+  let cases =
+    [
+      ("omitted object", None, "canvas", 2500);
+      ("omitted mode", Some (`Assoc [ ("threshold", `Int 42) ]), "canvas", 42);
+      ( "omitted threshold",
+        Some (`Assoc [ ("mode", `String "file") ]),
+        "file",
+        2500 );
+      ( "invalid mode",
+        Some (`Assoc [ ("mode", `String "invalid"); ("threshold", `Int 42) ]),
+        "canvas",
+        42 );
+      ( "invalid threshold",
+        Some (`Assoc [ ("mode", `String "off"); ("threshold", `Int 0) ]),
+        "off",
+        2500 );
+      ( "invalid fields",
+        Some (`Assoc [ ("mode", `Bool true); ("threshold", `Float 2.5) ]),
+        "canvas",
+        2500 );
+      ("invalid object", Some (`String "invalid"), "canvas", 2500);
+    ]
+  in
+  List.iter
+    (fun (label, long_reply, mode, threshold) ->
+      Test_helpers.with_temp_home (fun _ ->
+          let slack_fields =
+            [
+              ("bot_token", `String "secret-sentinel");
+              ("events_path", `String "/custom");
+            ]
+            @
+            match long_reply with
+            | None -> []
+            | Some value -> [ ("long_reply", value) ]
+          in
+          let json =
+            `Assoc [ ("channels", `Assoc [ ("slack", `Assoc slack_fields) ]) ]
+          in
+          let path = Config_set.config_path () in
+          Unix.mkdir (Filename.dirname path) 0o755;
+          Yojson.Safe.to_file path json;
+          let expected =
+            `Assoc [ ("mode", `String mode); ("threshold", `Int threshold) ]
+          in
+          check_json (label ^ ": show section") expected
+            (Yojson.Safe.from_string
+               (Config_show.show (Some "channels.slack.long_reply")));
+          let shown = Yojson.Safe.from_string (Config_show.show None) in
+          check_json (label ^ ": show root") expected
+            (Option.get
+               (Config_show.resolve_dot_path shown "channels.slack.long_reply"));
+          check_json "unrelated value preserved" (`String "/custom")
+            (Option.get
+               (Config_show.resolve_dot_path shown "channels.slack.events_path"));
+          check_json "secret still redacted" (`String "***")
+            (Option.get
+               (Config_show.resolve_dot_path shown "channels.slack.bot_token"));
+          List.iter
+            (fun tree ->
+              List.iter
+                (fun value ->
+                  Alcotest.(check bool)
+                    (label ^ ": tree " ^ value)
+                    true
+                    (String_util.contains tree value))
+                [ "mode = " ^ mode; "threshold = " ^ string_of_int threshold ])
+            [
+              Config_tree.render_current ();
+              Config_tree.render_current ~section:"channels.slack.long_reply" ();
+            ];
+          let search = Config_search.search "long_reply" in
+          List.iter
+            (fun (leaf, value) ->
+              let key = "channels.slack.long_reply." ^ leaf in
+              let line =
+                List.find
+                  (fun line -> String_util.contains line key)
+                  (String.split_on_char '\n' search)
+              in
+              Alcotest.(check (list string))
+                (label ^ ": search " ^ leaf)
+                [ key; value ]
+                (List.filter (( <> ) "")
+                   (String.split_on_char ' ' (String.trim line))))
+            [ ("mode", mode); ("threshold", string_of_int threshold) ];
+          check_json
+            (label ^ ": config unchanged")
+            json
+            (Yojson.Safe.from_file path)))
+    cases
+
 let suite =
   [
     Alcotest.test_case "long reply validates leaves object and parents" `Quick
       test_long_reply_validation;
     Alcotest.test_case "long reply set show search tree" `Quick
       test_long_reply_set_show;
+    Alcotest.test_case "long reply effective defaults on all config surfaces"
+      `Quick test_long_reply_effective_view;
     Alcotest.test_case "infer value types" `Quick test_infer_value;
     Alcotest.test_case "json set simple" `Quick test_json_set_simple;
     Alcotest.test_case "json set nested" `Quick test_json_set_nested;

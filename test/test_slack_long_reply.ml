@@ -71,6 +71,30 @@ let test_markdown () =
      &lt;!channel&gt; &lt;!everyone&gt;"
   in
   text "all conversions" converted (prepared tokens);
+  List.iter
+    (fun (token, converted) ->
+      List.iter
+        (fun prefix ->
+          let body = prefix ^ token ^ " must be inert or converted." in
+          let expected = prefix ^ converted ^ " must be inert or converted." in
+          text "ordinary less-than preserves later conversion" expected
+            (prepared body);
+          List.iter
+            (fun delimiter ->
+              let fence = delimiter ^ "md\r\n" ^ body ^ "\r\n" ^ delimiter in
+              text "comparison tokens inside fences remain byte identical"
+                (expected ^ "\r\n" ^ fence ^ "\r\n" ^ expected)
+                (prepared (body ^ "\r\n" ^ fence ^ "\r\n" ^ body)))
+            [ "```"; "~~~~" ])
+        [ "If x < y, "; "Unmatched << "; "<" ])
+    [
+      ("<!here>", "&lt;!here&gt;");
+      ("<!channel>", "&lt;!channel&gt;");
+      ("<!everyone>", "&lt;!everyone&gt;");
+      ("<@U123>", "![](@U123)");
+      ("<#C123|room>", "![](#C123)");
+      ("<https://example.test/a|label>", "[label](https://example.test/a)");
+    ];
   text "Slack and mail links"
     "[open](slack://channel?id=C123) [mail](mailto:user@example.test) \
      [download](ftp://example.test/file)"

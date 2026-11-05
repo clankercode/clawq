@@ -66,7 +66,9 @@ let render_current ?section ?(show_values = true) () =
     match try Some (Yojson.Safe.from_file path) with _ -> None with
     | None -> "Error: failed to parse " ^ path
     | Some json -> (
-        let redacted = Config_show.redact_json json in
+        let redacted =
+          Config_show.redact_json (Config_show.effective_json json)
+        in
         match section with
         | None -> render_json ~show_values ~root_label:"config" redacted
         | Some key -> (
