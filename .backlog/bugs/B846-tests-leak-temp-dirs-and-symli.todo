@@ -1,17 +1,18 @@
 ---
 claimed_at: "2026-11-05T06:49:48Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-11-05T06:49:49Z"
 complexity: medium
 created_at: "2026-11-05T04:07:00Z"
 depends_on: []
+duration_minutes: 0.01736849395
 estimate_hours: 1
 id: B846
 priority: high
 started_at: "2026-11-05T06:49:48Z"
-status: in_progress
+status: done
 tags: []
 title: Tests leak temp dirs and symlinks under /tmp (8.5k on x-p35 filled its tmpfs quota)
-updated_at: "2026-11-05T06:49:48Z"
+updated_at: "2026-11-05T06:49:49Z"
 ---
 On 2026-11-05 x-p35 /tmp (tmpfs, per-user quota) reached 80% with 8,639 clawq* entries left by test runs; hotfix agents had to work around ENOSPC. Causes found: (1) test/test_helpers.ml with_temp_dir only unlinks top-level files then rmdir — any test that creates a subdirectory makes rmdir fail silently and the whole tree leaks; it should reuse rm_tree (already in the same file). (2) test/test_service.ml:305 test_validate_and_fix_rejects_deleted_symlink_target creates /tmp/clawq-link-PID and /tmp/clawq-real-PID and never removes either. (3) ~24 test files hand-roll Filename.temp_dir/temp_file dirs instead of the helpers; audit them for missing cleanup (Fun.protect ~finally). Mitigation already in place: the SDD build gates now give each run a private TMPDIR deleted on exit. Fix: make with_temp_dir use rm_tree under Fun.protect, clean up the symlink test, and add a check that a quick run leaves no new /tmp/clawq* entries.
