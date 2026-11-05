@@ -519,26 +519,19 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
                       ()
                   in
                   let* allocated =
-                    call "files.getUploadURLExternal"
-                      [
-                        ("filename", `String filename);
-                        ("length", `Int (String.length body));
-                      ]
+                    Slack_file_upload.allocate ~call ~filename
+                      ~length:(String.length body)
                   in
                   accepting ctx;
                   let id, uri =
                     match allocated with
-                    | Ok json ->
-                        (P.field "file_id" json, P.field "upload_url" json)
-                    | Error error ->
+                    | Ok ticket -> (ticket.file_id, ticket.upload_url)
+                    | Error (Slack_file_upload.Remote error) ->
                         precomplete_error ~method_:"files.getUploadURLExternal"
                           "upload_allocation_failed" error
+                    | Error _ -> fail "upload_allocation_invalid"
                   in
-                  if
-                    (not (Slack_config_types.valid_id "F" id))
-                    || (not (Upload.pinned uri))
-                    || List.mem id acc
-                  then fail "upload_allocation_invalid";
+                  if List.mem id acc then fail "upload_allocation_invalid";
                   let r = current db fire_id in
                   if not (source_matches r payload) then raise Stop;
                   let a = attempt r in
@@ -590,19 +583,14 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
                 ~before_send ()
             in
             let* completed =
-              call "files.completeUploadExternal"
-                [
-                  ("channel_id", `String order.channel_id);
-                  ( "files",
-                    `List
-                      (List.map (fun id -> `Assoc [ ("id", `String id) ]) ids)
-                  );
-                  ( "initial_comment",
-                    `String
-                      (Relay.initial_comment ~order ~verified:payload
-                         ~team_url:v.team_url ~nonce) );
-                ]
+              Slack_file_upload.complete ~call ~channel_id:order.channel_id
+                ~thread_ts:None
+                ~initial_comment:
+                  (Relay.initial_comment ~order ~verified:payload
+                     ~team_url:v.team_url ~nonce)
+                ~file_ids:ids
             in
+            let completed = Result.map_error Upload.error_of_shared completed in
             (* No accepting/epoch fence here: an in-flight send belongs to the
                 retained attempt even when pause won while HTTP was pending. *)
             (match completed with

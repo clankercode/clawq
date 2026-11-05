@@ -499,6 +499,49 @@ let attachment_syntax_block attachments =
           ]
          @ syntax_lines @ [ ""; "Attached:" ] @ refs))
 
+let slack_reply_guidance ~context ~(config : Runtime_config.t) ~tool_available =
+  match (context, config.channels.slack) with
+  | Some { Slack_reply_context.connector = "slack"; conversation }, Some sc -> (
+      let automatic =
+        if sc.long_reply.mode = Slack_config_types.Off then []
+        else
+          let channel_canvas =
+            conversation = Slack_reply_context.Channel
+            && sc.long_reply.mode = Slack_config_types.Canvas
+          in
+          [
+            Printf.sprintf
+              (if channel_canvas then
+                 "In Slack, final answers longer than %d characters are \
+                  automatically placed in a canvas, with a Markdown file \
+                  fallback. Lead with a self-contained opening paragraph of at \
+                  most 600 characters; that paragraph and the full-answer link \
+                  appear in the conversation."
+               else
+                 "In Slack, final answers longer than %d characters are \
+                  automatically attached as Markdown files. Lead with a \
+                  self-contained opening paragraph of at most 600 characters; \
+                  that paragraph and the file attachment appear in the \
+                  conversation.")
+              sc.long_reply.threshold;
+          ]
+      in
+      let tool =
+        if conversation = Slack_reply_context.Channel && tool_available then
+          [
+            "For long or structured research write-ups, you may call \
+             slack_canvas_create with a title and complete Markdown. It shares \
+             a short link message here; then reply briefly with the result and \
+             link. Do not repeat the full write-up. Short answers should be \
+             ordinary replies.";
+          ]
+        else []
+      in
+      match automatic @ tool with
+      | [] -> None
+      | lines -> Some (String.concat " " lines))
+  | _ -> None
+
 let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
     ?(channel_type = "dm") ?(workspace = None) ?(scheduled_jobs = [])
     ?agent_template ?room_profile_system_prompt
@@ -519,8 +562,27 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
               Some config.agent_defaults.system_prompt
             else None)
   in
+  let guidance =
+    slack_reply_guidance
+      ~context:(Slack_reply_context.current_context ())
+      ~config
+      ~tool_available:
+        (config.security.tools_enabled
+        && (not (List.mem "slack_canvas_create" hidden_tools))
+        &&
+        match tool_registry with
+        | Some registry ->
+            Tool_registry.find registry "slack_canvas_create" <> None
+        | None -> false)
+  in
+  let append_guidance prompt =
+    match guidance with None -> prompt | Some text -> prompt ^ "\n\n" ^ text
+  in
   if not config.prompt.dynamic_enabled then
-    match effective_system_prompt () with Some s -> s | None -> base_prompt
+    append_guidance
+      (match effective_system_prompt () with
+      | Some s -> s
+      | None -> base_prompt)
   else
     let lines = ref [] in
     let add s = lines := s :: !lines in
@@ -756,4 +818,4 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
         add "";
         add s
     | None -> ());
-    String.concat "\n" (List.rev !lines)
+    append_guidance (String.concat "\n" (List.rev !lines))

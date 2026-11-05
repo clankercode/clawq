@@ -233,6 +233,7 @@ let with_connector ?handle_event sockets f =
               socket_mode = true;
               default_model = None;
               event_log = Slack_config_types.default_event_log;
+              long_reply = Slack_config_types.default_long_reply;
               reply_mode = Slack_config_types.Mention;
               standing_orders = Slack_config_types.default_standing_orders;
             }

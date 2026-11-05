@@ -202,6 +202,7 @@
   test_pairing
   test_perf
   test_phase3
+  test_agent_tool_redaction
   test_postmortem
   test_prompt_builder
   test_provider
@@ -297,6 +298,7 @@
   test_skills
   test_skills_cmd_inject
   test_slack
+  test_slack_long_reply
   test_slack_huddles
   test_slack_huddle_fix1
   test_slack_threads
@@ -341,6 +343,14 @@
   test_slack_standing_order_report
   test_slack_standing_order_pickup
   test_slack_standing_order_slack
+  test_slack_file_upload
+  test_slack_canvas
+  test_slack_canvas_tool
+  test_slack_final_text
+  test_slack_reply_delivery
+  test_slack_reply_paths
+  test_slack_queued_finals
+  test_slack_legacy_authority
   test_slack_standing_order_upload
   test_slack_standing_order_grant
   test_slack_standing_order_grant_support

@@ -150,6 +150,7 @@ type slack_config = {
   event_log : Slack_config_types.event_log;
       (** Metadata-only Slack event log (off by default). *)
   standing_orders : Slack_config_types.slack_standing_orders_config;
+  long_reply : Slack_config_types.long_reply;
   reply_mode : Slack_config_types.reply_mode;
       (** Channel replies default to explicit mentions or recent continuation.
       *)

@@ -14,6 +14,8 @@
   process_group
   phase2
   slack_config_types
+  slack_long_reply_policy
+  slack_reply_context
   runtime_config_types
   opencodex
   llmp
@@ -558,6 +560,13 @@
   slack_standing_order_fire_store
   slack_standing_order_store
   slack_standing_order_slack
+  slack_file_upload
+  slack_canvas
+  slack_canvas_tool
+  slack_final_text
+  slack_reply_delivery
+  slack_message_transport
+  slack_final_reply
   slack_standing_order_upload
   slack_standing_order_grant
   slack_standing_order_target

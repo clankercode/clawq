@@ -73,6 +73,7 @@ let channels_schema =
             ("allow_users", L);
             ("app_token", L);
             ("socket_mode", L);
+            ("long_reply", O [ ("mode", L); ("threshold", L) ]);
             ("reply_mode", L);
             ("default_model", L);
             ("event_log", O [ ("enabled", L); ("capture_text_from", L) ]);
@@ -660,6 +661,27 @@ let validate_set_value key json_val =
     && String.sub key 0 (String.length p) = p
   in
   match key with
+  | "channels.slack.long_reply" ->
+      Slack_config_types.validate_long_reply json_val
+  | "channels.slack.long_reply.mode" ->
+      Slack_config_types.validate_long_reply (`Assoc [ ("mode", json_val) ])
+  | "channels.slack.long_reply.threshold" ->
+      Slack_config_types.validate_long_reply
+        (`Assoc [ ("threshold", json_val) ])
+  | "channels" | "channels.slack" ->
+      let rec check segments value =
+        match (segments, value) with
+        | [], value -> Slack_config_types.validate_long_reply value
+        | segment :: rest, `Assoc fields -> (
+            match List.assoc_opt segment fields with
+            | None -> Ok ()
+            | Some v -> check rest v)
+        | _ -> Slack_config_types.long_reply_error ""
+      in
+      check
+        (if key = "channels" then [ "slack"; "long_reply" ]
+         else [ "long_reply" ])
+        json_val
   | "channels.slack.reply_mode" -> (
       match json_val with
       | `String ("mention" | "all") -> Ok ()

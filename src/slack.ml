@@ -2,111 +2,12 @@ include Slack_api
 
 let handle_message ?thread_run ?(thread_context = "")
     ~(config : Runtime_config.slack_config) ~(session_manager : Session.t)
-    ?(send_message_fn = send_message) ?run_update_command ?event_limiter body =
+    ?send_message_fn ?run_update_command ?event_limiter body =
   let open Lwt.Syntax in
+  Slack_canvas_tool.with_ingress_reply_context ~session_manager ?thread_run body
+  @@ fun () ->
   let root =
     Option.map (fun (r : Slack_thread_runs.run) -> r.route.root) thread_run
-  in
-  (* Every post and edit below skips blank text: Slack rejects it with
-     [no_text], and an empty reply has nothing to say (B845). *)
-  let send_message_reply ~bot_token ~channel_id ~text ?thread_ts () =
-    match thread_run with
-    | None -> send_message_reply ~bot_token ~channel_id ~text ?thread_ts ()
-    | Some r ->
-        skip_blank ~channel_id ~what:"thread reply" text (fun () ->
-            let* _ =
-              Slack_thread_api.call_current_exn ~manager:session_manager
-                ~route:r.route "chat.postMessage"
-                ([ ("channel", `String channel_id); ("text", `String text) ]
-                @
-                match thread_ts with
-                | None -> []
-                | Some ts -> [ ("thread_ts", `String ts) ])
-            in
-            Lwt.return_unit)
-  in
-  let send_message_fn ~bot_token ~channel_id ~text =
-    match root with
-    | Some thread_ts ->
-        send_message_reply ~bot_token ~channel_id ~text ~thread_ts ()
-    | None ->
-        skip_blank ~channel_id ~what:"message" text (fun () ->
-            send_message_fn ~bot_token ~channel_id ~text)
-  in
-  let send_message_with_id ~bot_token ~channel_id ~text =
-    match root with
-    | None -> send_message_with_id ~bot_token ~channel_id ~text
-    | Some _ when blank_text text ->
-        log_blank ~channel_id ~what:"thread message";
-        Lwt.return ""
-    | Some thread_ts ->
-        let r = Option.get thread_run in
-        let* result =
-          Slack_thread_api.call_current_exn ~manager:session_manager
-            ~route:r.route "chat.postMessage"
-            [
-              ("channel", `String channel_id);
-              ("thread_ts", `String thread_ts);
-              ("text", `String text);
-            ]
-        in
-        Lwt.return (Slack_huddles.field "ts" result)
-  in
-  let edit_message ~bot_token ~channel_id ~ts ~text =
-    match thread_run with
-    | None -> edit_message ~bot_token ~channel_id ~ts ~text
-    | Some r ->
-        skip_blank ~channel_id ~what:"edit" text (fun () ->
-            let* _ =
-              Slack_thread_api.call_current_exn ~manager:session_manager
-                ~route:r.route "chat.update"
-                [
-                  ("channel", `String channel_id);
-                  ("ts", `String ts);
-                  ("text", `String text);
-                ]
-            in
-            Lwt.return_unit)
-  in
-  let delete_message ~bot_token ~channel_id ~ts =
-    match thread_run with
-    | None -> delete_message ~bot_token ~channel_id ~ts
-    | Some r ->
-        let* _ =
-          Slack_thread_api.call_current_exn ~manager:session_manager
-            ~route:r.route "chat.delete"
-            [ ("channel", `String channel_id); ("ts", `String ts) ]
-        in
-        Lwt.return_unit
-  in
-  let reaction method_ legacy ~bot_token ~channel_id ~timestamp ~emoji_name =
-    match thread_run with
-    | None -> legacy ~bot_token ~channel_id ~timestamp ~emoji_name
-    | Some r ->
-        let* _ =
-          Slack_thread_api.call_current ~manager:session_manager ~route:r.route
-            method_
-            [
-              ("channel", `String channel_id);
-              ("timestamp", `String timestamp);
-              ("name", `String emoji_name);
-            ]
-        in
-        Lwt.return_unit
-  in
-  let add_reaction = reaction "reactions.add" add_reaction in
-  let remove_reaction = reaction "reactions.remove" remove_reaction in
-  let make_status_notifier ~bot_token ~channel_id : Status_message.notifier =
-    {
-      send =
-        (fun ?parse_mode:_ text ->
-          send_message_with_id ~bot_token ~channel_id ~text);
-      edit =
-        (fun ts ?parse_mode:_ text ->
-          let* () = edit_message ~bot_token ~channel_id ~ts ~text in
-          Lwt.return_none);
-      delete = (fun ts -> delete_message ~bot_token ~channel_id ~ts);
-    }
   in
   match parse_event body with
   | Some (UrlVerification challenge) ->
@@ -118,6 +19,73 @@ let handle_message ?thread_run ?(thread_context = "")
   | Some
       (Message
          { channel_id; user_id; text; bot_id = None; ts; thread_ts; files }) ->
+      let route =
+        Option.map (fun (r : Slack_thread_runs.run) -> r.route) thread_run
+      in
+      let key =
+        match thread_run with
+        | Some r -> r.Slack_thread_runs.key
+        | None -> resolve_session_key ~session_manager ~channel_id ~user_id
+      in
+      let final_thread = match root with Some _ -> root | None -> thread_ts in
+      let* transport, ordinary =
+        Slack_huddle_context.with_request ~session_manager ~key ~channel_id
+          ~user_id ~message_id:ts ?thread_ts:final_thread (fun () ->
+            let transport =
+              Slack_message_transport.make ~manager:session_manager ~route
+                ~channel_id ~thread_ts:final_thread ?legacy_post:send_message_fn
+                ()
+            in
+            let ordinary =
+              if root = final_thread then transport
+              else
+                Slack_message_transport.make ~manager:session_manager ~route
+                  ~channel_id ~thread_ts:root ?legacy_post:send_message_fn ()
+            in
+            Lwt.return (transport, ordinary))
+      in
+      let send_message_fn ~bot_token:_ ~channel_id:_ ~text =
+        ordinary.post ~text
+      in
+      let send_message_reply ~bot_token:_ ~channel_id:_ ~text ?thread_ts:_ () =
+        transport.post ~text
+      in
+      let send_message_with_id ~bot_token:_ ~channel_id:_ ~text =
+        ordinary.post_with_id ~text
+      in
+      let edit_message ~bot_token:_ ~channel_id:_ ~ts ~text =
+        ordinary.edit ~ts ~text
+      in
+      let delete_message ~bot_token:_ ~channel_id:_ ~ts = ordinary.delete ~ts in
+      let add_reaction ~bot_token:_ ~channel_id:_ ~timestamp ~emoji_name =
+        ordinary.reaction ~method_:"reactions.add" ~timestamp ~emoji_name
+      in
+      let remove_reaction ~bot_token:_ ~channel_id:_ ~timestamp ~emoji_name =
+        ordinary.reaction ~method_:"reactions.remove" ~timestamp ~emoji_name
+      in
+      let make_status_notifier ~bot_token:_ ~channel_id:_ =
+        Slack_message_transport.status_notifier ordinary
+      in
+      let target : Slack_reply_delivery.target =
+        {
+          session_key = key;
+          channel_id;
+          thread_ts = final_thread;
+          requester = user_id;
+          source_ts = Some ts;
+          conversation = Slack_reply_context.Unknown;
+        }
+      in
+      let final_failed = ref false in
+      let send_final text =
+        Lwt.catch
+          (fun () ->
+            Slack_final_reply.send ~manager:session_manager
+              ~post_text:transport.final_text ~target text)
+          (fun exn ->
+            final_failed := true;
+            Lwt.fail exn)
+      in
       if not (is_allowed ~config ~channel_id ~user_id) then begin
         Logs.warn (fun m ->
             m "Slack: ignoring message from unauthorized channel=%s user=%s"
@@ -168,6 +136,7 @@ let handle_message ?thread_run ?(thread_context = "")
           Lwt.return "ok"
         end
         else begin
+          Slack_thread_execution.install session_manager;
           let limiter_key = channel_id ^ ":" ^ user_id in
           let* rate_ok =
             match event_limiter with
@@ -194,12 +163,6 @@ let handle_message ?thread_run ?(thread_context = "")
             else Lwt.return "ok"
           end
           else
-            let key =
-              match thread_run with
-              | Some r -> r.Slack_thread_runs.key
-              | None ->
-                  resolve_session_key ~session_manager ~channel_id ~user_id
-            in
             (* Reply helper: sends into the thread when thread_ts is present,
              otherwise uses the caller-provided send_message_fn *)
             let reply ~text =
@@ -367,6 +330,16 @@ let handle_message ?thread_run ?(thread_context = "")
                   is_admin;
                   send_plain = send_reply;
                   send_formatted = send_reply;
+                  send_final =
+                    Some
+                      (fun body ->
+                        let message =
+                          Connector_dispatch.queued_followup
+                            ~connector_name:"slack" ~channel_id ~user_id
+                            ~message_id:ts ~is_admin text
+                        in
+                        Slack_final_reply.send_queued ~manager:session_manager
+                          ~key ~message ~fallback:send_reply body);
                 }
               in
               (* Create task-tree record for async commands from profiled rooms *)
@@ -424,7 +397,7 @@ let handle_message ?thread_run ?(thread_context = "")
                   in
                   Session.delegate_turn session_manager ?agent_name ~prompt
                     ~parent_key:key ~debug_notify:send_agent_reply
-                    ~send_reply:send_agent_reply ();
+                    ~send_reply:send_agent_reply ~send_final ();
                   Lwt.return "ok"
               | AgentInvoke (agent_name, prompt) ->
                   Lwt.async (fun () ->
@@ -437,7 +410,7 @@ let handle_message ?thread_run ?(thread_context = "")
                   in
                   Session.agent_invoke_turn session_manager ~agent_name ~prompt
                     ~parent_key:key ~debug_notify:send_agent_reply
-                    ~send_reply:send_agent_reply ();
+                    ~send_reply:send_agent_reply ~send_final ();
                   Lwt.return "ok"
               | Rig action -> (
                   match action with
@@ -481,7 +454,7 @@ let handle_message ?thread_run ?(thread_context = "")
                           in
                           Session.delegate_turn session_manager ~prompt
                             ~parent_key:key ~debug_notify:send_agent_reply
-                            ~send_reply:send_agent_reply ();
+                            ~send_reply:send_agent_reply ~send_final ();
                           (match act with
                           | `Install -> (
                               match Rig.find_rig name with
@@ -593,7 +566,7 @@ let handle_message ?thread_run ?(thread_context = "")
                   in
                   Session.fork_and_run session_manager ~parent_key:key
                     ?agent_name ~debug_notify:send_agent_reply ~prompt
-                    ~send_reply:send_agent_reply ();
+                    ~send_reply:send_agent_reply ~send_final ();
                   Lwt.return "ok"
               | Debate prompt -> (
                   match Session.get_db session_manager with
@@ -831,7 +804,7 @@ let handle_message ?thread_run ?(thread_context = "")
                         if thinking <> "" then reply ~text:("_" ^ thinking ^ "_")
                         else Lwt.return_unit
                       in
-                      let* () = reply ~text:response in
+                      let* () = send_final response in
                       let* () =
                         set_reaction
                           (Connector_status.Slack.phase_emoji Completed)
@@ -995,7 +968,7 @@ let handle_message ?thread_run ?(thread_context = "")
                             let* response =
                               Slack_huddle_context.with_request ~session_manager
                                 ~key ~channel_id ~user_id ~message_id:ts
-                                (fun () ->
+                                ?thread_ts:final_thread (fun () ->
                                   turn_stream session_manager ~key
                                     ~message:(thread_context ^ message)
                                     ~content_parts ~attachments:att_list
@@ -1044,8 +1017,8 @@ let handle_message ?thread_run ?(thread_context = "")
                         in
                         Lwt.async (fun () ->
                             Session.process_autonomous_turn_result
-                              ~on_response:(fun text -> reply ~text)
-                              session_manager ~key ~response);
+                              ~on_response:send_final session_manager ~key
+                              ~response);
                         Lwt.return "ok")
                       else
                         let* () = handler.finalize () in
@@ -1055,7 +1028,7 @@ let handle_message ?thread_run ?(thread_context = "")
                             reply ~text:("_" ^ thinking ^ "_")
                           else Lwt.return_unit
                         in
-                        let* () = reply ~text:response in
+                        let* () = send_final response in
                         let* () =
                           set_reaction
                             (Connector_status.Slack.phase_emoji Completed)
@@ -1072,10 +1045,17 @@ let handle_message ?thread_run ?(thread_context = "")
                         then Session.mark_response_sent session_manager ~key;
                         Lwt.async (fun () ->
                             Session.process_autonomous_turn_result
-                              ~on_response:(fun text -> reply ~text)
-                              session_manager ~key ~response);
+                              ~on_response:send_final session_manager ~key
+                              ~response);
                         Lwt.return "ok"
                   | Error exn ->
+                      let final_failed =
+                        !final_failed
+                        ||
+                        match exn with
+                        | Slack_thread_api.Delivery_denied _ -> true
+                        | _ -> false
+                      in
                       Logs.err (fun m ->
                           m "Slack agent error for channel=%s user=%s: %s"
                             channel_id user_id (Printexc.to_string exn));
@@ -1093,8 +1073,10 @@ let handle_message ?thread_run ?(thread_context = "")
                               ~channel_id ~timestamp ~emoji_name)
                       in
                       if
-                        not
-                          (Session.take_response_deferred session_manager ~key)
+                        (not final_failed)
+                        && not
+                             (Session.take_response_deferred session_manager
+                                ~key)
                       then Session.mark_response_sent session_manager ~key;
                       Lwt.return "ok")
               | ( RegisterAsAdminOtc _ | Reply _ | FormattedReply _ | Help

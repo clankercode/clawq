@@ -89,7 +89,7 @@ let test_slack_handle_event_emits_tool_call_notifications () =
       let slack_config : Runtime_config.slack_config =
         {
           bot_token = "xoxb-test";
-          signing_secret = "secret";
+          signing_secret = "test-secret";
           events_path = "/slack/events";
           allow_channels = [ "*" ];
           allow_users = [ "*" ];
@@ -104,6 +104,7 @@ let test_slack_handle_event_emits_tool_call_notifications () =
           socket_mode = false;
           default_model = None;
           event_log = Slack_config_types.default_event_log;
+          long_reply = Slack_config_types.default_long_reply;
           reply_mode = Slack_config_types.Mention;
           standing_orders = Slack_config_types.default_standing_orders;
         }

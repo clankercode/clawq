@@ -41,7 +41,8 @@ let score_path ~query path =
 let load_config_json () =
   let path = Dot_dir.config_path () in
   if Sys.file_exists path then
-    try Some (Yojson.Safe.from_file path) with _ -> None
+    try Some (Config_show.effective_json (Yojson.Safe.from_file path))
+    with _ -> None
   else None
 
 let lookup_value json path =

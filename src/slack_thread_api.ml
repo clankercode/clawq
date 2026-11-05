@@ -115,8 +115,18 @@ let call_current_exn ~manager ~route method_ params =
       | Error reason -> Lwt.fail (Delivery_denied reason)
       | Ok _ -> Lwt.fail_with e)
 
-let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
-  let cfg = Session.get_config manager in
+type requester_proof = {
+  slack : Runtime_config.slack_config;
+  bot : string;
+  classification : Runtime_config_types.room_classification;
+  conversation : Yojson.Safe.t;
+}
+
+(* Native threads and server-bound legacy finals use the same requester
+   proof. Metadata comes from the caller's checked transport; authorize_request
+   rejects all awaited evidence if its configuration changes. *)
+let prove_request_unchecked ~manager ~(cfg : Runtime_config.t) ~channel_id ~team
+    ~user ~read =
   match cfg.channels.slack with
   | Some sc
     when Runtime_config.slack_has_valid_credentials
@@ -126,20 +136,23 @@ let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
              signing_secret = String.trim sc.signing_secret;
            }
          && valid_id "UW" user
-         && Slack_api.is_allowed ~config:sc ~channel_id:route.channel
-              ~user_id:user -> (
-      let*? auth = read ~token:sc.bot_token "auth.test" [] in
+         && Slack_api.is_allowed ~config:sc ~channel_id ~user_id:user -> (
+      let*? auth = read "auth.test" [] in
       let bot = field "user_id" auth in
-      if field "team_id" auth <> route.team || not (valid_id "UW" bot) then
-        fail "Slack installation mismatch"
+      let installation = field "team_id" auth in
+      if
+        (not (valid_id "T" installation))
+        || (match team with
+          | Some expected -> installation <> expected
+          | None -> false)
+        || not (valid_id "UW" bot)
+      then fail "Slack installation mismatch"
       else
-        let*? response =
-          read ~token:sc.bot_token "users.info" [ ("user", str user) ]
-        in
+        let*? response = read "users.info" [ ("user", str user) ] in
         let human = get "user" response in
         if
           field "id" human <> user
-          || field "team_id" human <> route.team
+          || field "team_id" human <> installation
           || flag "deleted" human || flag "is_bot" human
           || List.exists
                (fun k -> match get k human with `Bool _ -> false | _ -> true)
@@ -147,12 +160,11 @@ let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
         then fail "Slack human identity unavailable"
         else
           let*? response =
-            read ~token:sc.bot_token "conversations.info"
-              [ ("channel", str route.channel) ]
+            read "conversations.info" [ ("channel", str channel_id) ]
           in
           let channel = get "channel" response in
           let is_dm =
-            route.channel.[0] = 'D' && get "is_im" channel = `Bool true
+            channel_id.[0] = 'D' && get "is_im" channel = `Bool true
           in
           let membership =
             if is_dm then
@@ -164,7 +176,7 @@ let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
                   | None | Some (`Bool false) -> true
                   | _ -> false)
               | _ -> false
-            else route.channel.[0] <> 'D' && flag "is_member" channel
+            else channel_id.[0] <> 'D' && flag "is_member" channel
           in
           let privacy =
             if is_dm then Some true
@@ -174,11 +186,11 @@ let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
               | _ -> None
           in
           if
-            field "id" channel <> route.channel
+            field "id" channel <> channel_id
             || (not membership) || privacy = None
             || not
-                 (Slack_api.check_private_channel_policy ~config:sc
-                    ~channel_id:route.channel ~is_private_opt:privacy)
+                 (Slack_api.check_private_channel_policy ~config:sc ~channel_id
+                    ~is_private_opt:privacy)
           then fail "Slack bot membership/private-channel policy denied"
           else
             let external_ =
@@ -194,14 +206,14 @@ let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
             let classification : Runtime_config_types.room_classification =
               {
                 connector = "slack";
-                room_id = route.channel;
+                room_id = channel_id;
                 scope =
                   (if external_ then Rm_external
                    else if flag "is_shared" channel then Rm_shared
-                   else if route.channel.[0] = 'D' then Rm_dm
+                   else if channel_id.[0] = 'D' then Rm_dm
                    else Rm_group);
                 has_external_users = external_;
-                tenant_id = Some route.team;
+                tenant_id = Some installation;
               }
             in
             match
@@ -215,16 +227,21 @@ let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
                     fail "Slack membership pagination incomplete"
                   else
                     let*? response =
-                      read ~token:sc.bot_token "conversations.members"
-                        ([
-                           ("channel", str route.channel); ("limit", str "200");
-                         ]
+                      read "conversations.members"
+                        ([ ("channel", str channel_id); ("limit", str "200") ]
                         @ if cursor = "" then [] else [ ("cursor", str cursor) ]
                         )
                     in
                     let ids = list (get "members" response) |> List.map text in
                     if List.mem user ids then
-                      Lwt.return (Ok (sc, bot, classification))
+                      Lwt.return
+                        (Ok
+                           {
+                             slack = sc;
+                             bot;
+                             classification;
+                             conversation = channel;
+                           })
                     else
                       let next =
                         field "next_cursor" (get "response_metadata" response)
@@ -233,18 +250,37 @@ let authorize_unchecked ~manager ~(route : Slack_thread_route.t) ~user =
                         fail "Slack requesting human is not a channel member"
                       else members next (pages - 1) (cursor :: seen)
                 in
-                if is_dm then Lwt.return (Ok (sc, bot, classification))
+                if is_dm then
+                  Lwt.return
+                    (Ok
+                       {
+                         slack = sc;
+                         bot;
+                         classification;
+                         conversation = channel;
+                       })
                 else members "" 10 [])
   | _ -> fail "Slack disabled or user/channel denied"
 
-let authorize ~manager ~route ~user =
+let authorize_request ~manager ~cfg ~channel_id ~team ~user ~read =
+  let* result =
+    prove_request_unchecked ~manager ~cfg ~channel_id ~team ~user ~read
+  in
+  if Session.get_config manager != cfg then
+    fail "Slack configuration changed during authorization; retry the request"
+  else Lwt.return result
+
+let authorize ~manager ~(route : Slack_thread_route.t) ~user =
   let cfg = Session.get_config manager in
   with_route manager route (fun () ->
-      let* result = authorize_unchecked ~manager ~route ~user in
-      if Session.get_config manager != cfg then
-        fail
-          "Slack configuration changed during authorization; retry the request"
-      else Lwt.return result)
+      let+ result =
+        authorize_request ~manager ~cfg ~channel_id:route.channel
+          ~team:(Some route.team) ~user ~read:(fun method_ params ->
+            read ~token:"" method_ params)
+      in
+      Result.map
+        (fun proof -> (proof.slack, proof.bot, proof.classification))
+        result)
 
 type thread = {
   messages : Yojson.Safe.t list;

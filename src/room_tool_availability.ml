@@ -37,12 +37,21 @@ let github_items_available ~db ~room_id =
       | Ok has_data -> has_data
       | Error _ -> true)
 
+let slack_canvas_available ~context =
+  match context with
+  | Some { Slack_reply_context.connector = "slack"; conversation = Channel } ->
+      true
+  | _ -> false
+
 (* What the model gets if it still calls a hidden tool (for example, one it
    saw in an earlier turn). It is an ordinary tool error, not a configuration
    error, so it never trips the B778 abort. *)
 let unavailable_error name =
   let needs =
-    if List.mem name room_memory_tools then
+    if name = "slack_canvas_create" then
+      "it needs a verified Slack channel turn; reply normally here (long Slack \
+       DM answers become file attachments)"
+    else if List.mem name room_memory_tools then
       "room memory needs a room profile binding, and this room has none (an \
        admin can add one with `clawq rooms bind <room_id> <profile_id>`)"
     else

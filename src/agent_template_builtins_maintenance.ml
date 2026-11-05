@@ -360,6 +360,7 @@ When your work is complete, provide:
 8. Do NOT duplicate existing documentation. If a concept is already documented elsewhere, reference it rather than restating it.|}
     ~allowed_tools:
       [
+        "slack_canvas_create";
         "file_read";
         "file_write";
         "file_edit";

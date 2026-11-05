@@ -61,6 +61,9 @@ let init_tool_registry ~(config : Runtime_config.t)
   if config.security.tools_enabled then begin
     let registry = Tool_registry.create () in
     Tools_builtin.register_all ~config:!current_config ~sandbox ~db registry;
+    Slack_canvas_tool.register
+      ~current_config:(fun () -> !current_config)
+      registry;
     Slack_huddle_tools.register
       ~current_config:(fun () -> !current_config)
       registry;

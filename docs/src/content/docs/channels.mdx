@@ -250,6 +250,97 @@ Clearing the bot token disables task and huddle operations for both transports.
 Clawq supports two Slack integration modes: **Socket Mode** (recommended) and
 the **Events API** (requires a public endpoint).
 
+### Long final replies and canvases
+
+By default, a final answer **longer than 2500 Unicode code points** becomes a
+standalone, read-only canvas in its originating channel. Exactly 2500 stays in
+chat. The conversation keeps the opening paragraph (at most 600 code points,
+including an ellipsis) and a link to the complete answer. There is no generated
+second-model summary. Slack controls the unfurl layout; a particular preview
+or embedded-card appearance is not guaranteed. Progress and processing streams
+remain status-only, including when overflow is off; receipts, notices, cards
+and standing-order relays retain their ordinary delivery.
+
+Configure `channels.slack.long_reply`:
+
+```json
+{ "mode": "canvas", "threshold": 2500 }
+```
+
+- `canvas` (default): channel canvas, then exact `.md` file, then ordinary full
+  text if the file definitely was not shared. DMs and group DMs always use a
+  Markdown file in that same conversation and parent thread.
+- `file`: skip automatic canvas creation and attach the exact Markdown.
+- `off`: send buffered ordinary text. Explicit channel tool use remains enabled
+  in both `file` and `off`, subject to the normal tool and room filters.
+
+The threshold is an integer from 1 through 40000, using a strict `>` comparison.
+Missing fields default independently. Config load warns and defaults an invalid
+field; `config set` rejects invalid values and unknown keys. Config reloads
+apply to the next model request/final without restarting. A delivery already
+underway keeps its presentation choice while rechecking live authorization,
+credentials and egress before network operations.
+
+Canvases are standalone (no channel tab and no `channel_id` at creation). Clawq
+creates one, reads the authoritative permalink with `files.info`, posts the
+summary/link in the original channel/thread, then grants **read** access to
+that channel. A reader can briefly see “no access” between the share and grant.
+Clawq never grants public, organization-wide or individual-user access. A failed
+step triggers best-effort deletion of its canvas and removal of its posted
+link before file fallback. One delivery attempts creation once; later-stage
+retries reuse its ID. Crash, restart or queue replay can leave an extra private
+canvas or duplicate summary/file post; there is no durable delivery journal.
+
+File fallback preserves original answer bytes. Only Slack mentions/links outside
+code fences are adapted for canvases, with broadcast mentions made inert.
+Unsupported Markdown or the conservative 1048576 byte/code-point ceiling selects
+the file. If file completion is unresolved, Clawq reconciles the allocated file
+ID; it suppresses a second presentation unless owned-file deletion is confirmed.
+An unresolved completion returns a safe failure without a sent marker. Ordinary
+full-text fallback still has Slack's existing message-size/truncation limits.
+Revocation or cancellation stops outward writes, including fallback.
+
+The full daemon's `slack_canvas_create` takes only `title` (trimmed, 1–120 Unicode
+code points) and `markdown` (complete, nonblank Markdown). It requires an
+active verified Slack channel turn and a permitted snapshot; its destination
+comes from that turn. It shares an escaped title/link and returns `canvas_id`,
+`permalink` and `shared_message_ts` only after the read grant. On failure, reply
+normally with the answer so automatic fallback can preserve it. In DMs/MPDMs,
+the tool tells the model to reply normally for file delivery. The minimal
+binary has the same schema but returns a disabled-in-minimal-build error.
+Only the built-in `researcher` and `documenter` templates allow it by default.
+Request guidance uses current config and filtered tools, including static
+prompts and after compaction; unknown conversation metadata promises files.
+
+Install `canvases:write`, `canvases:read`, `files:read`, `files:write` and the
+normal chat, channel/private-channel, DM/MPDM and user-read scopes; reinstall the
+Slack app after scope changes. Strict egress needs separate API and upload-host
+rules: permit the required GET metadata/`files.info`/upload-allocation and POST
+`auth.test`, `canvases.create`, `canvases.access.set`, `canvases.delete`, chat carrier/edit/delete,
+`files.completeUploadExternal` and `files.delete` under `https://slack.com/api/`;
+permit POST to `https://files.slack.com/` for raw file bytes (no redirects).
+Every final-delivery operation rechecks the requester's current identity and
+membership, room allowlists, private-channel policy and external/shared-room
+policy, including legacy replies and queued follow-ups. Verification is bound
+to the config used to obtain it; a reload during verification denies that
+attempt. Revocation stops publication, cleanup and file/text fallback, and the
+answer remains pending. Ordinary safe error notices retain their existing path.
+Logs and audit projections redact canvas arguments (even malformed/denied
+calls), result/error previews and sensitive raw-call batches; tokens, signed
+upload URLs, titles, summaries and answer text are not logged.
+
+Covered finals include live Slack replies, native queue drain/replay, follow-up
+finals, Slack agent-command finals and live autonomous continuations. Known gaps:
+direct background completions, generic daemon-resume/autonomous finals, and
+non-native queued finals other than follow-ups retain ordinary sends. Native
+queued outcomes of those producers are covered by the native final hook.
+
+After deployment, the coordinator checks root, threaded and private-channel
+read-only canvases; DM/MPDM files in the originating conversation; summary/link
+rendering and the brief no-access interval; file and full-text fallback. These
+are coordinator-only live checks, separate from the fake-HTTP implementation
+tests.
+
 ### Huddle reads
 
 The full daemon exposes `slack_huddles` for a bounded channel/time-window search

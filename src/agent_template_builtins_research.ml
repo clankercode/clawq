@@ -170,6 +170,7 @@ When your research is complete:
 - Do NOT research beyond the stated question without flagging it. If you discover adjacent issues, note them briefly in Open Questions or Recommendations — do not silently expand scope.|}
     ~allowed_tools:
       [
+        "slack_canvas_create";
         "file_read";
         "http_get";
         "slack_huddles";

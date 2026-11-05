@@ -756,7 +756,8 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
                 match outcome with
                 | Queue_executed response
                   when not (Session_core.should_suppress_response response) ->
-                    notify response
+                    Session_core.send_queued_final mgr ~key ~message:queued
+                      ~fallback:notify response
                 | _ -> Lwt.return_unit
               in
               Session_core.delete_queued_message_row mgr queued;

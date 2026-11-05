@@ -84,17 +84,87 @@ let normalized_tool_call_json (tc : Provider.tool_call) =
     ]
   |> Yojson.Safe.to_string
 
-let raw_tool_call_data_for_log ?raw_tool_calls_json tc =
-  match raw_tool_calls_json with
-  | Some raw when String.trim raw <> "" -> raw
-  | _ -> normalized_tool_call_json tc
+let canvas_log_marker = "[slack canvas content redacted]"
 
-let log_raw_tool_call_failure sk_tag ?raw_tool_calls_json
+(* Raw provider batches may contain a sensitive sibling, even when the failing
+   structured call is ordinary. Unknown shapes fail closed for diagnostics. *)
+let raw_batch_safe ~is_canvas raw =
+  let unique fields =
+    let keys = List.map fst fields in
+    List.length keys = List.length (List.sort_uniq String.compare keys)
+  in
+  let only keys fields =
+    unique fields && List.for_all (fun (key, _) -> List.mem key keys) fields
+  in
+  let named fields =
+    match List.assoc_opt "name" fields with
+    | Some (`String name) when name <> "" -> not (is_canvas name)
+    | _ -> false
+  in
+  let string_arguments fields =
+    match List.assoc_opt "arguments" fields with
+    | Some (`String _) -> true
+    | _ -> false
+  in
+  let metadata fields =
+    List.for_all
+      (function
+        | ("id" | "call_id" | "status"), `String s -> s <> ""
+        | ("id" | "call_id" | "status"), _ -> false
+        | "index", `Int n -> n >= 0
+        | "index", _ -> false
+        | _ -> true)
+      fields
+  in
+  let nested fields =
+    only [ "id"; "type"; "index"; "function" ] fields
+    &&
+    match List.assoc_opt "function" fields with
+    | Some (`Assoc fn) ->
+        only [ "name"; "arguments" ] fn && named fn && string_arguments fn
+    | _ -> false
+  in
+  let flat keys fields =
+    only keys fields && named fields && string_arguments fields
+  in
+  let classify = function
+    | `Assoc fields when metadata fields -> (
+        match List.assoc_opt "type" fields with
+        | Some (`String "function") -> nested fields
+        | Some (`String "function_call") ->
+            flat
+              [ "id"; "call_id"; "status"; "type"; "name"; "arguments" ]
+              fields
+        | Some (`String "tool_use") -> (
+            only [ "id"; "type"; "name"; "input" ] fields
+            && named fields
+            &&
+            match List.assoc_opt "input" fields with
+            | Some (`Assoc _) -> true
+            | _ -> false)
+        | None -> nested fields || flat [ "id"; "name"; "arguments" ] fields
+        | _ -> false)
+    | _ -> false
+  in
+  try
+    match Yojson.Safe.from_string raw with
+    | `List (_ :: _ as calls) -> List.for_all classify calls
+    | _ -> false
+  with _ -> false
+
+let log_raw_tool_call_failure sk_tag ?raw_tool_calls_json ~suppress
     (tc : Provider.tool_call) ~reason =
+  let raw, reason =
+    if suppress then (canvas_log_marker, canvas_log_marker)
+    else
+      ( (match raw_tool_calls_json with
+        | Some raw when String.trim raw <> "" -> raw
+        | _ -> normalized_tool_call_json tc),
+        reason )
+  in
   Logs.warn (fun m ->
       m "%sRaw model tool-call data for failed %s (id=%s, reason=%s): %s" sk_tag
-        tc.function_name tc.id reason
-        (raw_tool_call_data_for_log ?raw_tool_calls_json tc))
+        tc.function_name tc.id reason raw)
 
 let empty_argument_stream (tc : Provider.tool_call) =
   let raw = String.trim tc.arguments in
@@ -206,12 +276,34 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
     calls =
   let open Lwt.Syntax in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
+  let is_canvas name =
+    let canonical =
+      match agent.tool_registry with
+      | Some registry -> Tool_registry.resolve_name registry name
+      | None -> name
+    in
+    canonical = "slack_canvas_create"
+  in
+  let sensitive_batch =
+    List.exists
+      (fun (tc : Provider.tool_call) -> is_canvas tc.function_name)
+      calls
+    ||
+    match raw_tool_calls_json with
+    | None -> false
+    | Some raw -> not (raw_batch_safe ~is_canvas raw)
+  in
+  let log_arguments (tc : Provider.tool_call) =
+    if is_canvas tc.function_name then canvas_log_marker else tc.arguments
+  in
   let notification_promises = ref [] in
   let notify_async thunk =
     notification_promises :=
       Lwt.catch thunk (fun exn ->
           Logs.warn (fun m ->
-              m "Notification error: %s" (Printexc.to_string exn));
+              m "Notification error: %s"
+                (if sensitive_batch then canvas_log_marker
+                 else Printexc.to_string exn));
           Lwt.return_unit)
       :: !notification_promises
   in
@@ -243,7 +335,8 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
         Logs.warn (fun m ->
             m "%s%s hook failed: %s" sk_tag
               (Hooks.hook_event_to_string event)
-              (Printexc.to_string exn));
+              (if is_canvas tc.function_name then canvas_log_marker
+               else Printexc.to_string exn));
         Lwt.return Hooks.empty_dispatch_result)
   in
   let check_interrupt () =
@@ -266,7 +359,7 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
     (fun (tc : Provider.tool_call) ->
       Logs.info (fun m ->
           m "%sTool call: %s (id=%s) args=%s" sk_tag tc.function_name tc.id
-            tc.arguments);
+            (log_arguments tc));
       (match (db, audit_enabled, session_key) with
       | Some db, true, Some sk ->
           let risk =
@@ -283,7 +376,7 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
                  session_key = sk;
                  tool_name = tc.function_name;
                  risk_level = risk;
-                 args_preview = tc.arguments;
+                 args_preview = log_arguments tc;
                })
       | _ -> ());
       notify_async (fun () ->
@@ -424,7 +517,10 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
                 inject_hook_contexts pre_hook.additional_contexts;
                 List.iter
                   (fun err ->
-                    Logs.warn (fun m -> m "%sPreToolUse hook: %s" sk_tag err))
+                    Logs.warn (fun m ->
+                        m "%sPreToolUse hook: %s" sk_tag
+                          (if is_canvas tc.function_name then canvas_log_marker
+                           else err)))
                   pre_hook.errors;
                 if pre_hook.blocked then
                   let reason =
@@ -552,10 +648,12 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
                    { session_key = sk; tool_name = tc.function_name; success })
           | _ -> ());
           let preview =
-            let limit = if success then 200 else 1000 in
-            if String.length result > limit then
-              String.sub result 0 limit ^ "..."
-            else result
+            if is_canvas tc.function_name then canvas_log_marker
+            else
+              let limit = if success then 200 else 1000 in
+              if String.length result > limit then
+                String.sub result 0 limit ^ "..."
+              else result
           in
           if success then
             Logs.info (fun m ->
@@ -563,8 +661,8 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
           else begin
             Logs.warn (fun m ->
                 m "%sTool error: %s -> %s" sk_tag tc.function_name preview);
-            log_raw_tool_call_failure sk_tag ?raw_tool_calls_json tc
-              ~reason:preview
+            log_raw_tool_call_failure sk_tag ?raw_tool_calls_json
+              ~suppress:sensitive_batch tc ~reason:preview
           end;
           (* B598: when the model opts in via "forward_to_user": true in the
              tool call args, emit the full result as a ToolOutputDelta first

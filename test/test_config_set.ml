@@ -499,6 +499,7 @@ let test_channel_default_model_lookup () =
                 socket_mode = false;
                 default_model = None;
                 event_log = Slack_config_types.default_event_log;
+                long_reply = Slack_config_types.default_long_reply;
                 reply_mode = Slack_config_types.Mention;
                 standing_orders = Slack_config_types.default_standing_orders;
               };
@@ -641,8 +642,231 @@ let test_strip_date_suffix () =
     "short string unchanged" "abc"
     (Model_utils.strip_date_suffix "abc")
 
+let test_long_reply_validation () =
+  let obj k v = `Assoc [ (k, v) ] in
+  let key = "channels.slack.long_reply" in
+  let wrappers =
+    [
+      (key, Fun.id);
+      ("channels.slack", obj "long_reply");
+      ("channels", fun v -> obj "slack" (obj "long_reply" v));
+    ]
+  in
+  let bad =
+    [
+      `Null;
+      `Float 2.;
+      `Bool true;
+      `Assoc [ ("threshold", `Int 0) ];
+      obj "threshold" (`Int 40001);
+      obj "threshold" `Null;
+      obj "threshold" (`Float 1.);
+      obj "threshold" (`Bool true);
+      obj "mode" `Null;
+      obj "mode" (`Bool false);
+      obj "mode" (`String "unknown");
+      obj "UNTRUSTED_KEY" (`String "UNTRUSTED_VALUE");
+    ]
+  in
+  List.iter
+    (fun (path, wrap) ->
+      List.iter
+        (fun value ->
+          match Config_set.validate_set_value path (wrap value) with
+          | Ok () -> Alcotest.fail ("accepted invalid long_reply via " ^ path)
+          | Error msg ->
+              Alcotest.(check bool)
+                "key and example" true
+                (String_util.contains msg key
+                && String_util.contains msg "Example:");
+              Alcotest.(check bool)
+                "no raw input" false
+                (String_util.contains msg "UNTRUSTED"))
+        bad;
+      List.iter
+        (fun value ->
+          Alcotest.(check bool)
+            "valid object" true
+            (Result.is_ok (Config_set.validate_set_value path (wrap value))))
+        [
+          `Assoc [];
+          obj "threshold" (`Int 1);
+          obj "threshold" (`Int 40000);
+          obj "mode" (`String "canvas");
+          obj "mode" (`String "file");
+          obj "mode" (`String "off");
+        ])
+    wrappers;
+  List.iter
+    (fun (leaf, valid, invalid) ->
+      let path = key ^ "." ^ leaf in
+      Alcotest.(check bool)
+        "schema leaf" true
+        (Config_set.validate_set_path
+           (Config_set.split_path path)
+           Config_set.config_schema);
+      List.iter
+        (fun v ->
+          Alcotest.(check bool)
+            "valid leaf" true
+            (Result.is_ok (Config_set.validate_set_value path v)))
+        valid;
+      List.iter
+        (fun v ->
+          Alcotest.(check bool)
+            "invalid leaf" true
+            (Result.is_error (Config_set.validate_set_value path v)))
+        invalid)
+    [
+      ( "mode",
+        [ `String "canvas"; `String "file"; `String "off" ],
+        [ `Null; `Bool true; `Int 1; `String "unknown" ] );
+      ( "threshold",
+        [ `Int 1; `Int 40000 ],
+        [ `Int 0; `Int 40001; `Null; `Float 1.; `Bool true ] );
+    ];
+  List.iter
+    (fun value ->
+      Alcotest.(check bool)
+        "public object validator" true
+        (Result.is_error (Slack_config_types.validate_long_reply value)))
+    bad
+
+let test_long_reply_set_show () =
+  Test_helpers.with_temp_home (fun _ ->
+      List.iter
+        (fun (key, value) ->
+          match Config_set.set_json_value key value with
+          | Ok () -> ()
+          | Error e -> Alcotest.fail e)
+        [
+          ("channels.slack.long_reply.mode", `String "file");
+          ("channels.slack.long_reply.threshold", `Int 40000);
+        ];
+      Alcotest.(check string)
+        "get threshold" "40000"
+        (Config_set.get_value "channels.slack.long_reply.threshold");
+      List.iter
+        (fun output ->
+          Alcotest.(check bool)
+            "config surface" true
+            (String_util.contains output "40000"))
+        [
+          Config_show.show (Some "channels.slack.long_reply");
+          Config_tree.render_current ~section:"channels.slack.long_reply" ();
+          Config_search.search "long_reply";
+        ];
+      let before = Config_set.load_json (Config_set.config_path ()) in
+      Alcotest.(check bool)
+        "bad leaf refused" true
+        (Result.is_error
+           (Config_set.set_json_value "channels.slack.long_reply.threshold"
+              (`Int 0)));
+      Alcotest.(check bool)
+        "no invalid write" true
+        (before = Config_set.load_json (Config_set.config_path ())))
+
+let test_long_reply_effective_view () =
+  let cases =
+    [
+      ("omitted object", None, "canvas", 2500);
+      ("omitted mode", Some (`Assoc [ ("threshold", `Int 42) ]), "canvas", 42);
+      ( "omitted threshold",
+        Some (`Assoc [ ("mode", `String "file") ]),
+        "file",
+        2500 );
+      ( "invalid mode",
+        Some (`Assoc [ ("mode", `String "invalid"); ("threshold", `Int 42) ]),
+        "canvas",
+        42 );
+      ( "invalid threshold",
+        Some (`Assoc [ ("mode", `String "off"); ("threshold", `Int 0) ]),
+        "off",
+        2500 );
+      ( "invalid fields",
+        Some (`Assoc [ ("mode", `Bool true); ("threshold", `Float 2.5) ]),
+        "canvas",
+        2500 );
+      ("invalid object", Some (`String "invalid"), "canvas", 2500);
+    ]
+  in
+  List.iter
+    (fun (label, long_reply, mode, threshold) ->
+      Test_helpers.with_temp_home (fun _ ->
+          let slack_fields =
+            [
+              ("bot_token", `String "secret-sentinel");
+              ("events_path", `String "/custom");
+            ]
+            @
+            match long_reply with
+            | None -> []
+            | Some value -> [ ("long_reply", value) ]
+          in
+          let json =
+            `Assoc [ ("channels", `Assoc [ ("slack", `Assoc slack_fields) ]) ]
+          in
+          let path = Config_set.config_path () in
+          Unix.mkdir (Filename.dirname path) 0o755;
+          Yojson.Safe.to_file path json;
+          let expected =
+            `Assoc [ ("mode", `String mode); ("threshold", `Int threshold) ]
+          in
+          check_json (label ^ ": show section") expected
+            (Yojson.Safe.from_string
+               (Config_show.show (Some "channels.slack.long_reply")));
+          let shown = Yojson.Safe.from_string (Config_show.show None) in
+          check_json (label ^ ": show root") expected
+            (Option.get
+               (Config_show.resolve_dot_path shown "channels.slack.long_reply"));
+          check_json "unrelated value preserved" (`String "/custom")
+            (Option.get
+               (Config_show.resolve_dot_path shown "channels.slack.events_path"));
+          check_json "secret still redacted" (`String "***")
+            (Option.get
+               (Config_show.resolve_dot_path shown "channels.slack.bot_token"));
+          List.iter
+            (fun tree ->
+              List.iter
+                (fun value ->
+                  Alcotest.(check bool)
+                    (label ^ ": tree " ^ value)
+                    true
+                    (String_util.contains tree value))
+                [ "mode = " ^ mode; "threshold = " ^ string_of_int threshold ])
+            [
+              Config_tree.render_current ();
+              Config_tree.render_current ~section:"channels.slack.long_reply" ();
+            ];
+          let search = Config_search.search "long_reply" in
+          List.iter
+            (fun (leaf, value) ->
+              let key = "channels.slack.long_reply." ^ leaf in
+              let line =
+                List.find
+                  (fun line -> String_util.contains line key)
+                  (String.split_on_char '\n' search)
+              in
+              Alcotest.(check (list string))
+                (label ^ ": search " ^ leaf)
+                [ key; value ]
+                (List.filter (( <> ) "")
+                   (String.split_on_char ' ' (String.trim line))))
+            [ ("mode", mode); ("threshold", string_of_int threshold) ];
+          check_json
+            (label ^ ": config unchanged")
+            json
+            (Yojson.Safe.from_file path)))
+    cases
+
 let suite =
   [
+    Alcotest.test_case "long reply validates leaves object and parents" `Quick
+      test_long_reply_validation;
+    Alcotest.test_case "long reply set show search tree" `Quick
+      test_long_reply_set_show;
+    Alcotest.test_case "long reply effective defaults on all config surfaces"
+      `Quick test_long_reply_effective_view;
     Alcotest.test_case "infer value types" `Quick test_infer_value;
     Alcotest.test_case "json set simple" `Quick test_json_set_simple;
     Alcotest.test_case "json set nested" `Quick test_json_set_nested;

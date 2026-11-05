@@ -2,33 +2,81 @@
    transport boundary as production thread tests. No fake-token live calls. *)
 let handle_message ~config ~session_manager ?send_message_fn ?run_update_command
     ?event_limiter body =
+  (* Production managers carry the same Slack config as ingress. Keep the
+     legacy command fixtures coherent now transport reads current credentials. *)
+  let runtime = Session.get_config session_manager in
+  if runtime.channels.slack = None then
+    Session.update_config session_manager
+      {
+        runtime with
+        channels = { runtime.channels with slack = Some config };
+        egress =
+          {
+            runtime.egress with
+            default_allowlist =
+              {
+                Runtime_config_types.host = "slack.com";
+                path = Some "/api/*";
+                method_ = None;
+                action = Allow;
+                log_policy = No_log;
+              }
+              :: runtime.egress.default_allowlist;
+          };
+      };
   let transport : Slack_transport.t =
     {
       get =
         (fun ~uri ~headers:_ ->
-          if
-            Filename.basename (Uri.path (Uri.of_string uri))
-            <> "conversations.info"
-          then Alcotest.fail ("unexpected Slack GET " ^ uri);
-          Lwt.return
-            ( 200,
-              {|{"ok":true,"channel":{"id":"C123","is_private":false,"is_member":true}}|}
-            ));
+          let u = Uri.of_string uri in
+          let method_ = Filename.basename (Uri.path u) in
+          let response =
+            match method_ with
+            | "conversations.info" ->
+                Yojson.Safe.from_string
+                  {|{"ok":true,"channel":{"id":"C123","is_private":false,"is_member":true}}|}
+            | "users.info" ->
+                let user =
+                  Option.value (Uri.get_query_param u "user") ~default:""
+                in
+                `Assoc
+                  [
+                    ("ok", `Bool true);
+                    ( "user",
+                      `Assoc
+                        [
+                          ("id", `String user);
+                          ("team_id", `String "T123");
+                          ("deleted", `Bool false);
+                          ("is_bot", `Bool false);
+                          ("is_restricted", `Bool false);
+                          ("is_ultra_restricted", `Bool false);
+                        ] );
+                  ]
+            | "conversations.members" ->
+                Yojson.Safe.from_string
+                  {|{"ok":true,"members":["U123","U456","UBOT"]}|}
+            | _ -> Alcotest.fail ("unexpected Slack GET " ^ uri)
+          in
+          Lwt.return (200, Yojson.Safe.to_string response));
       post =
         (fun ~uri ~headers:_ ~body:_ ->
           let method_ = Filename.basename (Uri.path (Uri.of_string uri)) in
-          if
-            not
-              (List.mem method_
-                 [
-                   "chat.postMessage";
-                   "chat.update";
-                   "chat.delete";
-                   "reactions.add";
-                   "reactions.remove";
-                 ])
-          then Alcotest.fail ("unexpected Slack POST " ^ method_);
-          Lwt.return (200, {|{"ok":true,"ts":"200.000001"}|}));
+          if method_ = "auth.test" then
+            Lwt.return (200, {|{"ok":true,"team_id":"T123","user_id":"UBOT"}|})
+          else (
+            if
+              not
+                (List.mem method_
+                   [
+                     "chat.postMessage";
+                     "chat.update";
+                     "chat.delete";
+                     "reactions.add";
+                     "reactions.remove";
+                   ])
+            then Alcotest.fail ("unexpected Slack POST " ^ method_);
+            Lwt.return (200, {|{"ok":true,"ts":"200.000001"}|})));
     }
   in
   Slack_transport.with_http transport (fun () ->
@@ -54,6 +102,7 @@ let make_config ?(bot_token = "xoxb-test") ?(signing_secret = "test_secret")
     socket_mode;
     default_model = None;
     event_log = Slack_config_types.default_event_log;
+    long_reply = Slack_config_types.default_long_reply;
     reply_mode = Slack_config_types.Mention;
     standing_orders;
   }

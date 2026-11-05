@@ -40,12 +40,19 @@ let notify manager route text =
 
 let execute manager ~key ~(message : Session_types.queued_message) ~run =
   match Slack_thread_route.of_key key with
-  | None ->
-      Lwt.map
-        (fun response -> Session_types.Queue_executed response)
-        (run
-           ~verify_before_model:(fun _ -> Lwt.return_unit)
-           ~room_classification:None message)
+  | None -> (
+      let execute () =
+        Lwt.map
+          (fun response -> Session_types.Queue_executed response)
+          (run
+             ~verify_before_model:(fun _ -> Lwt.return_unit)
+             ~room_classification:None message)
+      in
+      match (message.channel, message.channel_id, message.sender_id) with
+      | Some "slack", Some channel_id, Some requester ->
+          Slack_canvas_tool.with_reply_context ~manager ~key ~channel_id
+            ~requester execute
+      | _ -> Lwt.with_value Slack_reply_context.key None execute)
   | Some route -> (
       let refuse reason =
         let* () =
@@ -162,7 +169,7 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                               Slack_huddle_context.with_request ~drained
                                 ~session_manager:manager ~key
                                 ~channel_id:route.channel ~user_id:user
-                                ~message_id f
+                                ~message_id ~thread_ts:route.root f
                           | Synthetic _ ->
                               Lwt.with_value Slack_huddle_context.current None
                                 (fun () ->
@@ -172,27 +179,32 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                                   else f ())
                         in
                         with_authority (fun () ->
-                            Lwt.catch
+                            Slack_canvas_tool.with_reply_context ~manager ~key
+                              ~channel_id:route.channel ~requester:user
                               (fun () ->
-                                Lwt.map
-                                  (fun response ->
-                                    Session_types.Queue_executed response)
-                                  (run
-                                     ~verify_before_model:
-                                       (Slack_thread_runs.verify_before_model r)
-                                     ~room_classification:(Some classification)
-                                     current))
-                              (function
-                                | Session_queue.Request_retained _
-                                  when r.stopped ->
-                                    Lwt.return Session_types.Queue_cancelled
-                                | Session_queue.Request_retained reason ->
-                                    Lwt.return
-                                      (Session_types.Queue_retained reason)
-                                | exn -> Lwt.fail exn)))
+                                Lwt.catch
+                                  (fun () ->
+                                    Lwt.map
+                                      (fun response ->
+                                        Session_types.Queue_executed response)
+                                      (run
+                                         ~verify_before_model:
+                                           (Slack_thread_runs
+                                            .verify_before_model r)
+                                         ~room_classification:
+                                           (Some classification) current))
+                                  (function
+                                    | Session_queue.Request_retained _
+                                      when r.stopped ->
+                                        Lwt.return Session_types.Queue_cancelled
+                                    | Session_queue.Request_retained reason ->
+                                        Lwt.return
+                                          (Session_types.Queue_retained reason)
+                                    | exn -> Lwt.fail exn))))
                   (fun () -> Slack_thread_runs.finish r)))
 
 let install manager =
+  Slack_final_reply.install manager;
   manager.Session.queued_execution_adapter <- Some (execute manager);
   manager.Session.synthetic_owner <-
     Some (fun ~key -> Slack_thread_route.load_owner manager key)

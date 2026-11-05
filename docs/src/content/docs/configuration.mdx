@@ -320,6 +320,34 @@ Telegram supports multiple named accounts under `channels.telegram.accounts`.
 | `app_token` | App-level token (`xapp-...`) for Socket Mode |
 | `signing_secret` | Signing secret for Events API HMAC verification |
 
+Slack long-answer presentation uses `channels.slack.long_reply`:
+
+| Field | Default | Accepted values |
+|-------|---------|-----------------|
+| `long_reply.mode` | `"canvas"` | `"canvas"`, `"file"`, `"off"` |
+| `long_reply.threshold` | `2500` | Integer 1–40000 Unicode code points |
+
+```bash
+clawq config set channels.slack.long_reply.mode file
+clawq config set channels.slack.long_reply.threshold 3000
+```
+
+Overflow requires strictly more code points than the threshold; equality stays
+in chat. Missing fields default independently. Invalid loaded values warn and
+default only that field; setters reject unknown keys, null, wrong types and
+out-of-range values, including object/parent updates. Live reload updates active
+agents' request guidance and the next final without restart. Started delivery
+keeps its selected presentation while authorization/credentials/egress stay live.
+
+Canvas mode uses read-only channel canvases with a 600-code-point opening
+paragraph/link, then exact Markdown file and full-text fallback. DMs/MPDMs always
+use Markdown files unless off. Explicit `slack_canvas_create` stays eligible in
+channels under file/off, subject to filtering. An unresolved upload completion
+suppresses another presentation until owned-file deletion is confirmed; otherwise
+it fails safely without a sent marker. Crash/replay duplicates are accepted.
+See [Channels](/channels/#long-final-replies-and-canvases) for scopes/reinstall,
+separate API/upload-host egress rules, sharing order and known final-path gaps.
+
 **GitHub fields:**
 
 | Field | Description |

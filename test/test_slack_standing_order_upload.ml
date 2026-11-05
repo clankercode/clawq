@@ -445,6 +445,76 @@ let test_before_send () =
       Alcotest.(check int) "hook runs after limiter" 1 !hooks;
       Alcotest.(check int) "no raw POST" 0 !calls)
 
+let test_shared_fence () =
+  test_reload ();
+  test_snapshot ();
+  test_strict_audit ();
+  test_before_send ();
+  with_db (fun db ->
+      let cfg = config () in
+      let snap = snapshot db cfg and calls = ref 0 in
+      let limit () =
+        let+ () = Lwt.pause () in
+        Sql_util.exec_exn db "DROP TABLE access_snapshots"
+      in
+      let http _ =
+        incr calls;
+        Lwt.return success
+      in
+      expect_error SO.Snapshot_unavailable
+        (Lwt_main.run
+           (Upload.post ~db
+              ~current_config:(fun () -> cfg)
+              ~snapshot:snap ~channel_id:"C123" ~audit ~http ~limit ~uri
+              ~body:bytes ()));
+      Alcotest.(check int) "snapshot rechecked after limiter" 0 !calls);
+  List.iter
+    (fun refused ->
+      with_db (fun db ->
+          let cfg = S.config () in
+          let snap = snapshot db cfg in
+          let hooks = ref 0 and sockets = ref 0 and yielded = ref false in
+          let before_send () =
+            incr hooks;
+            if refused then Error SO.Dispatch_refused
+            else (
+              Lwt.async (fun () ->
+                  let+ () = Lwt.pause () in
+                  yielded := true);
+              Ok ())
+          in
+          let http ~verb:_ ~token:_ ~method_:_ ~params:_ =
+            incr sockets;
+            check_bool "completion reservation synchronous" false !yielded;
+            Lwt.return (200, "{\"ok\":true}")
+          in
+          let call =
+            SO.make ~db
+              ~current_config:(fun () -> cfg)
+              ~snapshot:snap ~channel_id:"C123" ~audit ~http ~limit:Lwt.pause
+              ~before_send ()
+          in
+          let result =
+            Lwt_main.run
+              (let* result =
+                 Slack_file_upload.complete ~call ~channel_id:"C123"
+                   ~thread_ts:None ~initial_comment:"opening"
+                   ~file_ids:[ "F123" ]
+               in
+               let+ () = Lwt.pause () in
+               result)
+          in
+          check_bool "completion result" true
+            (if refused then
+               result = Error (Slack_file_upload.Remote SO.Dispatch_refused)
+             else Result.is_ok result);
+          Alcotest.(check int) "one completion reservation" 1 !hooks;
+          Alcotest.(check int)
+            "completion sockets"
+            (if refused then 0 else 1)
+            !sockets))
+    [ false; true ]
+
 let test_fake_time () =
   let module F = Slack_standing_order_test_support in
   let previous = !Slack_standing_order_store.clock in
@@ -468,6 +538,7 @@ let test_fake_time () =
 
 let suite =
   [
+    S.case "shared upload preserves relay fence" test_shared_fence;
     S.case "upload before_send follows limiter and blocks HTTP" test_before_send;
     S.case "fake time advances explicitly and finalizes cancellable waits"
       test_fake_time;
