@@ -111,6 +111,7 @@ let make ~current_config =
               Access_snapshot.access_session_key
                 ?session_key:snapshot.session_key snapshot.room_id
             in
+            let legacy_proof_config = ref None in
             (* The frozen grant AND the live policy must allow every operation.
                Use current credentials, with a strict audit under the tool's
                original snapshot; never derive destinations from arguments. *)
@@ -118,6 +119,11 @@ let make ~current_config =
               let runtime : Runtime_config.t = current_config () in
               match Slack_huddle_context.resolve ~tool_name:name context with
               | Error _ -> Error C.Policy_denied
+              | Ok _
+                when match !legacy_proof_config with
+                     | Some cfg -> cfg != runtime
+                     | None -> false ->
+                  Error C.Policy_denied
               | Ok _
                 when Option.is_some
                        (Option.bind context.interrupt_check (fun check ->
@@ -270,7 +276,14 @@ let make ~current_config =
                             in
                             match proof with
                             | Error _ -> Lwt.return (Error C.Policy_denied)
-                            | Ok _ -> authority.authorize ()))
+                            | Ok _ when current_config () != runtime ->
+                                Lwt.return (Error C.Policy_denied)
+                            | Ok _ ->
+                                (* Keep the human/room proof tied to its config
+                                   through further awaited authority checks and
+                                   preflight at the synchronous HTTP boundary. *)
+                                legacy_proof_config := Some runtime;
+                                authority.authorize ()))
                   in
                   let deps : D.deps =
                     {

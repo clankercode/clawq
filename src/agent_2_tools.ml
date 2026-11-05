@@ -93,26 +93,56 @@ let raw_batch_safe ~is_canvas raw =
     let keys = List.map fst fields in
     List.length keys = List.length (List.sort_uniq String.compare keys)
   in
+  let only keys fields =
+    unique fields && List.for_all (fun (key, _) -> List.mem key keys) fields
+  in
+  let named fields =
+    match List.assoc_opt "name" fields with
+    | Some (`String name) when name <> "" -> not (is_canvas name)
+    | _ -> false
+  in
+  let string_arguments fields =
+    match List.assoc_opt "arguments" fields with
+    | Some (`String _) -> true
+    | _ -> false
+  in
+  let metadata fields =
+    List.for_all
+      (function
+        | ("id" | "call_id" | "status"), `String s -> s <> ""
+        | ("id" | "call_id" | "status"), _ -> false
+        | "index", `Int n -> n >= 0
+        | "index", _ -> false
+        | _ -> true)
+      fields
+  in
+  let nested fields =
+    only [ "id"; "type"; "index"; "function" ] fields
+    &&
+    match List.assoc_opt "function" fields with
+    | Some (`Assoc fn) ->
+        only [ "name"; "arguments" ] fn && named fn && string_arguments fn
+    | _ -> false
+  in
+  let flat keys fields =
+    only keys fields && named fields && string_arguments fields
+  in
   let classify = function
-    | `Assoc fields when unique fields -> (
-        let known_type =
-          match List.assoc_opt "type" fields with
-          | None -> true
-          | Some (`String ("function" | "function_call" | "tool_use")) -> true
-          | _ -> false
-        in
-        let name =
-          match List.assoc_opt "function" fields with
-          | Some (`Assoc fn) when unique fn ->
-              if List.mem_assoc "name" fields then None
-              else List.assoc_opt "name" fn
-          | None -> List.assoc_opt "name" fields
-          | _ -> None
-        in
-        known_type
-        &&
-        match name with
-        | Some (`String name) when name <> "" -> not (is_canvas name)
+    | `Assoc fields when metadata fields -> (
+        match List.assoc_opt "type" fields with
+        | Some (`String "function") -> nested fields
+        | Some (`String "function_call") ->
+            flat
+              [ "id"; "call_id"; "status"; "type"; "name"; "arguments" ]
+              fields
+        | Some (`String "tool_use") -> (
+            only [ "id"; "type"; "name"; "input" ] fields
+            && named fields
+            &&
+            match List.assoc_opt "input" fields with
+            | Some (`Assoc _) -> true
+            | _ -> false)
+        | None -> nested fields || flat [ "id"; "name"; "arguments" ] fields
         | _ -> false)
     | _ -> false
   in

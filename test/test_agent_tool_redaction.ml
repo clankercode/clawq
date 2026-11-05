@@ -274,7 +274,7 @@ let test_raw_only streaming () =
         (fun () ->
           Audit.init_schema db;
           List.iter
-            (fun raw ->
+            (fun (raw, suppressed) ->
               let registry = Tool_registry.create () in
               Tool_registry.register registry
                 {
@@ -314,17 +314,64 @@ let test_raw_only streaming () =
                          ~raw_tool_calls_json:raw calls);
                   check "raw-only sensitive/unclassifiable batch suppressed"
                     false
-                    (contains (String.concat "\n" !logs) raw_secret)))
-            [
-              Printf.sprintf
-                {|[{"function":{"name":"slack_canvas_create","arguments":"%s"}}]|}
-                raw_secret;
-              "[" ^ raw_secret;
-              Printf.sprintf {|[{"type":"mystery","payload":"%s"}]|} raw_secret;
-              Printf.sprintf
-                {|[{"name":"ordinary","name":"slack_canvas_create","arguments":"%s"}]|}
-                raw_secret;
-            ]))
+                    (contains (String.concat "\n" !logs) raw_secret);
+                  check "only valid ordinary raw batches reach diagnostics"
+                    (not suppressed)
+                    (contains (String.concat "\n" !logs) raw)))
+            (List.map
+               (fun raw -> (raw, true))
+               [
+                 Printf.sprintf
+                   {|[{"function":{"name":"slack_canvas_create","arguments":"%s"}}]|}
+                   raw_secret;
+                 "[" ^ raw_secret;
+                 Printf.sprintf {|[{"type":"mystery","payload":"%s"}]|}
+                   raw_secret;
+                 Printf.sprintf
+                   {|[{"name":"ordinary","name":"slack_canvas_create","arguments":"%s"}]|}
+                   raw_secret;
+                 Printf.sprintf
+                   {|[{"type":"function","name":"ordinary","arguments":"%s"}]|}
+                   raw_secret;
+                 Printf.sprintf
+                   {|[{"type":"function_call","function":{"name":"ordinary","arguments":"%s"}}]|}
+                   raw_secret;
+                 Printf.sprintf
+                   {|[{"type":"tool_use","name":"ordinary","arguments":"%s"}]|}
+                   raw_secret;
+                 Printf.sprintf
+                   {|[{"type":"function","function":{"name":"ordinary","arguments":{"raw":"%s"}}}]|}
+                   raw_secret;
+                 Printf.sprintf
+                   {|[{"type":"function_call","name":"ordinary","arguments":{"raw":"%s"}}]|}
+                   raw_secret;
+                 Printf.sprintf
+                   {|[{"type":"tool_use","name":"ordinary","input":"%s"}]|}
+                   raw_secret;
+                 Printf.sprintf {|[{"name":"ordinary","payload":"%s"}]|}
+                   raw_secret;
+                 Printf.sprintf
+                   {|[{"type":"function","function":{"name":"ordinary","arguments":"{}"},"input":{"raw":"%s"}}]|}
+                   raw_secret;
+                 Printf.sprintf
+                   {|[{"type":"tool_use","name":"ordinary","input":{},"arguments":"%s"}]|}
+                   raw_secret;
+                 Printf.sprintf
+                   {|[{"type":"function","function":{"name":"ordinary","name":"slack_canvas_create","arguments":"%s"}}]|}
+                   raw_secret;
+                 Printf.sprintf
+                   {|[{"type":"function_call","name":"ordinary","arguments":"{}"},{"type":"function","name":"ordinary","arguments":"%s"}]|}
+                   raw_secret;
+               ]
+            @ List.map
+                (fun raw -> (raw, false))
+                [
+                  {|[{"type":"function","id":"ordinary","function":{"name":"ordinary","arguments":"{}"}}]|};
+                  {|[{"type":"function_call","call_id":"ordinary","name":"ordinary","arguments":"{}"}]|};
+                  {|[{"type":"tool_use","id":"ordinary","name":"ordinary","input":{}}]|};
+                  {|[{"id":"ordinary","name":"ordinary","arguments":"{}"}]|};
+                  {|[{"function":{"name":"ordinary","arguments":"{}"}}]|};
+                ])))
 
 let suite =
   [
