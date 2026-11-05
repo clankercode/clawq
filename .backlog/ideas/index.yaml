@@ -415,6 +415,6 @@ ideas:
       file: I065-slack-long-clawq-answers-go-in.todo
       id: I065
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: 'Slack: long clawq answers go into a Slack canvas (or attached .md) with a short summary in the thread, instead of a wall of chat. Max 2026-11-05 on a 4k-char research reply: ''we probably want to like upload a md doc or something instead of putting it straight in chat''. Scopes canvases:write and files:write are already granted. Today send_file on Slack only posts a download link. Proposal: (1) agent tool slack_canvas_create(title, markdown), which creates a channel canvas, shares it and returns the link; (2) a Slack send-path overflow rule: a final reply over ~2,500 chars becomes a canvas plus its first paragraph and the link; (3) prompt guidance for research write-ups. HTML docs don''t render in Slack, so they would need a host the team can reach.'
