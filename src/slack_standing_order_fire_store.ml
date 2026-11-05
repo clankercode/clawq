@@ -205,6 +205,71 @@ let decode_attempt stmt : relay_attempt =
     complete_rejected_before_share = Sql_util.sql_bool stmt 12;
   }
 
+(* Read retained attempts directly, never the current-attempt projection.
+   Strict queries propagate failures to the relay guard's fail-closed wrapper. *)
+let channel_attempts db ~channel =
+  ensure_schema db;
+  query db
+    ("SELECT "
+    ^ String.concat ","
+        (List.map
+           (fun c -> "d." ^ c)
+           (String.split_on_char ',' attempt_columns))
+    ^ " FROM slack_standing_order_dispatches d JOIN slack_standing_order_fires \
+       f ON f.id=d.fire_id JOIN slack_standing_orders o ON o.id=f.order_id \
+       WHERE o.channel_id=?")
+    [ text channel ]
+    decode_attempt
+
+let recorded_relay db ~channel ~ts =
+  List.exists
+    (fun (a : relay_attempt) -> a.relay_ts = Some ts)
+    (channel_attempts db ~channel)
+
+let in_flight_file db ~channel ~file_id =
+  List.exists
+    (fun (a : relay_attempt) -> List.mem file_id a.uploaded_file_ids)
+    (channel_attempts db ~channel)
+
+let unconfirmed_since db ~channel =
+  List.fold_left
+    (fun earliest (a : relay_attempt) ->
+      match (a.relay_ts, a.upload_started_at) with
+      | None, Some started when Float.is_finite started ->
+          Some
+            (match earliest with
+            | None -> started
+            | Some old -> min old started)
+      | None, Some _ -> failwith "invalid upload start time"
+      | _ -> earliest)
+    None
+    (channel_attempts db ~channel)
+
+let channel_for_file db ~team_id ~api_app_id ~file_id =
+  ensure_schema db;
+  query db
+    "SELECT o.channel_id,d.uploaded_file_ids FROM \
+     slack_standing_order_dispatches d JOIN slack_standing_order_fires f ON \
+     f.id=d.fire_id JOIN slack_standing_orders o ON o.id=f.order_id WHERE \
+     o.team_id=? AND o.api_app_id=? AND d.dispatched_at IS NOT NULL"
+    [ text team_id; text api_app_id ]
+    (fun stmt ->
+      let ids =
+        match Yojson.Safe.from_string (Sql_util.text_column stmt 1) with
+        | `List ids ->
+            List.map
+              (function
+                | `String id -> id | _ -> failwith "invalid uploaded file id")
+              ids
+        | _ -> failwith "invalid uploaded file ids"
+      in
+      if List.mem file_id ids then Some (Sql_util.text_column stmt 0) else None)
+  |> List.filter_map Fun.id
+  |> List.sort_uniq String.compare
+  |> function
+  | [ channel ] -> Some channel
+  | _ -> None
+
 let runtime_raw db ~fire_id =
   match query_fires db "WHERE id = ?" [ text fire_id ] with
   | [] -> None

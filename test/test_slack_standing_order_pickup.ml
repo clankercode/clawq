@@ -820,8 +820,45 @@ let test_own_relay () =
         ((attempt db f.id 0).relay_ts = Some ts0
         && (attempt db f.id 0).pickup_started_at = Some (S.now +. 10.)))
 
+let test_observer_scoped_queue () =
+  fixture (fun db other o id _ ->
+      ignore
+        (F.ok
+           (Store.deactivate db ~order_id:o.id (Store.Cancel "U123") ~now:S.now));
+      Pickup.init db;
+      let event =
+        `Assoc
+          [
+            ("type", `String "reaction_added");
+            ("user", `String "UCLAUDE");
+            ( "item",
+              `Assoc [ ("type", `String "file"); ("file", `String "FONE") ] );
+          ]
+      in
+      let ingest team app =
+        Slack_huddle_observer.observe_db ~db
+          ~watch:(Slack_huddle_watch.of_db db)
+          ~now:(S.now +. 7.)
+          (Test_slack_event_fixtures.envelope ~team ~app event)
+      in
+      ingest "T999" "A123";
+      ingest "T123" "A999";
+      integer "foreign observer envelopes queue nothing" 0 (queued db);
+      ingest "T123" "A123";
+      integer "matching observer hint queued" 1 (queued db);
+      state db id T.Posted;
+      confirm other id;
+      state db id T.Acknowledged;
+      Alcotest.(check (option (float 0.)))
+        "captured observer time preserved"
+        (Some (S.now +. 7.))
+        (attempt db id 0).acknowledged_at;
+      integer "leased reduction drains observer queue" 0 (queued db))
+
 let suite =
   [
+    S.case "observer queues scoped late pickup for leased reduction"
+      test_observer_scoped_queue;
     S.case "first reply matching notice never picks up; unmatched does"
       test_notice_reply;
     S.case "any emoji on message or file acknowledges" test_reactions;

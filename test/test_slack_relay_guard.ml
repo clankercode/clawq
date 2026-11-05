@@ -301,8 +301,132 @@ let test_relay_command_reply () =
         (count "conversations.replies" calls);
       Lwt.return_unit)
 
+module S = Test_slack_standing_order_support
+module Store = Slack_standing_order_store
+module P = Test_slack_standing_order_pickup
+
+let db_registry db : G.registry =
+  {
+    recorded_relay = Store.recorded_relay db;
+    in_flight_file = Store.in_flight_file db;
+    unconfirmed_since = Store.unconfirmed_since db;
+  }
+
+let test_retained_registry () =
+  P.fixture (fun db _ o id lease ->
+      P.second db id lease;
+      let r = db_registry db in
+      List.iter
+        (fun ts ->
+          check_bool "retained relay" true
+            (r.recorded_relay ~channel:"C123" ~ts))
+        [ P.ts0; P.ts1 ];
+      List.iter
+        (fun file_id ->
+          check_bool "retained uploaded file" true
+            (r.in_flight_file ~channel:"C123" ~file_id))
+        [ "FONE"; "FTWO" ];
+      check_bool "unrelated relay" false
+        (r.recorded_relay ~channel:"C123" ~ts:"999.000001");
+      check_bool "unrelated file" false
+        (r.in_flight_file ~channel:"C123" ~file_id:"FUNKNOWN");
+      check_bool "other channel" false
+        (r.in_flight_file ~channel:"C999" ~file_id:"FONE");
+      ignore
+        (Test_slack_standing_order_fire_store.ok
+           (Store.deactivate db ~order_id:o.id (Store.Cancel "U123") ~now:S.now));
+      check_bool "cancel preserves registry" true
+        (r.recorded_relay ~channel:"C123" ~ts:P.ts0))
+
+let test_unconfirmed_registry () =
+  P.fixture (fun db _ _ id lease ->
+      P.second db id lease;
+      Store.exec db
+        "UPDATE slack_standing_order_dispatches SET \
+         relay_ts=NULL,upload_started_at=? + attempt_no WHERE fire_id=?"
+        [ Sqlite3.Data.FLOAT S.now; Store.text id ];
+      let r = db_registry db in
+      Alcotest.(check (option (float 0.)))
+        "earliest unresolved attempt" (Some S.now)
+        (r.unconfirmed_since ~channel:"C123");
+      Store.exec db
+        "UPDATE slack_standing_order_dispatches SET relay_ts=? WHERE fire_id=? \
+         AND attempt_no=0"
+        [ Store.text P.ts0; Store.text id ];
+      Alcotest.(check (option (float 0.)))
+        "second remains unresolved"
+        (Some (S.now +. 1.))
+        (r.unconfirmed_since ~channel:"C123");
+      Store.exec db
+        "UPDATE slack_standing_order_dispatches SET relay_ts=? WHERE fire_id=? \
+         AND attempt_no=1"
+        [ Store.text P.ts1; Store.text id ];
+      Alcotest.(check (option (float 0.)))
+        "all resolved" None
+        (r.unconfirmed_since ~channel:"C123"))
+
+let test_db_unreadable () =
+  with_ingress (fun base _ _ _ _ _ ->
+      let o = S.seed base.db ~channel:"C0TEST" () in
+      ignore
+        (S.fire base.db o ~state:Slack_standing_order_types.Posted
+           ~dispatched_at:S.now ~relay_ts:P.ts0 ~room:"R1" ());
+      Store.ensure_schema base.db;
+      Store.exec base.db
+        "UPDATE slack_standing_order_dispatches SET \
+         uploaded_file_ids='unreadable'"
+        [];
+      let registry = G.phase1_registry base.manager in
+      check_bool "unreadable silent" true (silent ~registry ~root:None "hello");
+      check_bool "explicit mention escapes" false
+        (silent ~registry ~root:None "<@UBOT> hello");
+      check_bool "history untrusted" true
+        (G.untrusted_in_history ~registry ~channel:"C0TEST" (F.human "hello"));
+      Lwt.return_unit)
+
+let test_production_registry () =
+  with_ingress (fun base _ _ _ _ _ ->
+      let o = S.seed base.db () in
+      ignore
+        (S.fire base.db o ~state:Slack_standing_order_types.Posted
+           ~dispatched_at:S.now ~relay_ts:P.ts0 ~room:"R1" ());
+      let r = G.phase1_registry base.manager in
+      check_bool "production body reads DB" true
+        (r.recorded_relay ~channel:"C123" ~ts:P.ts0);
+      Lwt.return_unit)
+
+let test_no_db_registry () =
+  with_ingress (fun base _ _ _ _ _ ->
+      let manager = { base.manager with db = None } in
+      let registry = G.phase1_registry manager in
+      check_bool "no DB silent" true (silent ~registry ~root:None "hello");
+      check_bool "no DB mention escapes" false
+        (silent ~registry ~root:None "<@UBOT> hello");
+      check_bool "no DB history untrusted" true
+        (G.untrusted_in_history ~registry ~channel:"C123" (F.human "hello"));
+      Lwt.return_unit)
+
+let test_null_subtype () =
+  check_bool "null subtype relay is silent" true
+    (silent
+       ~root:(Some (update (F.own_relay ()) [ ("subtype", `Null) ]))
+       "hello")
+
+let test_mention_escape () =
+  check_bool "explicit mention escapes relay silence" false
+    (silent "<@UBOT> hello")
+
 let suite =
   [
+    S.case "registry retains both attempt relays and file sets"
+      test_retained_registry;
+    S.case "registry protects earliest unresolved upload"
+      test_unconfirmed_registry;
+    S.case "registry unreadable fails closed" test_db_unreadable;
+    S.case "production registry reads stored relays" test_production_registry;
+    S.case "registry without database fails closed" test_no_db_registry;
+    S.case "registry accepts null subtype" test_null_subtype;
+    S.case "explicit Clawq mention escapes relay silence" test_mention_escape;
     ("relay footer format", `Quick, test_footer);
     ("silence predicate", `Quick, test_silence);
     ("relay thread reply starts no turn", `Quick, test_relay_reply);
