@@ -645,6 +645,86 @@ let test_unreserved_repost () =
       check "new reservation suppressed" false
         (F.ok (F.reserve db id lease S.now true)))
 
+let test_refused_repost hard observation expected () =
+  fixture (fun db _ o id lease ->
+      let before = runtime db id in
+      let prepared =
+        {
+          (Store.empty_attempt 1) with
+          uploaded_file_ids = [ "FTWO" ];
+          upload_started_at = Some S.now;
+        }
+      in
+      let after =
+        {
+          before with
+          current_attempt = 1;
+          attempts = before.attempts @ [ prepared ];
+          fire = { before.fire with state = T.Uploading; relay_ts = None };
+        }
+      in
+      check "prepare re-post" true
+        (F.ok (Store.cas db ~lease ~before ~after ~now:S.now));
+      if hard then
+        check "hard refusal suspends" true
+          (F.ok
+             (Store.deny_and_suspend_if_epoch db ~lease ~before:(runtime db id)
+                ~reason:"missing_scope:files.info" ~now:S.now))
+      else (
+        check "pause wins" true
+          (F.ok
+             (Store.pause_if_epoch db ~order_id:o.id ~epoch:o.epoch ~by:"U456"
+                ~now:S.now));
+        check "inactive refusal recorded" true
+          (F.ok (F.change db lease (runtime db id) T.Skipped_inactive S.now)));
+      state db id (if hard then T.Denied else T.Skipped_inactive);
+      let inactive = Option.get (Store.find db o.id) in
+      Alcotest.check S.state_t "inactive order"
+        (if hard then T.Suspended else T.Paused)
+        inactive.state;
+      integer "refusal advances epoch once" (o.epoch + 1) inactive.epoch;
+      let assert_fenced () =
+        check "inactive order and epoch unchanged" true
+          (Store.find db o.id = Some inactive);
+        check "original fire epoch retained" true
+          ((runtime db id).fire.epoch = o.epoch);
+        check "prepared attempt entirely unchanged" true
+          (attempt db id 1 = prepared);
+        check "no new reservation" false
+          (F.ok (F.reserve db id lease S.now true));
+        integer "only original dispatch debited" 1
+          (Store.dispatches_since db ~order_id:o.id ~since:0.)
+      in
+      assert_fenced ();
+      List.iter
+        (fun target ->
+          check "state change without retained evidence rejected" true
+            (Result.is_error (F.change db lease (runtime db id) target S.now)))
+        T.[ Acknowledged; Picked_up; Not_delivered ];
+      apply db observation;
+      integer "late observation queued" 1 (queued db);
+      confirm db id;
+      state db id expected;
+      integer "late observation consumed" 0 (queued db);
+      let original = attempt db id 0 in
+      check "matching original evidence recorded" true
+        (match expected with
+        | T.Acknowledged -> original.reaction_seen
+        | T.Picked_up -> original.picked_up_at <> None
+        | T.Not_delivered -> original.not_delivered
+        | _ -> false);
+      assert_fenced ();
+      if expected = T.Picked_up then
+        List.iteri
+          (fun i text ->
+            apply db
+              (reply ~ts:(Printf.sprintf "170000001%d.000000" (i + 2)) text);
+            confirm db id;
+            state db id T.Not_delivered;
+            integer "late override consumed" 0 (queued db);
+            assert_fenced ())
+          [ "FAKE DISABLED"; "FAKE SPEND" ])
+
 let test_malformed_reads () =
   List.iter
     (fun malformed_reaction ->
@@ -783,6 +863,22 @@ let suite =
       test_no_new_failure;
     S.case "late original reaction suppresses prepared unreserved re-post"
       test_unreserved_repost;
+    S.case "late original reaction after paused re-post"
+      (test_refused_repost false (reaction ()) T.Acknowledged);
+    S.case "late original reply after paused re-post"
+      (test_refused_repost false (reply "ordinary") T.Picked_up);
+    S.case "late original disabled after paused re-post"
+      (test_refused_repost false (reply "FAKE DISABLED") T.Not_delivered);
+    S.case "late original spend limit after paused re-post"
+      (test_refused_repost false (reply "FAKE SPEND") T.Not_delivered);
+    S.case "late original reaction after hard refused re-post"
+      (test_refused_repost true (reaction ()) T.Acknowledged);
+    S.case "late original reply after hard refused re-post"
+      (test_refused_repost true (reply "ordinary") T.Picked_up);
+    S.case "late original disabled after hard refused re-post"
+      (test_refused_repost true (reply "FAKE DISABLED") T.Not_delivered);
+    S.case "late original spend limit after hard refused re-post"
+      (test_refused_repost true (reply "FAKE SPEND") T.Not_delivered);
     S.case "malformed reaction and target reply reads remain indeterminate"
       test_malformed_reads;
     S.case "scoped own relay observations resolve timestamps under lease"

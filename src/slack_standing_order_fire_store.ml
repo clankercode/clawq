@@ -404,9 +404,10 @@ let declared_transition before after =
 
 let retained_tracking_transition (before : fire_runtime) (after : fire_runtime)
     =
-  (* A prepared, failed or cap-refused re-post does not close observation of
+  (* A prepared, failed or refused re-post does not close observation of
      the original relay. Only retained dispatch evidence may reopen tracking. *)
-  List.mem before.fire.state T.[ Skipped_cap; Failed; Uploading ]
+  List.mem before.fire.state
+    T.[ Skipped_cap; Failed; Uploading; Skipped_inactive; Denied ]
   && (after.fire.state = T.Not_delivered
      || not
           (List.exists
