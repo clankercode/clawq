@@ -30,6 +30,7 @@ let check_config_not_modified () =
 
 let all_suites =
   [
+    ("test_helpers_cleanup", Test_helpers_cleanup.suite);
     ("ambient_policy", Test_ambient_policy.suite);
     ("clawq_core", Test_clawq_core.suite);
     ("agent_loop_conformance", Test_agent_loop_conformance.suite);

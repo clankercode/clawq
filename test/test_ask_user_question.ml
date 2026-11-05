@@ -1,10 +1,14 @@
 let make_mgr ?db () = Session.create ~config:Runtime_config.default ?db ()
 
-let make_mgr_with_db () =
-  let tmp = Filename.temp_file "clawq_auq_test" ".db" in
-  let db = Memory.init ~db_path:tmp () in
-  let mgr = make_mgr ~db () in
-  (mgr, db, tmp)
+let with_mgr_with_db f =
+  Test_helpers.with_temp_dir (fun dir ->
+      let tmp = Filename.temp_file ~temp_dir:dir "clawq_auq_test" ".db" in
+      let db = Memory.init ~db_path:tmp () in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.db_close db))
+        (fun () ->
+          let mgr = make_mgr ~db () in
+          f mgr db))
 
 let test_pending_question_resolution () =
   let mgr = make_mgr () in
@@ -377,30 +381,29 @@ let test_parse_questions_notes_flag_default_false () =
   Alcotest.(check bool) "third opts in" true (List.nth items 2).request_notes
 
 let test_db_persistence () =
-  let mgr, db, tmp = make_mgr_with_db () in
-  ignore mgr;
-  let session_key = "telegram:789" in
-  let questions_json = {|[{"type":"text","question":"What?"}]|} in
-  Memory.pending_question_upsert ~db ~session_key ~questions_json
-    ~question_index:0;
-  let rows = Memory.pending_question_list_all ~db in
-  Alcotest.(check int) "one row" 1 (List.length rows);
-  let sk, qj, qi = List.hd rows in
-  Alcotest.(check string) "session_key" session_key sk;
-  Alcotest.(check string) "questions_json" questions_json qj;
-  Alcotest.(check int) "question_index" 0 qi;
-  (* Upsert with new index *)
-  Memory.pending_question_upsert ~db ~session_key ~questions_json
-    ~question_index:1;
-  let rows2 = Memory.pending_question_list_all ~db in
-  Alcotest.(check int) "still one row" 1 (List.length rows2);
-  let _, _, qi2 = List.hd rows2 in
-  Alcotest.(check int) "updated index" 1 qi2;
-  (* Delete *)
-  Memory.pending_question_delete ~db ~session_key;
-  let rows3 = Memory.pending_question_list_all ~db in
-  Alcotest.(check int) "deleted" 0 (List.length rows3);
-  try Sys.remove tmp with _ -> ()
+  with_mgr_with_db (fun mgr db ->
+      ignore mgr;
+      let session_key = "telegram:789" in
+      let questions_json = {|[{"type":"text","question":"What?"}]|} in
+      Memory.pending_question_upsert ~db ~session_key ~questions_json
+        ~question_index:0;
+      let rows = Memory.pending_question_list_all ~db in
+      Alcotest.(check int) "one row" 1 (List.length rows);
+      let sk, qj, qi = List.hd rows in
+      Alcotest.(check string) "session_key" session_key sk;
+      Alcotest.(check string) "questions_json" questions_json qj;
+      Alcotest.(check int) "question_index" 0 qi;
+      (* Upsert with new index *)
+      Memory.pending_question_upsert ~db ~session_key ~questions_json
+        ~question_index:1;
+      let rows2 = Memory.pending_question_list_all ~db in
+      Alcotest.(check int) "still one row" 1 (List.length rows2);
+      let _, _, qi2 = List.hd rows2 in
+      Alcotest.(check int) "updated index" 1 qi2;
+      (* Delete *)
+      Memory.pending_question_delete ~db ~session_key;
+      let rows3 = Memory.pending_question_list_all ~db in
+      Alcotest.(check int) "deleted" 0 (List.length rows3))
 
 let test_serialize_question_results () =
   let results : Tools_builtin.question_result list =

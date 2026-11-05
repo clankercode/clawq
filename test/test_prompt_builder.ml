@@ -6,9 +6,7 @@ let with_temp_workspace f =
   in
   (try Unix.rmdir dir with _ -> ());
   Unix.mkdir dir 0o755;
-  Fun.protect
-    (fun () -> f dir)
-    ~finally:(fun () -> try Unix.rmdir dir with _ -> ())
+  Fun.protect (fun () -> f dir) ~finally:(fun () -> Test_helpers.rm_tree dir)
 
 let write_file path content =
   let oc = open_out path in
