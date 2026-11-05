@@ -300,6 +300,7 @@ let all_suites =
     ("slack_standing_order_relay", Test_slack_standing_order_relay.suite);
     ( "slack_standing_order_dispatch_retry",
       Test_slack_standing_order_dispatch_retry.suite );
+    ("slack_standing_order_report", Test_slack_standing_order_report.suite);
     ("slack_standing_order_pickup", Test_slack_standing_order_pickup.suite);
     ("slack_standing_order_exec", Test_slack_standing_order_exec.suite);
     ("slack_standing_order_config", Test_slack_standing_order_config.suite);

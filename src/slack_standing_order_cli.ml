@@ -170,6 +170,9 @@ let cmd_show db (o : T.order) =
            field "Last fire" (last_fire db o);
            field "Instruction (untrusted)" (indent_continuation instruction);
          ];
+         List.map
+           (fun (cause, status) -> field "Report" (cause ^ " " ^ status))
+           (Slack_standing_order_report.statuses ~db ~order_id:o.id);
        ])
 
 let cmd_fires db (o : T.order) ~limit =

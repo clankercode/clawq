@@ -329,6 +329,7 @@
   slack_standing_order_test_support
   test_slack_standing_order_store
   test_slack_standing_order_fire_store
+  test_slack_standing_order_report
   test_slack_standing_order_pickup
   test_slack_standing_order_slack
   test_slack_standing_order_upload

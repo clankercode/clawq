@@ -101,6 +101,48 @@ let test_show_and_fires _dir =
         (run db [ "orders"; sub; "so_missing" ]))
     [ "show"; "fires"; "pause"; "resume"; "cancel" ]
 
+let test_report_statuses _dir =
+  let db = S.fresh_db () in
+  let o = S.seed db ~state:T.Suspended () in
+  let manager = Session.create ~config:(S.config ()) () in
+  let ctx =
+    Slack_standing_order_ctx.make
+      ~accepting:(fun () -> true)
+      ~limit:(fun ~channel_id:_ -> Lwt.return_unit)
+      ()
+  in
+  let http ~verb:_ ~token:_ ~method_:_ ~params:_ = Lwt.fail Lwt_unix.Timeout in
+  Lwt_main.run
+    (Slack_standing_order_report.post_once ~ctx ~db ~manager ~http o
+       Slack_standing_order_report.No_pickup);
+  Session.update_config manager (S.config ~strict_rules:[] ());
+  Lwt_main.run
+    (Slack_standing_order_report.post_once ~ctx ~db ~manager ~http o
+       Slack_standing_order_report.Target_not_member);
+  Session.update_config manager
+    (S.profile (S.config ()) ~denied:[ "slack_huddles" ] ());
+  Lwt_main.run
+    (Slack_standing_order_report.post_once ~ctx ~db ~manager ~http o
+       Slack_standing_order_report.No_notes_hint);
+  let receipts = Slack_standing_order_report.statuses ~db ~order_id:o.id in
+  Alcotest.(check (list (pair string string)))
+    "report statuses"
+    [
+      ("no_notes_hint", "local_only");
+      ("no_pickup", "ambiguous");
+      ("target_not_member", "refused");
+    ]
+    receipts;
+  let show = run db [ "orders"; "show"; o.id ] in
+  List.iter
+    (fun line ->
+      check_bool "CLI reports attempt status" true (List.mem line (lines show)))
+    [
+      "Report: no_notes_hint local_only";
+      "Report: no_pickup ambiguous";
+      "Report: target_not_member refused";
+    ]
+
 let test_mutations_need_admin dir =
   let db = S.fresh_db () and m = S.mock () in
   let o = S.seed db () in
@@ -347,6 +389,7 @@ let suite =
   [
     case "list shows every order with opaque ids" test_list;
     case "show and fires" test_show_and_fires;
+    case "show exposes report statuses" test_report_statuses;
     case "mutations need CLAWQ_ADMIN" test_mutations_need_admin;
     case "unknown count receipt" test_unknown_count_receipt;
     case "cli pause withdraws a pending order" test_pause_withdraws_pending;
