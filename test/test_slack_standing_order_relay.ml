@@ -839,8 +839,93 @@ let test_unknown () =
         Lwt.return (200, Yojson.Safe.to_string (S.ok [ ("files", `List []) ])));
     ]
 
+let test_share_deadline () =
+  with_delivery (fun e _lease r _payload ->
+      let started = Store.now () in
+      let waits = ref [] and polls_after_deadline = ref 0 in
+      let ctx =
+        {
+          (E.ctx e) with
+          Ctx.wait =
+            (fun ~seconds ->
+              waits := !waits @ [ seconds ];
+              S.at (Store.now () +. seconds);
+              Lwt.return_unit);
+        }
+      in
+      let a =
+        {
+          (Store.empty_attempt 0) with
+          uploaded_file_ids = [ "FUPLOAD1" ];
+          dispatched_at = Some started;
+        }
+      in
+      let r =
+        {
+          r with
+          attempts = [ a ];
+          nonce = Some (String.make 32 'a');
+          fire = { r.fire with state = T.Posting_unknown };
+        }
+      in
+      let call _ _ =
+        if Store.now () >= started +. 120. then incr polls_after_deadline;
+        Lwt.return (Ok (`Assoc []))
+      in
+      let result =
+        Lwt_main.run (D.resolve_share ~ctx ~call ~order:e.order ~attempt_no:0 r)
+      in
+      check "missing shares stay ambiguous" true (result = D.Ambiguous);
+      Alcotest.(check (float 0.)) "exact deadline" 120. (Store.now () -. started);
+      Alcotest.(check int)
+        "no polling at/after deadline" 0 !polls_after_deadline;
+      Alcotest.(check (list (float 0.)))
+        "shortened final wait"
+        [
+          1.; 2.; 5.; 10.; 10.; 10.; 10.; 10.; 10.; 10.; 10.; 10.; 10.; 10.; 2.;
+        ]
+        !waits)
+
 let suite =
+  let module H = Test_slack_standing_order_repost_support in
+  let fixture f = with_delivery f in
   [
+    S.case "share resolution complete then observer then files info"
+      (H.test_precedence fixture);
+    S.case "negative complete needs authoritative files and complete history"
+      (H.test_absence fixture);
+    S.case "early share cancels pending wait" (H.test_wait_cancel fixture);
+    S.case "paused unknown original still resolves read only"
+      (H.test_paused_first fixture);
+    S.case "unknown history match belongs to original attempt"
+      (H.test_original_history fixture);
+    S.case "rate repost rechecks reactions replies pause and cap" (fun () ->
+        List.iter
+          (fun mode -> H.test_suppress fixture mode ())
+          [ `Cap; `Reaction; `Reply; `Pause ]);
+    S.case "missing shares timeout is ambiguous" (H.test_unknown fixture);
+    S.case "original rate relay in history creates exactly one repost at 300"
+      (H.test_rate fixture);
+    S.case "one repost slot shared by rate notice and posting unknown"
+      (H.test_rate ~both:true fixture);
+    S.case "complete timeout never duplicates initial relay"
+      (H.test_complete_timeout fixture false);
+    S.case "repost timeout retains debit and never creates third attempt"
+      (H.test_complete_timeout fixture true);
+    S.case "attempt one adoption requires persisted exact file set" (fun () ->
+        H.test_exact_ids fixture false ();
+        H.test_exact_ids fixture true ());
+    S.case "already shared second attempt adopted beside original"
+      (H.test_adopt fixture false);
+    S.case "paused order adopts already shared second attempt"
+      (H.test_adopt fixture true);
+    S.case "share adoption retains non delivery status"
+      (H.test_adopt ~terminal:true fixture false);
+    S.case "second attempt has fresh pickup clock" (H.test_adopt fixture false);
+    S.case "pause in unknown or rate wait forbids repost" (fun () ->
+        H.test_pause fixture true ();
+        H.test_pause fixture false ());
+    S.case "share deadline uses fake wait" test_share_deadline;
     S.case "complete preflight failure is enumerated and never reserved"
       (test_complete_limiter_reload ~policy:true);
     S.case "complete limiter reload is an inactive refusal"

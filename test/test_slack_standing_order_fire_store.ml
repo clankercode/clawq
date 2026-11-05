@@ -659,8 +659,66 @@ let test_terminal_tracking_requires_evidence () =
             [ T.Acknowledged; T.Picked_up ]))
     [ true; false ]
 
+let test_second_adoption_identity () =
+  with_handles (fun db _ ->
+      let o, f = seed db in
+      let lease = claim db f.id "worker" S.now in
+      prepare db f.id lease S.now;
+      let before = runtime db f.id in
+      let first =
+        { (Store.empty_attempt 0) with uploaded_file_ids = [ "FORIGINAL" ] }
+      in
+      check "first identity" true
+        (ok
+           (Store.cas db ~lease ~before
+              ~after:{ before with attempts = [ first ] }
+              ~now:S.now));
+      check "reserve original" true (ok (reserve db f.id lease S.now false));
+      check "record original" true
+        (ok (record_relay db f.id lease "1700000001.000001" S.now));
+      check "reserve one repost" true (ok (reserve db f.id lease S.now true));
+      Store.exec db
+        "UPDATE slack_standing_orders SET max_fires_per_day=2 WHERE id=?"
+        [ Store.text o.id ];
+      ignore
+        (ok
+           (Store.deactivate db ~order_id:o.id (Store.Pause "U456") ~now:S.now));
+      let before = runtime db f.id in
+      let second =
+        {
+          (some (Store.attempt before 1)) with
+          uploaded_file_ids = [ "FSECOND" ];
+          relay_ts = Some "1700000100.000001";
+        }
+      in
+      let after =
+        {
+          before with
+          attempts = [ some (Store.attempt before 0); second ];
+          fire =
+            { before.fire with state = T.Posted; relay_ts = second.relay_ts };
+        }
+      in
+      check "paused capped adoption" true
+        (ok (Store.cas db ~lease ~before ~after ~now:S.now));
+      let saved = runtime db f.id in
+      integer "two retained attempts" 2 (List.length saved.attempts);
+      integer "one repost debit" 1 saved.fire.reposts;
+      integer "existing debits only" 2
+        (Store.dispatches_since db ~order_id:o.id ~since:0.);
+      check "first identity unchanged" true
+        ((some (Store.attempt saved 0)).uploaded_file_ids = [ "FORIGINAL" ]);
+      Alcotest.(check (option (float 0.000001)))
+        "new pickup origin" (Some 1700000100.000001)
+        (some (Store.attempt saved 1)).pickup_started_at;
+      check "cannot debit adopted result again" false
+        (ok (reserve db f.id lease S.now true)))
+
 let suite =
   [
+    S.case
+      "adopted second attempt retains identities and exactly one repost debit"
+      test_second_adoption_identity;
     S.case "one leased fire per channel across handles" test_channel_claim;
     S.case "expired lease holder cannot write state" test_expired;
     S.case "runtime migration twice preserves rows" test_migration;

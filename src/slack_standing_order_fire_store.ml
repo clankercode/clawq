@@ -380,6 +380,7 @@ let declared_transition before after =
   match (before, after) with
   | T.Detected, T.Fetching
   | T.Fetching, T.Uploading
+  | (T.Posted | T.Posting_unknown), T.Uploading
   | (T.Posting | T.Posting_unknown), T.Posted
   | T.Posting, T.Posting_unknown
   | (T.Uploading | T.Fetching), T.Posted

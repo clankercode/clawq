@@ -157,12 +157,20 @@ let scan ~ctx ~(call : SO.call) ~(order : T.order) ~(r : Store.fire_runtime)
         if old.attempt_no <> a.attempt_no then old.relay_ts else None)
       r.attempts
   in
+  let prior_files =
+    List.concat_map
+      (fun (old : Store.relay_attempt) ->
+        if old.attempt_no <> a.attempt_no then old.uploaded_file_ids else [])
+      r.attempts
+  in
+  let latest = Printf.sprintf "%.6f" (ctx.Ctx.now ()) in
   let rec page remaining seen cursor found =
     let* result =
       call "conversations.history"
         ([
            ("channel", `String order.channel_id);
            ("oldest", `String oldest);
+           ("latest", `String latest);
            ("inclusive", `Bool true);
            ("limit", `Int 200);
          ]
@@ -180,7 +188,13 @@ let scan ~ctx ~(call : SO.call) ~(order : T.order) ~(r : Store.fire_runtime)
                   match
                     Relay.adopt ~order ~nonce ~attempt:a ~exclude_relay_ts m
                   with
-                  | Some ts -> (ts, Relay.own_files m) :: acc
+                  | Some ts ->
+                      let ids = Relay.own_files m in
+                      if
+                        a.attempt_no = 1 && a.uploaded_file_ids = []
+                        && List.exists (fun id -> List.mem id prior_files) ids
+                      then acc
+                      else (ts, ids) :: acc
                   | None -> acc)
                 found messages
             in
@@ -212,6 +226,13 @@ let oldest db (r : Store.fire_runtime) =
 
 let record_posted ~ctx ~db ~lease ~fire_id ~ts ~ids =
   let before = current db fire_id in
+  let tracking =
+    List.mem before.fire.state
+      T.
+        [
+          Acknowledged; Picked_up; Not_delivered; No_pickup; Skipped_cap; Failed;
+        ]
+  in
   let a =
     { (attempt before) with relay_ts = Some ts; uploaded_file_ids = ids }
   in
@@ -223,12 +244,130 @@ let record_posted ~ctx ~db ~lease ~fire_id ~ts ~ids =
         fire =
           {
             after.fire with
-            state = T.Posted;
+            state = (if tracking then before.fire.state else T.Posted);
             relay_ts = Some ts;
-            reason = None;
+            reason = (if tracking then before.fire.reason else None);
           };
         next_attempt_at = None;
       }
+
+type share_result = Shared of string | Proven_absent | Ambiguous
+
+(* Only an explicit argument rejection is known to precede sharing. Transport
+   failures, 5xx and even successful empty completions are not such evidence. *)
+let rejected_before_share = function
+  | Error (SO.Slack_error "invalid_arguments") -> true
+  | _ -> false
+
+let resolve_share ~ctx ?(observe = fun () -> None) ~call ~(order : T.order)
+    ~attempt_no (initial : Store.fire_runtime) =
+  let deadline = ctx.Ctx.now () +. 120. in
+  let fresh () = Option.value (observe ()) ~default:initial in
+  let get_attempt r =
+    Option.value
+      (Store.attempt r attempt_no)
+      ~default:(Store.empty_attempt attempt_no)
+  in
+  let bounded method_ params =
+    accepting ctx;
+    if ctx.Ctx.now () >= deadline then raise Stop;
+    let pending = call method_ params in
+    let* result =
+      if not (Lwt.is_sleeping pending) then pending
+      else
+        Lwt.pick
+          [
+            pending;
+            (let* () = ctx.Ctx.wait ~seconds:(deadline -. ctx.Ctx.now ()) in
+             Lwt.return (Error SO.Transport));
+          ]
+    in
+    accepting ctx;
+    Lwt.return result
+  in
+  let absent_file id =
+    let* result = bounded "files.info" [ ("file", `String id) ] in
+    match result with
+    | Error _ -> Lwt.return (None, false)
+    | Ok json ->
+        let file = P.get "file" json in
+        if P.field "id" file <> id then Lwt.return (None, false)
+        else
+          let empty visibility =
+            match P.get "shares" file |> P.get visibility with
+            | `Assoc fields -> (
+                match List.assoc_opt order.channel_id fields with
+                | None | Some (`List []) -> true
+                | _ -> false)
+            | _ -> false
+          in
+          Lwt.return
+            ( Relay.share_ts ~channel_id:order.channel_id file,
+              empty "public" && empty "private" )
+  in
+  let rec poll step =
+    let r = fresh () in
+    let a = get_attempt r in
+    match a.relay_ts with
+    | Some ts -> Lwt.return (Shared ts)
+    | None when ctx.Ctx.now () >= deadline -> Lwt.return Ambiguous
+    | None -> (
+        let rec files absent = function
+          | [] -> Lwt.return (None, absent)
+          | id :: rest -> (
+              let* ts, empty = absent_file id in
+              match ts with
+              | Some _ -> Lwt.return (ts, false)
+              | None -> files (absent && empty) rest)
+        in
+        let* ts, all_absent =
+          files (a.uploaded_file_ids <> []) a.uploaded_file_ids
+        in
+        match ts with
+        | Some ts -> Lwt.return (Shared ts)
+        | None -> (
+            let* history =
+              match (r.nonce, a.dispatched_at) with
+              | Some nonce, Some started ->
+                  scan ~ctx ~call:bounded ~order
+                    ~r:{ r with current_attempt = attempt_no }
+                    ~nonce
+                    ~oldest:(Printf.sprintf "%.6f" started)
+              | _ -> Lwt.return (Error ())
+            in
+            match history with
+            | Ok (Some (ts, _)) -> Lwt.return (Shared ts)
+            | Ok None
+              when all_absent
+                   && r.fire.reason = Some "complete_rejected_before_share" ->
+                Lwt.return Proven_absent
+            | _ -> (
+                let r = fresh () in
+                match (get_attempt r).relay_ts with
+                | Some ts -> Lwt.return (Shared ts)
+                | None ->
+                    let remaining = deadline -. ctx.Ctx.now () in
+                    if remaining <= 0. then Lwt.return Ambiguous
+                    else
+                      let seconds =
+                        min remaining
+                          (match step with
+                          | 0 -> 1.
+                          | 1 -> 2.
+                          | 2 -> 5.
+                          | _ -> 10.)
+                      in
+                      let* () = ctx.Ctx.wait ~seconds in
+                      accepting ctx;
+                      poll (step + 1))))
+  in
+  Lwt.catch
+    (fun () ->
+      match (get_attempt initial).relay_ts with
+      | Some ts -> Lwt.return (Shared ts)
+      | None -> poll 0)
+    (function
+      | Lwt.Canceled -> Lwt.fail Lwt.Canceled | _ -> Lwt.return Ambiguous)
 
 let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
     (initial : Store.fire_runtime) (payload : P.verified) =
@@ -450,11 +589,290 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
                 Lwt.return_unit
             | _ ->
                 set_state ~ctx ~db ~lease ~fire_id T.Posting_unknown
-                  (Some "complete_unknown")
+                  (Some
+                     (if rejected_before_share completed then
+                        "complete_rejected_before_share"
+                      else "complete_unknown"))
                   (Some (ctx.Ctx.now ()));
                 Lwt.return_unit))
   in
   Lwt.catch run (function
     | Stop -> Lwt.return_unit
+    | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+    | _ -> Lwt.return_unit)
+
+let track ~ctx ~db ~manager ?http (r : Store.fire_runtime) (order : T.order) =
+  accepting ctx;
+  let* result =
+    Grant.evaluate ~db
+      ~current_config:(fun () -> Session.get_config manager)
+      ?http
+      ~limit:(limit ~ctx ~channel_id:order.channel_id)
+      ~now:(ctx.Ctx.now ())
+      ~stage:(Grant.Track { fire_id = r.fire.id })
+      ~unit_label:"reconcile"
+      (Grant.subject_of_order order)
+  in
+  accepting ctx;
+  match result with
+  | Error _ -> raise Stop
+  | Ok v ->
+      let call method_ params =
+        accepting ctx;
+        let* result = v.call method_ params in
+        accepting ctx;
+        Lwt.return result
+      in
+      Lwt.return call
+
+let no_pickup (r : Store.fire_runtime) =
+  not
+    (List.exists
+       (fun (a : Store.relay_attempt) ->
+         a.reaction_seen || a.acknowledged_at <> None || a.picked_up_at <> None
+         || a.not_delivered)
+       r.attempts)
+
+(* A rate notice is already classified and persisted by the observer. Re-read
+   every retained relay and file before a fresh write; an incomplete read is
+   never evidence of no reaction or no newer target reply. *)
+let confirm_no_pickup ~call ~(order : T.order) (r : Store.fire_runtime) =
+  let target = T.action_target order.action in
+  let reactions json =
+    match P.get "reactions" json with
+    | `List xs ->
+        List.for_all
+          (fun reaction ->
+            match (P.get "users" reaction, P.get "count" reaction) with
+            | `List users, `Int count when count = List.length users ->
+                not (List.mem (`String target.user_id) users)
+            | _ -> false)
+          xs
+    | _ -> false
+  in
+  let read_reactions params key =
+    let* result = call "reactions.get" params in
+    match result with
+    | Ok json when reactions (P.get key json) -> Lwt.return_unit
+    | _ -> raise Stop
+  in
+  let rec replies (a : Store.relay_attempt) ts remaining seen cursor =
+    let* result =
+      call "conversations.replies"
+        ([
+           ("channel", `String order.channel_id);
+           ("ts", `String ts);
+           ("limit", `Int 200);
+         ]
+        @ if cursor = "" then [] else [ ("cursor", `String cursor) ])
+    in
+    match result with
+    | Ok json -> (
+        match P.get "messages" json with
+        | `List messages when List.length messages <= 200 -> (
+            if
+              List.exists
+                (fun m ->
+                  (P.field "user" m = target.user_id
+                  || P.field "bot_id" m = target.bot_id)
+                  && Some (P.field "ts" m) <> a.first_reply_ts)
+                messages
+            then raise Stop;
+            let cursor =
+              P.get "response_metadata" json |> P.get "next_cursor"
+            in
+            match (P.get "has_more" json, cursor) with
+            | (`Bool false | `Null), `String "" | `Bool false, `Null ->
+                Lwt.return_unit
+            | (`Bool true | `Bool false | `Null), `String next
+              when next <> "" && remaining > 1 && not (List.mem next seen) ->
+                replies a ts (remaining - 1) (next :: seen) next
+            | _ -> raise Stop)
+        | _ -> raise Stop)
+    | _ -> raise Stop
+  in
+  Lwt_list.iter_s
+    (fun (a : Store.relay_attempt) ->
+      match a.relay_ts with
+      | None -> Lwt.return_unit
+      | Some ts ->
+          let* () =
+            read_reactions
+              [
+                ("channel", `String order.channel_id); ("timestamp", `String ts);
+              ]
+              "message"
+          in
+          let* () =
+            Lwt_list.iter_s
+              (fun id -> read_reactions [ ("file", `String id) ] "file")
+              a.uploaded_file_ids
+          in
+          replies a ts 5 [] "")
+    r.attempts
+
+let repost ~ctx ~db ~manager ?http ?upload_http ~lease
+    (initial : Store.fire_runtime) (_payload : P.verified) =
+  let fire_id = initial.fire.id in
+  let run () =
+    accepting ctx;
+    let r = current db fire_id in
+    let order =
+      match Store.find db r.fire.order_id with
+      | Some o -> o
+      | None -> raise Stop
+    in
+    let* call = track ~ctx ~db ~manager ?http r order in
+    let nonce = match r.nonce with Some n -> n | None -> raise Stop in
+    (* With no original timestamp, the shared nonce cannot distinguish an
+       original history match from a new attempt. Resolve attempt zero first. *)
+    let first = Option.get (Store.attempt r 0) in
+    let* first_absent =
+      if
+        r.current_attempt = 0
+        && r.fire.state = T.Posting_unknown
+        && first.relay_ts = None
+      then (
+        let* result =
+          resolve_share ~ctx ~call ~order ~attempt_no:0
+            ~observe:(fun () -> Store.runtime db ~fire_id)
+            r
+        in
+        match result with
+        | Proven_absent -> Lwt.return true
+        | Ambiguous -> raise Stop
+        | Shared ts ->
+            let r = current db fire_id in
+            let first = Option.get (Store.attempt r 0) in
+            let* ids =
+              if first.uploaded_file_ids <> [] then
+                Lwt.return first.uploaded_file_ids
+              else
+                let* found =
+                  scan ~ctx ~call ~order ~r ~nonce ~oldest:(oldest db r)
+                in
+                match found with
+                | Ok (Some (found_ts, ids)) when found_ts = ts -> Lwt.return ids
+                | _ -> raise Stop
+            in
+            record_posted ~ctx ~db ~lease ~fire_id ~ts ~ids;
+            raise Stop)
+      else Lwt.return false
+    in
+    let second =
+      Option.value (Store.attempt r 1) ~default:(Store.empty_attempt 1)
+    in
+    let scan_runtime =
+      {
+        r with
+        current_attempt = 1;
+        attempts =
+          second
+          :: List.filter
+               (fun (a : Store.relay_attempt) -> a.attempt_no <> 1)
+               r.attempts;
+      }
+    in
+    let* found =
+      scan ~ctx ~call ~order ~r:scan_runtime ~nonce ~oldest:(oldest db r)
+    in
+    match found with
+    | Error () -> Lwt.return_unit
+    | Ok (Some (ts, ids)) ->
+        (* Every complete was debited write-ahead. Adoption of a reserved
+           attempt is read-only, including on paused and capped orders. *)
+        if second.dispatched_at = None || r.current_attempt <> 1 then raise Stop;
+        record_posted ~ctx ~db ~lease ~fire_id ~ts ~ids;
+        Lwt.return_unit
+    | Ok None ->
+        let r = current db fire_id in
+        if r.fire.reposts <> 0 then
+          if second.relay_ts = None && second.dispatched_at <> None then (
+            let* result =
+              resolve_share ~ctx ~call ~order ~attempt_no:1
+                ~observe:(fun () -> Store.runtime db ~fire_id)
+                r
+            in
+            (match result with
+            | Shared ts ->
+                record_posted ~ctx ~db ~lease ~fire_id ~ts
+                  ~ids:second.uploaded_file_ids
+            | _ -> ());
+            Lwt.return_unit)
+          else Lwt.return_unit
+        else
+          let writable r =
+            Store.relay_allowed db r
+            && (not r.Store.fire.repost_forbidden)
+            && no_pickup r
+          in
+          let first = Option.get (Store.attempt r 0) in
+          let* allowed =
+            match (first.rate_limited_at, first.first_reply_ts) with
+            | Some notice, Some _ when first.relay_ts <> None ->
+                let due = notice +. 300. in
+                if not (writable r) then Lwt.return false
+                else if ctx.Ctx.now () < due then (
+                  set_state ~ctx ~db ~lease ~fire_id r.fire.state r.fire.reason
+                    (Some due);
+                  Lwt.return false)
+                else Lwt.return true
+            | _ when first_absent -> Lwt.return true
+            | _ when r.fire.state = T.Posting_unknown -> (
+                let* result =
+                  resolve_share ~ctx ~call ~order ~attempt_no:0
+                    ~observe:(fun () -> Store.runtime db ~fire_id)
+                    r
+                in
+                match result with
+                | Shared ts ->
+                    record_posted ~ctx ~db ~lease ~fire_id ~ts
+                      ~ids:first.uploaded_file_ids;
+                    Lwt.return false
+                | Proven_absent -> Lwt.return true
+                | Ambiguous -> Lwt.return false)
+            | _ -> Lwt.return false
+          in
+          if (not allowed) || not (writable (current db fire_id)) then
+            Lwt.return_unit
+          else
+            let* () = confirm_no_pickup ~call ~order (current db fire_id) in
+            let r = current db fire_id in
+            if not (no_pickup r) then raise Stop;
+            let* _ = evaluate ~ctx ~db ~manager ?http ~lease r order in
+            let root_ts =
+              match r.root_ts with Some ts -> ts | None -> raise Stop
+            in
+            let* payload =
+              P.verify ~call ~order ~room_id:r.fire.room_id
+                ~date_start:r.fire.date_start ~root_ts
+            in
+            accepting ctx;
+            let payload =
+              match payload with Ok p -> p | Error _ -> raise Stop
+            in
+            let r = current db fire_id in
+            if (not (source_matches r payload)) || not (no_pickup r) then
+              raise Stop;
+            let* _ = evaluate ~ctx ~db ~manager ?http ~lease r order in
+            let after = update_attempt r second in
+            save ~ctx ~db ~lease ~before:r
+              ~after:
+                {
+                  after with
+                  current_attempt = 1;
+                  fire =
+                    {
+                      after.fire with
+                      state = T.Uploading;
+                      relay_ts = None;
+                      reason = None;
+                    };
+                  next_attempt_at = None;
+                };
+            deliver ~ctx ~db ~manager ?http ?upload_http ~lease
+              (current db fire_id) payload
+  in
+  Lwt.catch run (function
     | Lwt.Canceled -> Lwt.fail Lwt.Canceled
     | _ -> Lwt.return_unit)
