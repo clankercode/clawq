@@ -660,6 +660,14 @@ let validate_set_value key json_val =
     && String.sub key 0 (String.length p) = p
   in
   match key with
+  | "channels.slack.reply_mode" -> (
+      match json_val with
+      | `String ("mention" | "all") -> Ok ()
+      | _ ->
+          Error
+            (Printf.sprintf
+               "Error: reply_mode must be \"mention\" or \"all\"; got %s"
+               (Yojson.Safe.to_string json_val)))
   | _ when has_prefix "model_context_limits." -> (
       match json_val with
       | `Int n when n > 0 -> Ok ()

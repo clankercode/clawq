@@ -1,5 +1,6 @@
 (** Channel reply admission under [channels.slack.reply_mode] (B843). Ingress
-    asks it after the relay and peer silence gates; DMs keep only those. *)
+    pre-checks top-level messages before history and peer lookups, then applies
+    the full gate after the relay and peer gates; DMs keep only those. *)
 
 open Slack_huddles
 
@@ -52,12 +53,21 @@ let own_reply ~bot ~untrusted message =
   && (not (Slack_relay_guard.is_own_relay_message ~bot message))
   && not (untrusted message)
 
+(** Top-level channel messages cannot be continuations. Keep interrupts
+    addressed to clawq even when their text contains no mention. *)
+let silent_before_fetch ~reply_mode ~channel ~bot ~reply ~interrupt ~text =
+  reply_mode = Slack_config_types.Mention
+  && (not (String.starts_with ~prefix:"D" channel))
+  && (not reply) && (not interrupt)
+  && not (Slack_relay_guard.mentions ~bot text)
+
 (** True when the message must start no turn. [interrupt]: the sender owns the
     thread's active run and wrote a [!] interrupt, which addresses clawq.
-    [thread] is the fetched thread ([[]] when unread); [untrusted] marks
-    recorded relay posts. *)
-let silent ~reply_mode ~channel ~bot ~reply ~interrupt ~current ~text ~thread
-    ~untrusted =
+    [owner] is the persisted person last answered in this thread. [thread] is
+    the fetched thread ([[]] when unread); [untrusted] marks recorded relay
+    posts. *)
+let silent ~reply_mode ~channel ~bot ~reply ~interrupt ~owner ~sender ~current
+    ~text ~thread ~untrusted =
   match reply_mode with
   | Slack_config_types.All -> false
   | Mention -> (
@@ -67,7 +77,7 @@ let silent ~reply_mode ~channel ~bot ~reply ~interrupt ~current ~text ~thread
         || interrupt
       then false
       else if
-        (not reply)
+        (not reply) || owner <> Some sender
         || Slack_peer_thread.mentioned_users text <> []
         || addresses_group text
       then true

@@ -1,5 +1,5 @@
 (* B843: in channels clawq replies only when mentioned, or in a thread right
-   after its own reply; [reply_mode = all] keeps all-message admission. *)
+   after its own reply to that person; [all] keeps all-message admission. *)
 open Lwt.Syntax
 open Test_slack_huddle_fixtures
 module C = Test_slack_standing_order_config
@@ -11,9 +11,14 @@ let check_bool = Alcotest.(check bool)
 let message = Th.message
 let set_reply_mode = Th.set_reply_mode
 
-let with_reply_gate ?(mode = "mention") ?(channel = "C123") ?posts f =
+let with_reply_gate ?(mode = "mention") ?(channel = "C123")
+    ?(owner = Some "U123") ?posts f =
   Th.with_ingress (fun base calls handler seen _ run ->
       set_reply_mode base mode;
+      Option.iter
+        (Slack_thread_route.save_owner base.manager
+           { team = "T123"; app = "A123"; channel; root = "100.000001" })
+        owner;
       let old = !handler in
       (handler :=
          fun m p ->
@@ -34,6 +39,13 @@ let with_reply_gate ?(mode = "mention") ?(channel = "C123") ?posts f =
                  ( "messages",
                    arr (Option.value posts ~default:[ message "root" ]) );
                  ("has_more", `Bool false);
+               ]
+           else if m = "conversations.members" then
+             ok
+               [
+                 ( "members",
+                   arr [ str "U123"; str "UBOT"; str "U456"; str "U789" ] );
+                 ("response_metadata", obj [ ("next_cursor", str "") ]);
                ]
            else old m p);
       let run ?id e = run ?id (update e [ ("channel", str channel) ]) in
@@ -92,14 +104,81 @@ let test_huddle_silent () =
       Lwt.return_unit)
 
 (* The reply at 1100.000001 follows [posts] in the huddle thread. *)
-let test_followup ~text ~posts ~turn () =
-  with_reply_gate ~posts (fun _ calls seen run ->
-      let* _ = run (message ~thread:"100.000001" ~ts:"1100.000001" text) in
+let test_followup ?(owner = Some "U123") ?(user = "U123") ~text ~posts ~turn ()
+    =
+  with_reply_gate ~owner ~posts (fun _ calls seen run ->
+      let* _ =
+        run (message ~user ~thread:"100.000001" ~ts:"1100.000001" text)
+      in
       if turn then check_turn seen else check_mention_silent calls seen;
       Lwt.return_unit)
 
-let after_own ?(text = "thanks, more?") prior ~turn =
-  test_followup ~text ~posts:[ huddle_root; own_reply prior ] ~turn
+let after_own ?(text = "thanks, more?") prior ~turn () =
+  test_followup ~text ~posts:[ huddle_root; own_reply prior ] ~turn ()
+
+let test_chain () =
+  with_reply_gate
+    ~posts:[ huddle_root; own_reply "1040.000001" ]
+    (fun base calls seen run ->
+      let* _ =
+        run (message ~user:"U456" ~thread:"100.000001" ~ts:"1100.000001" "B")
+      in
+      check_mention_silent calls seen;
+      let* _ =
+        run ~id:"C"
+          (message ~user:"U789" ~thread:"100.000001" ~ts:"1101.000001" "C")
+      in
+      check_mention_silent calls seen;
+      Alcotest.(check (option string))
+        "owner remains A" (Some "U123")
+        (Slack_thread_route.load_owner base.manager
+           (Slack_thread_route.key
+              {
+                team = "T123";
+                app = "A123";
+                channel = "C123";
+                root = "100.000001";
+              }));
+      Lwt.return_unit)
+
+let test_non_turn () =
+  let posts =
+    [
+      huddle_root;
+      update
+        (message ~ts:"1040.000001" ~user:"UBOT" "pause receipt")
+        [ ("blocks", arr []) ];
+    ]
+  in
+  test_followup ~user:"U456" ~text:"B followup" ~posts ~turn:false ();
+  test_followup ~text:"owner followup" ~posts ~turn:true ();
+  test_followup ~owner:None ~text:"unknown owner" ~posts ~turn:false ()
+
+let test_no_fetch () =
+  with_reply_gate (fun base calls seen run ->
+      Slack_peer_thread.reset_cache ();
+      let json = Runtime_config.to_json (Session.get_config base.manager) in
+      let json =
+        Config_set.json_set
+          [ "channels"; "slack"; "standing_orders"; "allowed_targets" ]
+          (arr [ obj [ ("app_id", str "APEER"); ("label", str "Peer") ] ])
+          json
+      in
+      Session.update_config base.manager
+        (Config_loader.parse_config ~resolve_secrets:false json);
+      let* _ = run (message "<@U456> human conversation") in
+      check_mention_silent calls seen;
+      Alcotest.(check int)
+        "no thread HTTP request" 0
+        (List.length
+           (List.filter
+              (fun (method_, _) -> method_ = "conversations.replies")
+              !calls));
+      Alcotest.(check int)
+        "no peer user lookup" 1
+        (List.length
+           (List.filter (fun (method_, _) -> method_ = "users.info") !calls));
+      Lwt.return_unit)
 
 let test_dm () =
   with_reply_gate ~channel:"D123" (fun _ _ seen run ->
@@ -248,12 +327,40 @@ let test_config_set () =
       check_mode "round trip" "all"
         (Config_loader.parse_config ~resolve_secrets:false json))
 
+let test_config_set_invalid () =
+  Test_helpers.with_temp_home (fun _ ->
+      let path = Config_set.config_path () in
+      let original = Runtime_config.to_json (C.parse_slack []) in
+      (match Config_set.write_json path original with
+      | Ok () -> ()
+      | Error e -> Alcotest.fail e);
+      List.iter
+        (fun value ->
+          let result = Config_set.set_value "channels.slack.reply_mode" value in
+          check_bool "actionable rejection" true
+            (String.starts_with ~prefix:"Error:" result
+            && String_util.contains result "reply_mode"
+            && String_util.contains result "mention"
+            && String_util.contains result "all");
+          match Config_set.load_json path with
+          | Ok json ->
+              Alcotest.(check string)
+                "config unchanged"
+                (Yojson.Safe.to_string original)
+                (Yojson.Safe.to_string json)
+          | Error e -> Alcotest.fail e)
+        [ "x"; "true"; "1"; "null"; "Mention"; "{}"; "[]" ];
+      Alcotest.(check string)
+        "mention accepted" "Set channels.slack.reply_mode = mention"
+        (Config_set.set_value "channels.slack.reply_mode" "mention"))
+
 let test_pure () =
   let silent ?(mode = Slack_config_types.Mention) ?(channel = "C123")
       ?(reply = true) ?(interrupt = false) ?(current = "1100.000001")
       ?(text = "more?") ?(untrusted = fun _ -> false) thread =
     Slack_reply_gate.silent ~reply_mode:mode ~channel ~bot:"UBOT" ~reply
-      ~interrupt ~current ~text ~thread ~untrusted
+      ~interrupt ~owner:(Some "U123") ~sender:"U123" ~current ~text ~thread
+      ~untrusted
   in
   let check name expected actual = Alcotest.(check bool) name expected actual in
   check "top-level cannot continue" true
@@ -297,10 +404,28 @@ let test_pure () =
     (silent ~mode:Slack_config_types.All []);
   check "DM bypasses mention checks" false (silent ~channel:"D123" [])
 
-let case name f = (name, `Quick, f)
+let case name (f : unit -> unit) = (name, `Quick, f)
 
 let suite =
   [
+    case "continuation from a different person stays silent"
+      (test_followup ~user:"U456" ~text:"B followup"
+         ~posts:[ huddle_root; own_reply "1040.000001" ]
+         ~turn:false);
+    case "owner continuation within window starts a turn"
+      (after_own "1040.000001" ~turn:true);
+    case "continuation with no stored owner stays silent"
+      (test_followup ~owner:None ~text:"followup"
+         ~posts:[ huddle_root; own_reply "1040.000001" ]
+         ~turn:false);
+    case "owner continuation after window stays silent"
+      (after_own "140.000001" ~turn:false);
+    case "chained replies do not hand the window to the next person" test_chain;
+    case "non-turn clawq post opens the window only for the owner" test_non_turn;
+    case
+      "top-level unmentioned channel message is decided without a thread fetch"
+      test_no_fetch;
+    case "config set rejects an unknown reply_mode" test_config_set_invalid;
     case "top-level channel message without a mention starts no turn"
       test_top_silent;
     case "top-level channel message mentioning clawq starts a turn"

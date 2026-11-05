@@ -672,8 +672,9 @@ execution, huddle reads and fallback sends.
 ### When Clawq replies in channels
 
 In channels and huddle threads Clawq answers only messages that @-mention it,
-plus a thread reply that follows its own reply within 15 minutes and mentions
-no one else. DMs are unaffected. To answer every message again, set
+plus a follow-up from the person Clawq last answered in that thread, within
+15 minutes of its own reply and mentioning no one else. DMs are unaffected.
+To answer every message again, set
 `"reply_mode": "all"` under `channels.slack`; the change applies on config
 reload. See
 [Native agent threads and task controls](connector-reference.md#native-agent-threads-and-task-controls)
