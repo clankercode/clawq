@@ -564,6 +564,8 @@
   slack_canvas
   slack_final_text
   slack_reply_delivery
+  slack_message_transport
+  slack_final_reply
   slack_standing_order_upload
   slack_standing_order_grant
   slack_standing_order_target

@@ -193,6 +193,7 @@ let execute manager ~key ~(message : Session_types.queued_message) ~run =
                   (fun () -> Slack_thread_runs.finish r)))
 
 let install manager =
+  Slack_final_reply.install manager;
   manager.Session.queued_execution_adapter <- Some (execute manager);
   manager.Session.synthetic_owner <-
     Some (fun ~key -> Slack_thread_route.load_owner manager key)

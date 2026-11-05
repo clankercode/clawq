@@ -45,6 +45,7 @@ type dispatch_env = {
   is_admin : bool;
   send_plain : string -> unit Lwt.t;
   send_formatted : string -> unit Lwt.t;
+  send_final : (string -> unit Lwt.t) option;
 }
 
 (* Derive a room-level session key from a connector session key by checking
@@ -110,7 +111,7 @@ let queued_followup ?channel_name ?channel_type ?sender_name ?message_id
 
 let dispatch_followup ~session_mgr ~key ~connector_name ~channel_id ~user_id
     ?channel_name ?channel_type ?sender_name ?message_id ~is_admin ~send_reply
-    action =
+    ?(send_final = send_reply) action =
   let open Lwt.Syntax in
   let message = followup_message action in
   let queued =
@@ -135,7 +136,7 @@ let dispatch_followup ~session_mgr ~key ~connector_name ~channel_id ~user_id
           || Session.should_suppress_response response
         then Lwt.return_unit
         else
-          let* () = send_reply response in
+          let* () = send_final response in
           if not (Session.take_response_deferred session_mgr ~key) then
             Session.mark_response_sent session_mgr ~key;
           response_sent := true;
@@ -156,9 +157,10 @@ let dispatch_followup ~session_mgr ~key ~connector_name ~channel_id ~user_id
       else if Session.should_suppress_response response then Lwt.return_unit
       else if !response_sent then Lwt.return_unit
       else begin
+        let* () = send_final response in
         if not (Session.take_response_deferred session_mgr ~key) then
           Session.mark_response_sent session_mgr ~key;
-        send_reply response
+        Lwt.return_unit
       end
 
 let dispatch_followup_collect ~session_mgr ~key ~connector_name ~channel_id
@@ -333,7 +335,7 @@ let dispatch (env : dispatch_env) (result : Slash_commands.result) : unit Lwt.t
         ~channel_id:env.channel_id ?channel_name:env.channel_name
         ?channel_type:env.channel_type ?sender_name:env.sender_name
         ?message_id:env.message_id ~user_id:env.user_id ~is_admin:env.is_admin
-        ~send_reply:env.send_formatted action
+        ~send_reply:env.send_formatted ?send_final:env.send_final action
   | AgentMenu page ->
       env.send_formatted (Slash_commands_fmt.format_agent_menu ~connector ~page)
   | ModelMenu page ->

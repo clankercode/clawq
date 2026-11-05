@@ -103,7 +103,17 @@ let native_replay_turn manager route (row : Memory.queue_row) payload =
       let open Lwt.Syntax in
       let* () =
         if Session.should_suppress_response response then Lwt.return_unit
-        else Slack_thread_execution.notify manager route response
+        else
+          let message =
+            Connector_dispatch.queued_followup ~connector_name:"slack"
+              ~channel_id:route.channel
+              ~user_id:(Option.value sender_id ~default:"")
+              ?message_id ~is_admin:false payload.message
+          in
+          let message = { message with Session_types.execution_origin } in
+          Slack_final_reply.send_queued ~manager ~key:row.session_key ~message
+            ~fallback:(Slack_thread_execution.notify manager route)
+            response
       in
       if not (Session.take_response_deferred manager ~key:row.session_key) then
         Session.mark_response_sent manager ~key:row.session_key;

@@ -89,7 +89,7 @@ let test_slack_handle_event_emits_tool_call_notifications () =
       let slack_config : Runtime_config.slack_config =
         {
           bot_token = "xoxb-test";
-          signing_secret = "secret";
+          signing_secret = "test-secret";
           events_path = "/slack/events";
           allow_channels = [ "*" ];
           allow_users = [ "*" ];

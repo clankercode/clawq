@@ -38,6 +38,27 @@ The optional manager callback takes `key`, the existing queued item and final te
 
 `Slack_huddle_context.clear` precedes live final sending. Capture the server-owned destination in the final closure before clearing it; reauthorize using current config before outward operations. Tool authorization separately uses `Slack_huddle_context.resolve` and snapshot checks. Presentation metadata never grants authority.
 
+## Task 4 implementation and remaining gaps
+
+Automatic final delivery now uses a captured destination and a checked text
+adapter through `Slack_final_reply.send`. Overflow presentation uses checked
+conversation metadata, with policy frozen before metadata I/O. Native queue drains and replay derive
+fresh adapters from their own queued requester or synthetic owner and original
+thread route. Legacy queued follow-ups retain their historical top-level target.
+The core queue hook defaults to the existing notifier; other connectors retain
+ordinary sends. Agent invoke/delegate/fork completed answers and both live Slack
+autonomous callbacks use the final sender; their document notices, errors and
+debug messages remain ordinary sends. Required answers are marked sent only
+after successful final dispatch; a failed final leaves its existing pending
+state intact even if an error notice is posted.
+
+Direct background completions, daemon-resume/autonomous finals through generic
+resumed-session notification, and non-native queued finals other than follow-ups
+still use ordinary sends. Native queued outcomes of these producers are covered.
+These are deliberate routing gaps; this task adds no shared recovery or
+notification mechanism. Delivery ownership remains call-local: a crash, restart
+or replay can leave an extra canvas or duplicate carrier/file post (R1).
+
 ## Slack API contracts
 
 These public references define the selected flow; design and tests never call live Slack.

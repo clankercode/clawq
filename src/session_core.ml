@@ -131,6 +131,7 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     continuation_checks = Hashtbl.create 16;
     special_command_handler = None;
     queued_execution_adapter = None;
+    queued_final_sender = None;
     synthetic_owner = None;
     observer_last_checked = Hashtbl.create 8;
     last_active = Hashtbl.create 16;
@@ -954,3 +955,10 @@ let prune_noop_heartbeat_turn mgr ~key ~before_history ~heartbeat_prompt =
             Lwt.return_true
           end
           else Lwt.return_false)
+
+let set_queued_final_sender mgr sender = mgr.queued_final_sender <- sender
+
+let send_queued_final mgr ~key ~message ~fallback text =
+  match mgr.queued_final_sender with
+  | None -> fallback text
+  | Some send -> send ~key ~message ~fallback text

@@ -2,6 +2,28 @@
    transport boundary as production thread tests. No fake-token live calls. *)
 let handle_message ~config ~session_manager ?send_message_fn ?run_update_command
     ?event_limiter body =
+  (* Production managers carry the same Slack config as ingress. Keep the
+     legacy command fixtures coherent now transport reads current credentials. *)
+  let runtime = Session.get_config session_manager in
+  if runtime.channels.slack = None then
+    Session.update_config session_manager
+      {
+        runtime with
+        channels = { runtime.channels with slack = Some config };
+        egress =
+          {
+            runtime.egress with
+            default_allowlist =
+              {
+                Runtime_config_types.host = "slack.com";
+                path = Some "/api/*";
+                method_ = None;
+                action = Allow;
+                log_policy = No_log;
+              }
+              :: runtime.egress.default_allowlist;
+          };
+      };
   let transport : Slack_transport.t =
     {
       get =

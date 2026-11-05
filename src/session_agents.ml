@@ -81,7 +81,7 @@ let temporary_agent_debug_callback mgr ?parent_key ?debug_notify () =
       Session_heartbeat.debug_callback_for mgr ~key notify
 
 let agent_invoke_turn mgr ?parent_key ?debug_notify ~agent_name ~prompt
-    ~send_reply () =
+    ~send_reply ?(send_final = send_reply) () =
   match Agent_template.resolve agent_name with
   | None ->
       Lwt.async (fun () ->
@@ -131,7 +131,7 @@ let agent_invoke_turn mgr ?parent_key ?debug_notify ~agent_name ~prompt
                       Agent.turn agent ~user_message:prompt ?on_llm_call_debug
                         ()
                     in
-                    send_reply response)
+                    send_final response)
                   (fun exn ->
                     Logs.err (fun m ->
                         m "Agent invoke failed (%s): %s" agent_name
@@ -144,7 +144,7 @@ let agent_invoke_turn mgr ?parent_key ?debug_notify ~agent_name ~prompt
                       (fun _ -> Lwt.return_unit))))
 
 let delegate_turn mgr ?parent_key ?debug_notify ?agent_name ~prompt ~send_reply
-    () =
+    ?(send_final = send_reply) () =
   if mgr.Session_core.draining then
     Lwt.async (fun () ->
         Lwt.catch
@@ -203,7 +203,7 @@ let delegate_turn mgr ?parent_key ?debug_notify ?agent_name ~prompt ~send_reply
                       Agent.turn agent ~user_message:prompt ?on_llm_call_debug
                         ()
                     in
-                    send_reply response)
+                    send_final response)
                   (fun exn ->
                     Logs.err (fun m ->
                         m "Delegation failed: %s" (Printexc.to_string exn));
@@ -215,7 +215,7 @@ let delegate_turn mgr ?parent_key ?debug_notify ?agent_name ~prompt ~send_reply
                       (fun _ -> Lwt.return_unit))))
 
 let fork_and_run mgr ~parent_key ?debug_notify ?agent_name ~prompt ~send_reply
-    () =
+    ?(send_final = send_reply) () =
   if mgr.Session_core.draining then
     Lwt.async (fun () ->
         Lwt.catch
@@ -282,7 +282,7 @@ let fork_and_run mgr ~parent_key ?debug_notify ?agent_name ~prompt ~send_reply
                       Agent.turn agent ~user_message:effective_prompt
                         ?on_llm_call_debug ()
                     in
-                    send_reply response)
+                    send_final response)
                   (fun exn ->
                     Logs.err (fun m ->
                         m "Fork failed for parent=%s: %s" parent_key

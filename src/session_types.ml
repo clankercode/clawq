@@ -35,6 +35,13 @@ type queued_message = {
           room. Used by the room policy model to classify the room. *)
 }
 
+type queued_final_sender =
+  key:string ->
+  message:queued_message ->
+  fallback:(string -> unit Lwt.t) ->
+  string ->
+  unit Lwt.t
+
 type continuation_state = {
   mutable cancel : unit Lwt.u option;
   mutable disarmed : bool;
@@ -88,6 +95,7 @@ type t = {
   continuation_checks : (string, continuation_state) Hashtbl.t;
   mutable special_command_handler : special_command_handler option;
   mutable queued_execution_adapter : queued_execution_adapter option;
+  mutable queued_final_sender : queued_final_sender option;
   mutable synthetic_owner : (key:string -> string option) option;
   observer_last_checked : (string, int) Hashtbl.t;
       (** Maps session_key -> history length at last observer check *)

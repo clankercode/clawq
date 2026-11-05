@@ -189,6 +189,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             connector = Format_adapter.Discord;
             connector_name = "discord";
             log_name = "Discord";
+            send_final = None;
             thinking_channel_field = "channel";
             thinking_user_field = "user";
             show_thinking_channel_field = "channel_id";
