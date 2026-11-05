@@ -1798,3 +1798,4 @@ bugs:
     - file: B843-slack-clawq-answers-every-huma.todo
     - file: B844-slack-unconfigured-room-tools.todo
     - file: B845-slack-empty-final-reply-posts.todo
+    - file: B846-tests-leak-temp-dirs-and-symli.todo
