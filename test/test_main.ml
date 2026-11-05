@@ -298,6 +298,8 @@ let all_suites =
     ( "slack_standing_order_provenance",
       Test_slack_standing_order_provenance.suite );
     ("slack_standing_order_relay", Test_slack_standing_order_relay.suite);
+    ( "slack_standing_order_dispatch_retry",
+      Test_slack_standing_order_dispatch_retry.suite );
     ("slack_standing_order_exec", Test_slack_standing_order_exec.suite);
     ("slack_standing_order_config", Test_slack_standing_order_config.suite);
     ("slack_standing_order_store", Test_slack_standing_order_store.suite);

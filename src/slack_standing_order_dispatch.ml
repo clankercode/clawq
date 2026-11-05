@@ -237,6 +237,20 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
     set_state ~ctx ~db ~lease ~fire_id T.Failed (Some reason) None;
     raise Stop
   in
+  let retry reason =
+    set_state ~ctx ~db ~lease ~fire_id T.Uploading (Some reason)
+      (Some (ctx.Ctx.now () +. 120.));
+    raise Stop
+  in
+  let precomplete_error reason = function
+    | SO.Dispatch_refused -> dispatch_refused ~ctx ~db ~lease ~fire_id ()
+    | SO.Rate_limited | SO.Transport | SO.Audit_unavailable
+    | SO.Snapshot_unavailable ->
+        retry reason
+    | SO.Http_status code when code = 429 || (code >= 500 && code < 600) ->
+        retry reason
+    | _ -> fail reason
+  in
   let run () =
     accepting ctx;
     let r = current db fire_id in
@@ -273,15 +287,34 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
         let r = current db fire_id in
         if not (source_matches r payload) then raise Stop;
         let a = attempt r in
+        (* The scan above still uses the retained exact file set. With no
+           match and no reservation, no completion was sent: orphaned upload
+           capabilities can be discarded and preparation safely restarted. *)
+        if found = None && a.dispatched_at <> None then raise Stop;
+        let r =
+          if found = None && a.upload_started_at <> None then (
+            let after =
+              update_attempt r
+                { a with uploaded_file_ids = []; upload_started_at = None }
+            in
+            save ~ctx ~db ~lease ~before:r ~after;
+            current db fire_id)
+          else r
+        in
+        let a = attempt r in
         let a =
           match found with
           | Some (_, ids) -> { a with uploaded_file_ids = ids }
-          | None when a.upload_started_at <> None -> fail "upload_interrupted"
           | None -> { a with upload_started_at = Some (ctx.Ctx.now ()) }
         in
         let after = update_attempt r a in
         save ~ctx ~db ~lease ~before:r
-          ~after:{ after with fire = { after.fire with state = T.Uploading } };
+          ~after:
+            {
+              after with
+              fire = { after.fire with state = T.Uploading; reason = None };
+              next_attempt_at = None;
+            };
         match found with
         | Some (ts, ids) ->
             let r = current db fire_id in
@@ -330,9 +363,8 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
                     match allocated with
                     | Ok json ->
                         (P.field "file_id" json, P.field "upload_url" json)
-                    | Error SO.Dispatch_refused ->
-                        dispatch_refused ~ctx ~db ~lease ~fire_id ()
-                    | Error _ -> fail "upload_allocation_failed"
+                    | Error error ->
+                        precomplete_error "upload_allocation_failed" error
                   in
                   if
                     (not (Slack_config_types.valid_id "F" id))
@@ -366,9 +398,7 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
                   accepting ctx;
                   (match uploaded with
                   | Ok () -> ()
-                  | Error SO.Dispatch_refused ->
-                      dispatch_refused ~ctx ~db ~lease ~fire_id ()
-                  | Error _ -> fail "upload_failed");
+                  | Error error -> precomplete_error "upload_failed" error);
                   upload (id :: acc) rest
             in
             let* ids = upload [] files in

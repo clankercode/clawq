@@ -479,13 +479,23 @@ let validate_attempts (before : fire_runtime) (after : fire_runtime) =
           && sources_changed before after
           && a.uploaded_file_ids = [] && a.upload_started_at = None
         in
+        (* No completion can have left before reserve_dispatch. A retry may
+           discard its orphaned uploads, but never a reserved file identity. *)
+        let reset_preparation =
+          before.fire.state = T.Uploading
+          && after.fire.state = T.Uploading
+          && a.attempt_no = before.current_attempt
+          && old.dispatched_at = None && old.relay_ts = None
+          && a.uploaded_file_ids = [] && a.upload_started_at = None
+        in
+        let reset_upload = reset_sources || reset_preparation in
         if
           (not (List.mem a.attempt_no [ 0; 1 ]))
           || a.dispatched_at <> old.dispatched_at
-          || (not (ids_kept || reset_sources))
+          || (not (ids_kept || reset_upload))
           || (not (kept old.relay_ts a.relay_ts))
           || (not
-                (kept old.upload_started_at a.upload_started_at || reset_sources))
+                (kept old.upload_started_at a.upload_started_at || reset_upload))
           || (not (kept old.first_reply_ts a.first_reply_ts))
           || (not (kept old.rate_limited_at a.rate_limited_at))
           || (not (kept old.acknowledged_at a.acknowledged_at))

@@ -600,30 +600,54 @@ let test_boundary mode () =
              ~now:(Store.now ()))
       in
       let raw = ref 0 and saw_allocation = ref false in
+      let upload_ready = ref false and blocked = ref false in
+      let pending, release = Lwt.task () in
       let ctx =
         {
           (E.ctx e) with
           Ctx.limit =
             (fun ~channel_id:_ ->
-              if !saw_allocation && !raw = 0 then
-                if mode = `Drain then e.accepting := false
-                else if mode = `Pause then pause ();
-              Lwt.pause ());
+              if !upload_ready && !raw = 0 && mode <> `Reload then (
+                blocked := true;
+                pending)
+              else Lwt.return_unit);
         }
       in
       let http ~verb ~token ~method_ ~params =
         if method_ = "files.getUploadURLExternal" then saw_allocation := true;
         if mode = `Reload && !raw > 0 && method_ = "auth.test" then
           Session.update_config e.manager (S.config ~enabled:false ());
-        e.mock.http ~verb ~token ~method_ ~params
+        let open Lwt.Syntax in
+        let+ response = e.mock.http ~verb ~token ~method_ ~params in
+        (* users.list is the final read of the Fire grant. The next limiter
+           belongs to Upload.post, after that grant has returned. *)
+        if !saw_allocation && method_ = "users.list" then upload_ready := true;
+        response
       in
       let upload_http request =
         incr raw;
         raw_success request
       in
       Lwt_main.run
-        (D.deliver ~ctx ~db:e.db ~manager:e.manager ~http ~upload_http ~lease r
-           payload);
+        (let open Lwt.Syntax in
+         let delivery =
+           D.deliver ~ctx ~db:e.db ~manager:e.manager ~http ~upload_http ~lease
+             r payload
+         in
+         Lwt.finalize
+           (fun () ->
+             let* () = Lwt.pause () in
+             if mode <> `Reload then (
+               check "raw upload limiter is pending after Fire grant" true
+                 (!blocked && Lwt.is_sleeping delivery);
+               Alcotest.(check int) "no raw POST before release" 0 !raw;
+               if mode = `Drain then e.accepting := false else pause ();
+               Lwt.wakeup_later release ());
+             delivery)
+           (fun () ->
+             Lwt.cancel pending;
+             Lwt.cancel delivery;
+             Lwt.catch (fun () -> delivery) (fun _ -> Lwt.return_unit)));
       Alcotest.(check int) "raw writes" (if mode = `Reload then 1 else 0) !raw;
       Alcotest.(check int)
         "no complete" 0
