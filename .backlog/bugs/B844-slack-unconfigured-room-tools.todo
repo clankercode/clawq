@@ -1,13 +1,17 @@
 ---
+claimed_at: "2026-11-05T04:34:53Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-11-05T00:55:22Z"
 depends_on: []
 estimate_hours: 1
 id: B844
 priority: high
-status: pending
+started_at: "2026-11-05T04:34:53Z"
+status: in_progress
 tags: []
 title: 'Slack: unconfigured room tools abort every clawq turn in #core-sync (Room not configured / B778)'
-updated_at: "2026-11-05T00:55:22Z"
+updated_at: "2026-11-05T04:34:53Z"
 ---
 2026-11-05 11:13-11:40, #core-sync huddle thread: every clawq turn ended with '[Room not configured] Aborting after repeated identical configuration tool errors' because the agent called github_room_search_items / github_room_list_items / room_memory_list, which fail with 'Room C0CA6UR8FFU has no GitHub item access: empty journal and projections' / 'No memory scope or profile binding found'. B778's stuck detector then aborts the whole turn, so clawq can't answer simple questions in a room with no profile binding. Room-scoped tools that cannot work in an unbound room should not be offered (or their 'not configured' error should not count toward the configuration-class abort).
