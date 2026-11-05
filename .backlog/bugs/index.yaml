@@ -1796,3 +1796,4 @@ bugs:
     - file: B841-slack-huddle-content-can-t-rea.todo
     - file: B842-telegram-setmycommands-fails-w.todo
     - file: B843-slack-clawq-answers-every-huma.todo
+    - file: B844-slack-unconfigured-room-tools.todo
