@@ -320,6 +320,7 @@ let all_suites =
     ("slack_canvas", Test_slack_canvas.suite);
     ("slack_canvas_tool", Test_slack_canvas_tool.suite);
     ("slack_final_text", Test_slack_final_text.suite);
+    ("slack_legacy_authority", Test_slack_legacy_authority.suite);
     ("slack_reply_delivery", Test_slack_reply_delivery.suite);
     ( "slack_reply_paths",
       Test_slack_reply_paths.suite @ Test_slack_queued_finals.suite );

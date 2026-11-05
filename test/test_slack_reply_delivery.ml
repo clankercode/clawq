@@ -502,7 +502,10 @@ let test_production_metadata () =
                                        );
                                      ] );
                                ]
-                           | _ -> Alcotest.fail method_))) ));
+                           | _ -> (
+                               match !(f.handle) method_ [] with
+                               | `Assoc fields -> List.remove_assoc "ok" fields
+                               | _ -> Alcotest.fail method_)))) ));
               post =
                 (fun ~uri ~headers ~body:payload ->
                   if String.starts_with ~prefix:"https://files.slack.com/" uri
@@ -526,6 +529,11 @@ let test_production_metadata () =
                              (("ok", `Bool true)
                              ::
                              (match m with
+                             | "auth.test" -> (
+                                 match !(f.handle) m [] with
+                                 | `Assoc fields ->
+                                     List.remove_assoc "ok" fields
+                                 | _ -> Alcotest.fail m)
                              | "canvases.create" ->
                                  [ ("canvas_id", `String "F123") ]
                              | "chat.postMessage" ->
@@ -829,6 +837,10 @@ let test_revocation () =
                   | "chat.postMessage" ->
                       if stage = "post" then revoke ();
                       [ ("ts", `String "102.000001") ]
+                  | "auth.test" | "users.info" | "conversations.members" -> (
+                      match !(f.handle) m [] with
+                      | `Assoc fields -> List.remove_assoc "ok" fields
+                      | _ -> Alcotest.fail m)
                   | _ -> []
                 in
                 Lwt.return
@@ -847,7 +859,7 @@ let test_revocation () =
                       let m =
                         Filename.basename (Uri.path (Uri.of_string uri))
                       in
-                      if !revoked then late := m :: !late;
+                      if !revoked && m <> "auth.test" then late := m :: !late;
                       if
                         String.starts_with ~prefix:"https://files.slack.com/"
                           uri

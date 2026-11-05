@@ -320,7 +320,6 @@ let test_room_policy_revoked ~stage ~after_members () =
   with_canvas (fun base calls handler ->
       let old = !handler in
       let revoked = ref false and writes_at_revocation = ref [] in
-      let membership_finished = ref false in
       let revoke () =
         let cfg = !(base.cfg) in
         let cfg =
@@ -339,21 +338,17 @@ let test_room_policy_revoked ~stage ~after_members () =
         base.cfg := cfg;
         Session.update_config base.manager cfg
       in
+      let reached_stage () =
+        if stage = 2 then List.mem_assoc "chat.postMessage" !calls
+        else Test_slack_reply_paths.count calls "canvases.create" >= stage
+      in
       (handler :=
          fun m p ->
            let answer = old m p in
-           if m = "auth.test" then membership_finished := false;
-           if m = "conversations.members" then membership_finished := true;
-           let reached_stage =
-             if stage = 2 then List.mem_assoc "chat.postMessage" !calls
-             else Test_slack_reply_paths.count calls "canvases.create" >= stage
-           in
-           if (not !revoked) && reached_stage then
-             if after_members && m = "conversations.members" then revoke ()
-             else if
-               (not after_members) && m = "conversations.info"
-               && !membership_finished
-             then revoke ();
+           if
+             (not !revoked) && reached_stage () && after_members
+             && m = "conversations.members"
+           then revoke ();
            if m = "conversations.info" then
              update answer
                [
@@ -362,15 +357,32 @@ let test_room_policy_revoked ~stage ~after_members () =
                      [ ("is_ext_shared", `Bool true) ] );
                ]
            else answer);
-      base.turn (fun () ->
-          let* out = invoke base () in
-          expect_error out;
-          check_bool "room policy reloaded during authorization" true !revoked;
-          check_bool "no writes after room policy revocation" true
-            (writes calls = !writes_at_revocation);
-          check_bool "revocation prevents read grant" false
-            (List.mem_assoc "canvases.access.set" !calls);
-          Lwt.return_unit))
+      let http = Option.get (Lwt.get Slack_transport.key) in
+      let get ~uri ~headers =
+        let* response = http.get ~uri ~headers in
+        if
+          (not after_members) && (not !revoked) && reached_stage ()
+          && Filename.basename (Uri.path (Uri.of_string uri))
+             = "conversations.members"
+        then (
+          (* Revoke after the membership response, across a real await boundary;
+             do not depend on an extra conversations.info after the proof. *)
+          let* () = Lwt.pause () in
+          revoke ();
+          Lwt.return response)
+        else Lwt.return response
+      in
+      Slack_transport.with_http { http with get } (fun () ->
+          base.turn (fun () ->
+              let* out = invoke base () in
+              expect_error out;
+              check_bool "room policy reloaded during authorization" true
+                !revoked;
+              check_bool "no writes after room policy revocation" true
+                (writes calls = !writes_at_revocation);
+              check_bool "revocation prevents read grant" false
+                (List.mem_assoc "canvases.access.set" !calls);
+              Lwt.return_unit)))
 
 let test_queue_guidance () =
   Test_slack_threads.with_ingress (fun base _ handler _ provider run ->

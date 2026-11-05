@@ -18,24 +18,21 @@ let prepare f =
         };
     }
 
-let room_http post : Slack_transport.t =
+let room_http f post : Slack_transport.t =
   {
     get =
-      (fun ~uri:_ ~headers:_ ->
-        Lwt.return
-          ( 200,
-            Yojson.Safe.to_string
-              (ok
-                 [
-                   ( "channel",
-                     obj
-                       [
-                         ("id", str "C123");
-                         ("is_member", `Bool true);
-                         ("is_private", `Bool false);
-                       ] );
-                 ]) ));
-    post;
+      (fun ~uri ~headers:_ ->
+        let u = Uri.of_string uri in
+        let method_ = Filename.basename (Uri.path u) in
+        let params =
+          List.map (fun (k, vs) -> (k, str (String.concat "" vs))) (Uri.query u)
+        in
+        Lwt.return (200, Yojson.Safe.to_string (!(f.handle) method_ params)));
+    post =
+      (fun ~uri ~headers ~body ->
+        if Filename.basename (Uri.path (Uri.of_string uri)) = "auth.test" then
+          Lwt.return (200, Yojson.Safe.to_string (!(f.handle) "auth.test" []))
+        else post ~uri ~headers ~body);
   }
 
 let with_legacy f k =
@@ -51,7 +48,7 @@ let test_checked () =
               prepare f;
               let calls = ref [] in
               let http =
-                room_http (fun ~uri:_ ~headers:_ ~body ->
+                room_http f (fun ~uri:_ ~headers:_ ~body ->
                     calls := body :: !calls;
                     match response with
                     | None -> Lwt.fail_with "TOKEN_SECRET"
@@ -106,7 +103,7 @@ let test_trusted () =
       prepare f;
       let count = ref 0 in
       Slack_transport.with_http
-        (room_http (fun ~uri:_ ~headers:_ ~body:_ ->
+        (room_http f (fun ~uri:_ ~headers:_ ~body:_ ->
              Alcotest.fail "trusted adapter should handle post"))
         (fun () ->
           with_legacy f (fun () ->
@@ -165,7 +162,7 @@ let test_explicit_legacy_parent () =
         }
       in
       let http =
-        room_http (fun ~uri:_ ~headers:_ ~body ->
+        room_http f (fun ~uri:_ ~headers:_ ~body ->
             posts := Yojson.Safe.from_string body :: !posts;
             Lwt.return (200, "{\"ok\":true}"))
       in

@@ -28,29 +28,55 @@ let handle_message ~config ~session_manager ?send_message_fn ?run_update_command
     {
       get =
         (fun ~uri ~headers:_ ->
-          if
-            Filename.basename (Uri.path (Uri.of_string uri))
-            <> "conversations.info"
-          then Alcotest.fail ("unexpected Slack GET " ^ uri);
-          Lwt.return
-            ( 200,
-              {|{"ok":true,"channel":{"id":"C123","is_private":false,"is_member":true}}|}
-            ));
+          let u = Uri.of_string uri in
+          let method_ = Filename.basename (Uri.path u) in
+          let response =
+            match method_ with
+            | "conversations.info" ->
+                Yojson.Safe.from_string
+                  {|{"ok":true,"channel":{"id":"C123","is_private":false,"is_member":true}}|}
+            | "users.info" ->
+                let user =
+                  Option.value (Uri.get_query_param u "user") ~default:""
+                in
+                `Assoc
+                  [
+                    ("ok", `Bool true);
+                    ( "user",
+                      `Assoc
+                        [
+                          ("id", `String user);
+                          ("team_id", `String "T123");
+                          ("deleted", `Bool false);
+                          ("is_bot", `Bool false);
+                          ("is_restricted", `Bool false);
+                          ("is_ultra_restricted", `Bool false);
+                        ] );
+                  ]
+            | "conversations.members" ->
+                Yojson.Safe.from_string
+                  {|{"ok":true,"members":["U123","U456","UBOT"]}|}
+            | _ -> Alcotest.fail ("unexpected Slack GET " ^ uri)
+          in
+          Lwt.return (200, Yojson.Safe.to_string response));
       post =
         (fun ~uri ~headers:_ ~body:_ ->
           let method_ = Filename.basename (Uri.path (Uri.of_string uri)) in
-          if
-            not
-              (List.mem method_
-                 [
-                   "chat.postMessage";
-                   "chat.update";
-                   "chat.delete";
-                   "reactions.add";
-                   "reactions.remove";
-                 ])
-          then Alcotest.fail ("unexpected Slack POST " ^ method_);
-          Lwt.return (200, {|{"ok":true,"ts":"200.000001"}|}));
+          if method_ = "auth.test" then
+            Lwt.return (200, {|{"ok":true,"team_id":"T123","user_id":"UBOT"}|})
+          else (
+            if
+              not
+                (List.mem method_
+                   [
+                     "chat.postMessage";
+                     "chat.update";
+                     "chat.delete";
+                     "reactions.add";
+                     "reactions.remove";
+                   ])
+            then Alcotest.fail ("unexpected Slack POST " ^ method_);
+            Lwt.return (200, {|{"ok":true,"ts":"200.000001"}|})));
     }
   in
   Slack_transport.with_http transport (fun () ->

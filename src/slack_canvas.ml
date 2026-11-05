@@ -304,82 +304,52 @@ let make_authority ~manager ?route (d : destination) =
     | Error e -> Lwt.return (Error e)
     | Ok _ -> (
         let* permission =
-          match route with
-          | Some route -> (
-              let transport =
-                Option.value
-                  (Lwt.get Slack_transport.key)
-                  ~default:Slack_standing_order_slack.api_transport
-              in
-              let+ r =
-                Slack_transport.with_http transport (fun () ->
-                    Slack_thread_api.authorize ~manager ~route ~user:d.requester)
-              in
-              match r with Ok _ -> Ok () | Error _ -> Error Policy_denied)
-          | None -> Lwt.return (Ok ())
+          Slack_thread_api.authorize_request ~manager ~cfg
+            ~channel_id:d.channel_id
+            ~team:(Option.map (fun (r : Slack_thread_route.t) -> r.team) route)
+            ~user:d.requester
+            ~read:(fun method_ params ->
+              let+ r = raw method_ params in
+              Result.map_error (fun _ -> "Slack requester proof denied") r)
         in
         match permission with
-        | Error e -> Lwt.return (Error e)
-        | Ok () -> (
-            let* r =
-              raw "conversations.info" [ ("channel", `String d.channel_id) ]
-            in
-            match (r, cfg.channels.slack) with
-            | Ok json, Some sc ->
-                let room = get "channel" json in
-                let im = get "is_im" room = `Bool true in
-                let privacy =
-                  if im then Some true
-                  else
-                    match get "is_private" room with
-                    | `Bool b -> Some b
-                    | _ -> None
-                in
-                if
-                  current () != cfg
-                  || field "id" room <> d.channel_id
-                  || privacy = None
-                  || d.channel_id.[0] = 'D' <> im
-                  || (if im then field "user" room <> d.requester
-                      else get "is_member" room <> `Bool true)
-                  || not
-                       (Slack_api.check_private_channel_policy ~config:sc
-                          ~channel_id:d.channel_id ~is_private_opt:privacy)
-                then Lwt.return (Error Policy_denied)
-                else (
-                  verified := Some cfg;
-                  canvas_eligible :=
-                    (not im)
-                    && get "is_im" room = `Bool false
-                    && get "is_mpim" room = `Bool false;
-                  (match Session.get_db manager with
-                  | Some db -> (
-                      try
-                        let s =
-                          match !snapshot with
-                          | Some (previous, s)
-                            when previous == cfg
-                                 && Access_snapshot.get_by_id ~db
-                                      s.Access_snapshot.id
-                                    = Some s ->
-                              s
-                          | _ ->
-                              let s =
-                                Access_snapshot.create ~config:cfg
-                                  ~work_type:Access_snapshot.Room_turn
-                                  ~session_key:d.session_key
-                                  ~room_id:d.channel_id
-                                  ~room_policy_decision:"allow" ()
-                              in
-                              Access_snapshot.persist ~db s;
-                              s
-                        in
-                        snapshot := Some (cfg, s)
-                      with _ -> snapshot := None)
-                  | None -> ());
-                  Lwt.return (Ok ()))
-            | Error e, _ -> Lwt.return (Error e)
-            | _ -> Lwt.return (Error Policy_denied)))
+        | Error _ -> Lwt.return (Error Policy_denied)
+        | Ok proof ->
+            let room = proof.Slack_thread_api.conversation in
+            let im = get "is_im" room = `Bool true in
+            if current () != cfg || d.channel_id.[0] = 'D' <> im then
+              Lwt.return (Error Policy_denied)
+            else (
+              verified := Some cfg;
+              canvas_eligible :=
+                (not im)
+                && get "is_im" room = `Bool false
+                && get "is_mpim" room = `Bool false;
+              (match Session.get_db manager with
+              | Some db -> (
+                  try
+                    let s =
+                      match !snapshot with
+                      | Some (previous, s)
+                        when previous == cfg
+                             && Access_snapshot.get_by_id ~db
+                                  s.Access_snapshot.id
+                                = Some s ->
+                          s
+                      | _ ->
+                          let s =
+                            Access_snapshot.create ~config:cfg
+                              ~work_type:Access_snapshot.Room_turn
+                              ~session_key:d.session_key ~room_id:d.channel_id
+                              ~room_policy_decision:"allow" ()
+                          in
+                          Access_snapshot.persist ~db s;
+                          s
+                    in
+                    snapshot := Some (cfg, s)
+                  with _ -> snapshot := None)
+              | None -> ());
+              Lwt.return (Ok ())))
   in
   let call method_ params =
     if not (selectors d method_ params) then Lwt.return (Error Policy_denied)

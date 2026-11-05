@@ -316,10 +316,15 @@ Install `canvases:write`, `canvases:read`, `files:read`, `files:write` and the
 normal chat, channel/private-channel, DM/MPDM and user-read scopes; reinstall the
 Slack app after scope changes. Strict egress needs separate API and upload-host
 rules: permit the required GET metadata/`files.info`/upload-allocation and POST
-`canvases.create`, `canvases.access.set`, `canvases.delete`, chat carrier/edit/delete,
+`auth.test`, `canvases.create`, `canvases.access.set`, `canvases.delete`, chat carrier/edit/delete,
 `files.completeUploadExternal` and `files.delete` under `https://slack.com/api/`;
 permit POST to `https://files.slack.com/` for raw file bytes (no redirects).
-Room allowlists, private-channel policy and requester membership still apply.
+Every final-delivery operation rechecks the requester's current identity and
+membership, room allowlists, private-channel policy and external/shared-room
+policy, including legacy replies and queued follow-ups. Verification is bound
+to the config used to obtain it; a reload during verification denies that
+attempt. Revocation stops publication, cleanup and file/text fallback, and the
+answer remains pending. Ordinary safe error notices retain their existing path.
 Logs and audit projections redact canvas arguments (even malformed/denied
 calls), result/error previews and sensitive raw-call batches; tokens, signed
 upload URLs, titles, summaries and answer text are not logged.

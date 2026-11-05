@@ -350,6 +350,7 @@
   test_slack_reply_delivery
   test_slack_reply_paths
   test_slack_queued_finals
+  test_slack_legacy_authority
   test_slack_standing_order_upload
   test_slack_standing_order_grant
   test_slack_standing_order_grant_support
