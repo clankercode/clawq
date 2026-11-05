@@ -1,15 +1,16 @@
 ---
 claimed_at: "2026-11-05T04:34:53Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-11-05T04:34:53Z"
 complexity: medium
 created_at: "2026-11-05T00:55:22Z"
 depends_on: []
+duration_minutes: 0.014576699533333333
 estimate_hours: 1
 id: B843
 priority: high
 started_at: "2026-11-05T04:34:53Z"
-status: in_progress
+status: done
 tags: []
 title: 'Slack: clawq answers every human message in channels and huddle threads; default should be mention-only'
 updated_at: "2026-11-05T04:34:53Z"
