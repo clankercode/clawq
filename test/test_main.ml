@@ -319,7 +319,8 @@ let all_suites =
     ("slack_canvas", Test_slack_canvas.suite);
     ("slack_final_text", Test_slack_final_text.suite);
     ("slack_reply_delivery", Test_slack_reply_delivery.suite);
-    ("slack_reply_paths", Test_slack_reply_paths.suite);
+    ( "slack_reply_paths",
+      Test_slack_reply_paths.suite @ Test_slack_queued_finals.suite );
     ("slack_standing_order_upload", Test_slack_standing_order_upload.suite);
     ("slack_standing_order_grant", Test_slack_standing_order_grant.suite);
     ("slack_standing_order_target", Test_slack_standing_order_target.suite);

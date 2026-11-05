@@ -1047,6 +1047,13 @@ let handle_message ?thread_run ?(thread_context = "")
                               ~response);
                         Lwt.return "ok"
                   | Error exn ->
+                      let final_failed =
+                        !final_failed
+                        ||
+                        match exn with
+                        | Slack_thread_api.Delivery_denied _ -> true
+                        | _ -> false
+                      in
                       Logs.err (fun m ->
                           m "Slack agent error for channel=%s user=%s: %s"
                             channel_id user_id (Printexc.to_string exn));
@@ -1064,7 +1071,7 @@ let handle_message ?thread_run ?(thread_context = "")
                               ~channel_id ~timestamp ~emoji_name)
                       in
                       if
-                        (not !final_failed)
+                        (not final_failed)
                         && not
                              (Session.take_response_deferred session_manager
                                 ~key)

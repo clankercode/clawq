@@ -156,14 +156,39 @@ let test_legacy_injection () =
       check_count calls "files.getUploadURLExternal" 1;
       Lwt.return_unit)
 
+let check_final_requester calls after requester =
+  let users =
+    List.filteri (fun i _ -> i >= after) !calls
+    |> List.filter_map (fun (m, p) ->
+        if m = "users.info" then Some (Slack_huddles.field "user" p) else None)
+  in
+  check_bool "final authorization checked a requester" true (users <> []);
+  Alcotest.(check (list string))
+    "every final authorization uses queued requester"
+    (List.map (fun _ -> requester) users)
+    users
+
+let allow_users base users =
+  let cfg = base.manager.config in
+  let sc = Option.get cfg.channels.slack in
+  Session.update_config base.manager
+    {
+      cfg with
+      channels =
+        { cfg.channels with slack = Some { sc with allow_users = users } };
+    }
+
 let test_queued () =
   Th.with_ingress (fun _ calls handler _ provider run ->
       artifacts handler;
-      let gate, release = Lwt.task () and n = ref 0 in
+      let gate, release = Lwt.task () and n = ref 0 and final_start = ref 0 in
       (provider :=
          fun ~model ~messages:_ ->
            incr n;
-           if !n = 1 then gate else Lwt.return (E.answer body ~model));
+           if !n = 1 then gate
+           else (
+             final_start := List.length !calls;
+             Lwt.return (E.answer body ~model)));
       let work = run (Th.message "first") in
       let* () = Test_slack_socket.settle 2 in
       let* _ =
@@ -175,6 +200,7 @@ let test_queued () =
       Lwt.wakeup_later release (E.answer "short first answer" ~model:"gpt-test");
       let* _ = work in
       Alcotest.(check int) "queued requester runs" 2 !n;
+      check_final_requester calls !final_start "U456";
       check_count calls "canvases.create" 1;
       check_carriers calls (Some "100.000001") 1;
       Lwt.return_unit)
@@ -404,13 +430,14 @@ let test_queue_fallback () =
       check_count calls "canvases.create" 0;
       Lwt.return_unit)
 
-let test_replay () =
+let test_replay ?(revoke = false) () =
   Th.with_ingress (fun base calls handler _ provider _ ->
       artifacts handler;
       let route : Slack_thread_route.t =
         { team = "T123"; app = "A123"; channel = "C123"; root = "100.000001" }
       in
       let key = Slack_thread_route.key route in
+      Slack_thread_route.save_owner base.manager route "U123";
       let item =
         Connector_dispatch.queued_followup ~connector_name:"slack"
           ~channel_id:"C123" ~user_id:"U456" ~message_id:"100.000003"
@@ -421,14 +448,41 @@ let test_replay () =
           item
       in
       ignore item;
-      (provider := fun ~model ~messages:_ -> Lwt.return (E.answer body ~model));
+      let final_start = ref 0 in
+      (provider :=
+         fun ~model ~messages:_ ->
+           final_start := List.length !calls;
+           if revoke then allow_users base [ "U123" ];
+           Lwt.return (E.answer body ~model));
       let* summary =
         Daemon_inbound_replay.replay_durable_inbound_queue
           ~session_manager:base.manager ~config:base.manager.config ()
       in
-      Alcotest.(check int) "native replay executed" 1 summary.replayed_count;
-      check_count calls "canvases.create" 1;
-      check_carriers calls (Some "100.000001") 1;
+      Alcotest.(check int)
+        "native replay executed"
+        (if revoke then 0 else 1)
+        summary.replayed_count;
+      Alcotest.(check int)
+        "native replay failed"
+        (if revoke then 1 else 0)
+        summary.failed_count;
+      check_count calls "canvases.create" (if revoke then 0 else 1);
+      check_carriers calls (Some "100.000001") (if revoke then 0 else 1);
+      if revoke then (
+        let final_writes =
+          List.filteri (fun i _ -> i >= !final_start) !calls
+          |> List.filter (fun (m, _) ->
+              m = "chat.postMessage"
+              || m = "files.getUploadURLExternal"
+              || m = "files.completeUploadExternal")
+        in
+        Alcotest.(check int)
+          "revoked replay has zero final writes" 0 (List.length final_writes);
+        check_bool "revoked replay remains pending" true (pending base key);
+        Alcotest.(check int)
+          "failed replay row retained" 1
+          (List.length (Memory.queue_list ~db:base.db ~session_key:key)))
+      else check_final_requester calls !final_start "U456";
       Lwt.return_unit)
 
 let test_reauthorize () =
@@ -849,7 +903,7 @@ let suite =
       `Quick,
       test_followup_busy ~native:false );
     ("non native queued final preserves fallback", `Quick, test_queue_fallback);
-    ("native replay finals use sender", `Quick, test_replay);
+    ("native replay finals use sender", `Quick, fun () -> test_replay ());
     ("final reauthorizes current requester", `Quick, test_reauthorize);
     ("relay and notices bypass overflow", `Quick, test_notices);
     ( "agent document notices stay ordinary for invoke",
