@@ -406,9 +406,10 @@ let test_run_update_sets_reexec_path_to_fresh_git_build () =
         "fresh restart path set" (Some fresh_binary)
         (Sys.getenv_opt Restart_exec.reexec_path_env))
     ~finally:(fun () ->
-      match previous with
+      (match previous with
       | Some value -> Unix.putenv Restart_exec.reexec_path_env value
-      | None -> Unix.putenv Restart_exec.reexec_path_env "")
+      | None -> Unix.putenv Restart_exec.reexec_path_env "");
+      Test_helpers.rm_tree repo_root)
 
 let test_run_update_aborts_when_prepare_restart_fails () =
   let progress = ref [] in

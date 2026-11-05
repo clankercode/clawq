@@ -392,7 +392,8 @@ let test_service_signal_restart_preserves_history () =
   Fun.protect
     ~finally:(fun () ->
       let _ = run_main_command ~home [ "service"; "stop" ] in
-      stop_provider ())
+      stop_provider ();
+      Test_helpers.rm_tree temp_root)
     (fun () ->
       let start_code, start_out, start_err =
         run_main_command ~home [ "service"; "start" ]

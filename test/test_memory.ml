@@ -3,10 +3,9 @@
 let mk_msg role content = Provider.make_message ~role ~content
 
 let with_temp_db f =
-  let path = Filename.temp_file "clawq_memory" ".sqlite3" in
-  Fun.protect
-    (fun () -> f path)
-    ~finally:(fun () -> try Sys.remove path with _ -> ())
+  Test_helpers.with_temp_dir (fun dir ->
+      let path = Filename.temp_file ~temp_dir:dir "clawq_memory" ".sqlite3" in
+      f path)
 
 let table_exists db table_name =
   let stmt =

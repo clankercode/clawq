@@ -5,6 +5,7 @@
   (source_tree fixtures))
  (modules
   test_main
+  test_helpers_cleanup
   test_ambient_policy
   test_plan_pipeline
   test_agent_loop_conformance
@@ -283,6 +284,7 @@
   test_tool_scope_conformance
   test_service
   test_session
+  test_session_turn_drain
   test_session_key_canonicalization
   test_legacy_session_keys
   test_session_observer

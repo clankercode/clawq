@@ -138,45 +138,46 @@ let test_bwrap_blocks_path_escape () =
     Fun.protect
       ~finally:(fun () -> try Sys.remove secret with _ -> ())
       (fun () ->
-        let worktree = Filename.temp_file "clawq-wt" "" in
-        Sys.remove worktree;
-        Unix.mkdir worktree 0o755;
-        let sandbox_policy =
-          {
-            Runner_isolation.mode = Runner_isolation.Require;
-            backend = Sandbox.Bubblewrap;
-            extra_paths = [];
-          }
-        in
-        (* /bin/cat <secret> — trusted test argv, untrusted-style target *)
-        let wrapped, _ =
-          Runner_isolation.wrap_argv sandbox_policy ~worktree
-            ~log_path:(Filename.concat worktree "t.log")
-            [| "cat"; secret |]
-        in
-        let exit_code, stdout, _stderr =
-          Lwt_main.run
-            (let open Lwt.Syntax in
-             let proc =
-               Process_group.start ~cwd:worktree ~env:[| "PATH=/usr/bin" |]
-                 (Process_group.Exec wrapped)
-             in
-             Lwt.finalize
-               (fun () ->
-                 let* stdout, stderr =
-                   Lwt.both
-                     (Lwt_io.read proc.Process_group.stdout)
-                     (Lwt_io.read proc.Process_group.stderr)
+        Test_helpers.with_temp_dir (fun worktree ->
+            let sandbox_policy =
+              {
+                Runner_isolation.mode = Runner_isolation.Require;
+                backend = Sandbox.Bubblewrap;
+                extra_paths = [];
+              }
+            in
+            (* /bin/cat <secret> — trusted test argv, untrusted-style target *)
+            let wrapped, _ =
+              Runner_isolation.wrap_argv sandbox_policy ~worktree
+                ~log_path:(Filename.concat worktree "t.log")
+                [| "cat"; secret |]
+            in
+            let exit_code, stdout, _stderr =
+              Lwt_main.run
+                (let open Lwt.Syntax in
+                 let proc =
+                   Process_group.start ~cwd:worktree ~env:[| "PATH=/usr/bin" |]
+                     (Process_group.Exec wrapped)
                  in
-                 let* status = Process_group.wait proc.pid in
-                 Lwt.return
-                   (Background_task.exit_code_of_status status, stdout, stderr))
-               (fun () -> Process_group.close proc))
-        in
-        Alcotest.(check bool) "cat fails outside sandbox" true (exit_code <> 0);
-        Alcotest.(check bool)
-          "secret does not leak" false
-          (String_util.contains stdout "publisher-credential"))
+                 Lwt.finalize
+                   (fun () ->
+                     let* stdout, stderr =
+                       Lwt.both
+                         (Lwt_io.read proc.Process_group.stdout)
+                         (Lwt_io.read proc.Process_group.stderr)
+                     in
+                     let* status = Process_group.wait proc.pid in
+                     Lwt.return
+                       ( Background_task.exit_code_of_status status,
+                         stdout,
+                         stderr ))
+                   (fun () -> Process_group.close proc))
+            in
+            Alcotest.(check bool)
+              "cat fails outside sandbox" true (exit_code <> 0);
+            Alcotest.(check bool)
+              "secret does not leak" false
+              (String_util.contains stdout "publisher-credential")))
 
 let test_spawn_fails_closed_without_backend () =
   let repo = Filename.temp_file "clawq-iso-repo" "" in

@@ -6,9 +6,7 @@ let with_temp_workspace f =
   let dir = Filename.temp_file "clawq_tools_prop" "" in
   Sys.remove dir;
   Unix.mkdir dir 0o755;
-  Fun.protect
-    (fun () -> f dir)
-    ~finally:(fun () -> try Unix.rmdir dir with _ -> ())
+  Fun.protect (fun () -> f dir) ~finally:(fun () -> Test_helpers.rm_tree dir)
 
 let insert_cached_model ?(deprecated = false) ?(unavailable = false) db
     ~provider ~model_id =

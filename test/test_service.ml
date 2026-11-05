@@ -297,25 +297,25 @@ let test_validate_and_fix_rejects_deleted_suffix () =
   | Ok _ -> Alcotest.fail "expected deleted suffix path to be rejected"
 
 let test_validate_and_fix_rejects_deleted_symlink_target () =
-  let dir = Filename.get_temp_dir_name () in
-  let target =
-    Filename.concat dir (Printf.sprintf "clawq-real-%d" (Unix.getpid ()))
-  in
-  let link =
-    Filename.concat dir (Printf.sprintf "clawq-link-%d" (Unix.getpid ()))
-  in
-  let oc = open_out target in
-  output_string oc "#!/bin/sh\nexit 0\n";
-  close_out oc;
-  Unix.chmod target 0o755;
-  (try Sys.remove link with _ -> ());
-  Unix.symlink (target ^ " (deleted)") link;
-  match Restart_exec.validate_and_fix link with
-  | Error msg ->
-      Alcotest.(check bool)
-        "mentions deleted symlink target" true
-        (String.contains msg 'd' && String.contains msg 'b')
-  | Ok _ -> Alcotest.fail "expected deleted symlink target to be rejected"
+  Test_helpers.with_temp_dir (fun dir ->
+      let target =
+        Filename.concat dir (Printf.sprintf "clawq-real-%d" (Unix.getpid ()))
+      in
+      let link =
+        Filename.concat dir (Printf.sprintf "clawq-link-%d" (Unix.getpid ()))
+      in
+      let oc = open_out target in
+      output_string oc "#!/bin/sh\nexit 0\n";
+      close_out oc;
+      Unix.chmod target 0o755;
+      (try Sys.remove link with _ -> ());
+      Unix.symlink (target ^ " (deleted)") link;
+      match Restart_exec.validate_and_fix link with
+      | Error msg ->
+          Alcotest.(check bool)
+            "mentions deleted symlink target" true
+            (String.contains msg 'd' && String.contains msg 'b')
+      | Ok _ -> Alcotest.fail "expected deleted symlink target to be rejected")
 
 let test_validate_and_fix_passes_through_enoent () =
   let path = "/tmp/clawq_test_nonexistent_" ^ string_of_int (Unix.getpid ()) in
