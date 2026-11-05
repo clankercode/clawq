@@ -341,6 +341,7 @@
   test_slack_standing_order_report
   test_slack_standing_order_pickup
   test_slack_standing_order_slack
+  test_slack_file_upload
   test_slack_standing_order_upload
   test_slack_standing_order_grant
   test_slack_standing_order_grant_support

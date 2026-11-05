@@ -139,6 +139,38 @@ let test_deterministic stage () =
       integer "no complete" 0 (E.count e "files.completeUploadExternal");
       integer "no debit" 0 (debits e))
 
+let test_malformed_allocation () =
+  List.iter
+    (fun response ->
+      Relay.with_delivery (fun e lease r payload ->
+          S.override e.mock "files.getUploadURLExternal" (fun _ ->
+              (200, response));
+          Lwt_main.run
+            (D.deliver ~ctx:(E.ctx e) ~db:e.db ~manager:e.manager
+               ~http:e.mock.http ~upload_http:Relay.raw_success ~lease r payload);
+          let saved = E.runtime e r.fire.id in
+          E.check_state e r.fire.id T.Failed;
+          check "malformed allocation has no retry" true
+            (saved.next_attempt_at = None);
+          Alcotest.(check (option string))
+            "original terminal reason" (Some "upload_allocation_invalid")
+            saved.fire.reason;
+          integer "no completion" 0 (E.count e "files.completeUploadExternal");
+          integer "no debit" 0 (debits e)))
+    [
+      S.ok [];
+      S.ok
+        [
+          ("file_id", `String "bad");
+          ("upload_url", `String "https://files.slack.com/upload");
+        ];
+      S.ok
+        [
+          ("file_id", `String "F123");
+          ("upload_url", `String "https://evil.invalid/upload");
+        ];
+    ]
+
 let test_reset_preparation () =
   Relay.with_delivery (fun e lease r _payload ->
       let a =
@@ -186,7 +218,8 @@ let test_reset_preparation () =
       integer "reservation retained" 1 (debits e))
 
 let suite =
-  S.case "only undispatched preparation can be reset" test_reset_preparation
+  S.case "malformed allocation stays terminal" test_malformed_allocation
+  :: S.case "only undispatched preparation can be reset" test_reset_preparation
   :: S.case "transient grant after upload marker recovers on next invocation"
        test_grant_retry
   :: List.concat_map
