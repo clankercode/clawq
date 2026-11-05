@@ -171,7 +171,8 @@ let event_to_json (event : event) : Yojson.Safe.t =
     All sensitive fields are redacted before storage. Credential IDs are stored
     as-is (they are opaque aliases, never actual values). *)
 let record ~db ~decision ~host ?method_ ?path ~matched_rule_index ?session_key
-    ?snapshot_id ?tool_name ?profile_id ?(credential_handle_ids = []) () =
+    ?snapshot_id ?tool_name ?profile_id ?(credential_handle_ids = [])
+    ?(strict = false) () =
   let ts = timestamp_now () in
   let host_redacted = redact_host host in
   let method_redacted = Option.map redact_method method_ in
@@ -181,20 +182,24 @@ let record ~db ~decision ~host ?method_ ?path ~matched_rule_index ?session_key
       (`List (List.map (fun s -> `String s) credential_handle_ids))
   in
   let sql =
-    "INSERT OR IGNORE INTO egress_audit (timestamp, decision, host_redacted, \
-     method_redacted, path_redacted, matched_rule_index, session_key, \
-     snapshot_id, tool_name, profile_id, credential_handle_ids_json) VALUES \
-     (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    (if strict then "INSERT INTO" else "INSERT OR IGNORE INTO")
+    ^ " egress_audit (timestamp, decision, host_redacted, method_redacted, \
+       path_redacted, matched_rule_index, session_key, snapshot_id, tool_name, \
+       profile_id, credential_handle_ids_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, \
+       ?, ?, ?)"
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () ->
-      let bind_text pos value =
-        ignore (Sqlite3.bind stmt pos (Sqlite3.Data.TEXT value))
+      let bind pos value =
+        let rc = Sqlite3.bind stmt pos value in
+        if strict && rc <> Sqlite3.Rc.OK then
+          failwith "egress audit bind failed"
       in
+      let bind_text pos value = bind pos (Sqlite3.Data.TEXT value) in
       let bind_opt pos = function
-        | None -> ignore (Sqlite3.bind stmt pos Sqlite3.Data.NULL)
+        | None -> bind pos Sqlite3.Data.NULL
         | Some v -> bind_text pos v
       in
       bind_text 1 ts;
@@ -202,9 +207,7 @@ let record ~db ~decision ~host ?method_ ?path ~matched_rule_index ?session_key
       bind_text 3 host_redacted;
       bind_opt 4 method_redacted;
       bind_opt 5 path_redacted;
-      ignore
-        (Sqlite3.bind stmt 6
-           (Sqlite3.Data.INT (Int64.of_int matched_rule_index)));
+      bind 6 (Sqlite3.Data.INT (Int64.of_int matched_rule_index));
       bind_opt 7 session_key;
       bind_opt 8 snapshot_id;
       bind_opt 9 tool_name;
@@ -212,12 +215,15 @@ let record ~db ~decision ~host ?method_ ?path ~matched_rule_index ?session_key
       bind_text 11 handles_json;
       match Sqlite3.step stmt with
       | Sqlite3.Rc.DONE ->
+          if strict && Sqlite3.changes db <> 1 then
+            failwith "egress audit row not inserted";
           Log.info (fun m ->
               m "egress audit: %s %s rule=%d tool=%s"
                 (decision_to_string decision)
                 host_redacted matched_rule_index
                 (Option.value tool_name ~default:"-"))
       | rc ->
+          if strict then failwith "egress audit insert failed";
           Log.warn (fun m ->
               m "egress audit insert failed: %s" (Sqlite3.Rc.to_string rc)))
 

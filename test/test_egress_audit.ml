@@ -185,8 +185,203 @@ let test_optional_fields_none () =
   Alcotest.(check int) "no handles" 0 (List.length event.credential_handle_ids);
   ignore (Sqlite3.db_close db)
 
+let contains text fragment =
+  let n = String.length fragment in
+  let rec loop i =
+    i + n <= String.length text
+    && (String.sub text i n = fragment || loop (i + 1))
+  in
+  loop 0
+
+let audit_context db : Policy_http_client.audit_context =
+  { Policy_http_client.no_audit with db = Some db }
+
+let test_sensitive_uri () =
+  let exercise action =
+    let db = create_test_db () and http_calls = ref 0 in
+    let rules : Runtime_config_types.egress_rule list =
+      [
+        {
+          host = "files.slack.com";
+          path = Some "/secret-path";
+          method_ = Some "POST";
+          action;
+          log_policy = Log;
+        };
+      ]
+    in
+    let result, logs =
+      Lwt_main.run
+        (Test_slack_standing_order_support.with_log_capture (fun () ->
+             let result =
+               Policy_http_client.check_policy ~rules
+                 ~uri:"https://files.slack.com/secret-path?token=secret-query"
+                 ~method_:"POST" ~audit:(audit_context db) ~strict_audit:true
+                 ~sensitive_uri:true ()
+             in
+             (match result with Ok () -> incr http_calls | Error _ -> ());
+             Lwt.return result))
+    in
+    let events = query ~db () in
+    let event =
+      match events with
+      | [ e ] -> e
+      | _ -> Alcotest.fail "one sensitive audit row"
+    in
+    Alcotest.(check int)
+      "actual path chose rule zero" 0 event.matched_rule_index;
+    Alcotest.(check (option string)) "no audit path" None event.path_redacted;
+    Alcotest.(check bool)
+      "decision retained" true
+      (event.decision = match action with Allow -> Allowed | Deny -> Denied);
+    let errors =
+      match result with
+      | Ok () -> []
+      | Error e ->
+          Alcotest.(check string)
+            "sensitive error host" "[sensitive-uri]" e.host;
+          Alcotest.(check (option string)) "sensitive error path" None e.path;
+          Alcotest.(check (option string))
+            "method retained" (Some "POST") e.method_;
+          Alcotest.(check int) "error rule index" 0 e.matched_rule_index;
+          [
+            Policy_http_client.policy_error_to_string e;
+            e.host;
+            Option.value e.path ~default:"";
+            e.message;
+          ]
+    in
+    let surfaces =
+      List.map snd logs
+      @ List.map (fun e -> Yojson.Safe.to_string (event_to_json e)) events
+      @ errors
+    in
+    Alcotest.(check bool) "decision logged" true (logs <> []);
+    Alcotest.(check bool)
+      "all surfaces redact both secrets" true
+      (List.for_all
+         (fun surface ->
+           (not (contains surface "secret-path"))
+           && not (contains surface "secret-query"))
+         surfaces);
+    !http_calls
+  in
+  let allow_http_calls = exercise Allow and deny_http_calls = exercise Deny in
+  Alcotest.(check int) "allow dispatches once" 1 allow_http_calls;
+  Alcotest.(check int) "deny never dispatches" 0 deny_http_calls;
+  List.iter
+    (fun uri ->
+      let db = create_test_db () in
+      let result, logs =
+        Lwt_main.run
+          (Test_slack_standing_order_support.with_log_capture (fun () ->
+               Lwt.return
+                 (Policy_http_client.check_policy ~rules:[] ~uri ~method_:"POST"
+                    ~audit:(audit_context db) ~strict_audit:true
+                    ~sensitive_uri:true ())))
+      in
+      match result with
+      | Ok () -> Alcotest.fail "malformed or unmatched URI must deny"
+      | Error e ->
+          Alcotest.(check string)
+            "redacted host even for malformed URI" "[sensitive-uri]" e.host;
+          Alcotest.(check (option string)) "redacted path" None e.path;
+          let surfaces =
+            (e.message :: e.host :: List.map snd logs)
+            @ List.map
+                (fun e -> Yojson.Safe.to_string (event_to_json e))
+                (query ~db ())
+          in
+          Alcotest.(check bool)
+            "userinfo fragment query and path absent" true
+            (List.for_all
+               (fun surface ->
+                 List.for_all
+                   (fun secret -> not (contains surface secret))
+                   [
+                     "secret-path";
+                     "secret-query";
+                     "secret-user";
+                     "secret-fragment";
+                   ])
+               surfaces))
+    [
+      "/secret-path?token=secret-query#secret-fragment";
+      "https://secret-user@files.slack.com/secret-path?token=secret-query#secret-fragment";
+    ]
+
+let test_strict_insert () =
+  List.iter
+    (fun failure ->
+      let db = create_test_db () in
+      Sql_util.exec_exn db
+        ("CREATE TRIGGER fail_audit BEFORE INSERT ON egress_audit BEGIN SELECT \
+          RAISE(" ^ failure ^ "); END");
+      let raised =
+        try
+          record ~db ~decision:Allowed ~host:"slack.com" ~matched_rule_index:0
+            ~strict:true ();
+          false
+        with _ -> true
+      in
+      Alcotest.(check bool) "strict failure raises" true raised)
+    [ "FAIL, 'test audit failure'"; "IGNORE" ]
+
+let test_default_compatibility () =
+  let db = create_test_db () in
+  let rule : Runtime_config_types.egress_rule =
+    {
+      host = "files.slack.com";
+      path = Some "/secret-path";
+      method_ = Some "POST";
+      action = Deny;
+      log_policy = Log;
+    }
+  in
+  let result, logs =
+    Lwt_main.run
+      (Test_slack_standing_order_support.with_log_capture (fun () ->
+           Lwt.return
+             (Policy_http_client.check_policy ~rules:[ rule ]
+                ~uri:"https://files.slack.com/secret-path?token=secret-query"
+                ~method_:"POST" ~audit:(audit_context db) ())))
+  in
+  (match result with
+  | Ok () -> Alcotest.fail "expected default denial"
+  | Error e ->
+      Alcotest.(check string) "default host preserved" "files.slack.com" e.host;
+      Alcotest.(check (option string))
+        "default path preserved" (Some "/secret-path") e.path;
+      Alcotest.(check string)
+        "default message preserved"
+        "egress denied: POST files.slack.com /secret-path (rule 0). Review \
+         access_bundles[].egress_rules, egress.default_allowlist, or \
+         egress.strictness if this HTTP destination should be allowed."
+        (Policy_http_client.policy_error_to_string e));
+  Alcotest.(check bool)
+    "ordinary default log preserved" true
+    (List.exists (fun (_, msg) -> contains msg "/secret-path") logs);
+  Sql_util.exec_exn db
+    "CREATE TRIGGER fail_audit BEFORE INSERT ON egress_audit BEGIN SELECT \
+     RAISE(FAIL, 'test audit failure'); END";
+  let result =
+    Policy_http_client.check_policy
+      ~rules:[ { rule with action = Allow } ]
+      ~uri:"https://files.slack.com/secret-path" ~method_:"POST"
+      ~audit:(audit_context db) ()
+  in
+  Alcotest.(check bool)
+    "non-strict step failure still permits" true (result = Ok ())
+
 let suite =
   [
+    Alcotest.test_case
+      "sensitive upload URI Log allow and deny redact every surface" `Quick
+      test_sensitive_uri;
+    Alcotest.test_case "strict audit checks step and inserted row" `Quick
+      test_strict_insert;
+    Alcotest.test_case "default policy output remains compatible" `Quick
+      test_default_compatibility;
     Alcotest.test_case "redact_host" `Quick test_redact_host;
     Alcotest.test_case "redact_method" `Quick test_redact_method;
     Alcotest.test_case "redact_path" `Quick test_redact_path;

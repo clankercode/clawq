@@ -396,6 +396,8 @@ let reason_text : G.reason -> string = function
   | Epoch_mismatch ->
       "the standing order changed while this was being checked; ask clawq again"
   | Daily_cap_reached -> "the standing order has reached its daily relay limit"
+  | Activation_unannounced ->
+      "the channel activation notice is not confirmed yet"
   | Identity_changed ->
       "the standing order no longer matches this request; ask clawq again"
   | Target_not_allowlisted -> "that target is not on clawq's approved list"
@@ -470,7 +472,7 @@ let order_summary_json (o : T.order) ~last_fire : Yojson.Safe.t =
       ("last_fire", Option.fold ~none:`Null ~some:fire_json last_fire);
     ]
 
-let order_detail_json (o : T.order) ~fires : Yojson.Safe.t =
+let order_detail_json ?(reports = []) (o : T.order) ~fires : Yojson.Safe.t =
   let (T.Relay_to_app_mention { when_no_transcript; _ }) = o.action in
   `Assoc
     [
@@ -488,5 +490,12 @@ let order_detail_json (o : T.order) ~fires : Yojson.Safe.t =
       ("suspended_reason", opt_string o.suspended_reason);
       ("instruction", instruction_json o);
       ("recent_fires", `List (List.map fire_json fires));
+      ( "report_statuses",
+        `List
+          (List.map
+             (fun (cause, status) ->
+               `Assoc
+                 [ ("cause_key", `String cause); ("status", `String status) ])
+             reports) );
       ("note", `String untrusted_note);
     ]

@@ -2,7 +2,7 @@
 
     Clawq's own relay posts are recognised structurally: the own bot user,
     attached files and the fixed footer as the last line. The registry answers
-    the DB-backed checks; phase 1 has no relays, so its registry knows none. *)
+    the DB-backed checks across both retained attempts of every fire. *)
 
 open Slack_huddles
 
@@ -107,8 +107,15 @@ let total registry =
           ~closed:(fun () -> fail_closed.unconfirmed_since ~channel));
   }
 
-(* Phase 3 replaces this body with the fire-table lookups. *)
-let phase1_registry (_ : Session.t) = no_relays
+let phase1_registry manager =
+  match Session.get_db manager with
+  | None -> fail_closed
+  | Some db ->
+      {
+        recorded_relay = Slack_standing_order_store.recorded_relay db;
+        in_flight_file = Slack_standing_order_store.in_flight_file db;
+        unconfirmed_since = Slack_standing_order_store.unconfirmed_since db;
+      }
 
 (* Test seam only; production never assigns it. *)
 let registry_source = ref phase1_registry

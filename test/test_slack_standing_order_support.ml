@@ -6,13 +6,21 @@ module Store = Slack_standing_order_store
 
 let now = 1_700_000_000.
 let at t = Store.clock := fun () -> t
+let mock_checks = ref []
 
 let case name f =
   ( name,
     `Quick,
     fun () ->
       at now;
-      Fun.protect ~finally:(fun () -> Store.clock := Unix.gettimeofday) f )
+      mock_checks := [];
+      Fun.protect
+        ~finally:(fun () ->
+          Store.clock := Unix.gettimeofday;
+          mock_checks := [])
+        (fun () ->
+          f ();
+          List.iter (fun check -> check ()) !mock_checks) )
 
 let fresh_db () =
   let db = Sqlite3.db_open ":memory:" in
@@ -288,6 +296,7 @@ let str s : Yojson.Safe.t = `String s
 let ok fields = obj (("ok", `Bool true) :: fields)
 
 type world = {
+  failures : string list ref;
   users : (string * Yojson.Safe.t) list ref;
   members : string list ref;
   seq : int ref;
@@ -307,6 +316,7 @@ let user ~id ~is_bot extra =
 
 let world () =
   {
+    failures = ref [];
     users =
       ref
         [
@@ -404,9 +414,11 @@ let default_response w method_ params : Yojson.Safe.t =
         ]
   | "chat.update" -> ok [ ("ts", str (param params "ts")) ]
   | other ->
-      Alcotest.fail ("S.default_response: unexpected Slack method " ^ other)
+      w.failures := ("unexpected Slack method " ^ other) :: !(w.failures);
+      obj [ ("ok", `Bool false); ("error", str "unexpected_mock_call") ]
 
 type mock = {
+  failures : string list ref;
   http : Slack_standing_order_slack.http;
   calls : (string * string * Yojson.Safe.t) list ref;
       (** (verb, method, params), oldest first. *)
@@ -416,17 +428,28 @@ type mock = {
 
 let mock () =
   let world = world () in
-  let calls = ref [] in
+  let calls = ref [] and failures = world.failures in
+  mock_checks :=
+    (fun () -> Alcotest.(check (list string)) "mock expectations" [] !failures)
+    :: !mock_checks;
   let respond =
     ref (fun method_ params -> (200, default_response world method_ params))
   in
   let http ~verb ~token:_ ~method_ ~params =
     let params = `Assoc params in
     calls := !calls @ [ (verb, method_, params) ];
-    let status, body = !respond method_ params in
+    let status, body =
+      try !respond method_ params
+      with exn ->
+        failures := Printexc.to_string exn :: !failures;
+        (500, `Null)
+    in
     Lwt.return (status, Yojson.Safe.to_string body)
   in
-  { http; calls; world; respond }
+  { http; calls; world; respond; failures }
+
+let check_mock m =
+  Alcotest.(check (list string)) "mock expectations" [] !(m.failures)
 
 (* [f params] answers [method_]; other methods keep their previous answer. *)
 let override m method_ f =

@@ -170,6 +170,9 @@ let cmd_show db (o : T.order) =
            field "Last fire" (last_fire db o);
            field "Instruction (untrusted)" (indent_continuation instruction);
          ];
+         List.map
+           (fun (cause, status) -> field "Report" (cause ^ " " ^ status))
+           (Slack_standing_order_report.statuses ~db ~order_id:o.id);
        ])
 
 let cmd_fires db (o : T.order) ~limit =
@@ -211,7 +214,8 @@ let store_failed what (o : T.order) reason =
   Printf.sprintf "Error: clawq could not %s %s; nothing changed. Try again."
     what (T.display_name o)
 
-(* Ruling F9: the outcome [Pause.run] would give, so the receipt is the same. *)
+(* Ruling F9: the outcome [Pause.run] would give, including an unknown
+   diagnostic count after a successful pause, so the receipt is the same. *)
 let cmd_pause db ~now (o : T.order) =
   let settled (o : T.order) =
     match o.state with
@@ -248,6 +252,12 @@ let cmd_resume db ~config ?http ~now (o : T.order) =
     Printf.sprintf "Not resumed: %s." (Render.reason_text reason)
   in
   match o.state with
+  | (T.Paused | T.Suspended)
+    when not (Store.activation_announced db ~order_id:o.id) ->
+      Printf.sprintf
+        "Not resumed: resume it from Slack so the channel gets its activation \
+         notice (%s)."
+        n
   | T.Paused | T.Suspended -> (
       (* The daemon migrates this table at startup; a CLI run against a store
          it hasn't migrated yet would otherwise fail every snapshot. *)
@@ -256,6 +266,7 @@ let cmd_resume db ~config ?http ~now (o : T.order) =
          Logs.warn (fun m ->
              m "standing-order CLI: access snapshot schema: %s"
                (Printexc.to_string exn)));
+      ignore (Store.expire_pending db ~now : int);
       match
         Lwt_main.run
           (Grant.evaluate ~db
@@ -265,6 +276,7 @@ let cmd_resume db ~config ?http ~now (o : T.order) =
       with
       | Error f -> not_resumed f.Grant.reason
       | Ok v -> (
+          ignore (Store.expire_pending db ~now : int);
           match
             Store.resume db ~order_id:o.id ~expected_epoch:o.epoch
               ~active_since:(Store.ts_of_unix now) ~bot_user_id:v.bot_user_id

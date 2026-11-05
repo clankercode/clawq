@@ -541,10 +541,24 @@
   slack_huddle_ledger
   slack_huddle_watch
   slack_huddle_observer
+  slack_huddle_transcript
+  slack_standing_order_provenance
+  slack_standing_order_relay
+  slack_standing_order_ctx
+  slack_standing_order_dispatch
+  slack_standing_order_pickup
+  slack_standing_order_report
+  slack_standing_order_fetch
+  slack_standing_order_exec
   slack_standing_order_types
   slack_standing_order_sql
+  slack_standing_order_store_base
+  slack_standing_order_card_store
+  slack_standing_order_replace_store
+  slack_standing_order_fire_store
   slack_standing_order_store
   slack_standing_order_slack
+  slack_standing_order_upload
   slack_standing_order_grant
   slack_standing_order_target
   slack_standing_order_render
@@ -674,6 +688,9 @@
   ec_process
   ec_diagnosis
   command_bridge_pair)
+ (foreign_stubs
+  (language c)
+  (names slack_standing_order_relay_stubs))
  (wrapped false)
  (libraries
   clawq_runtime_core

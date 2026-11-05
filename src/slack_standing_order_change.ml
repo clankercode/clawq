@@ -353,8 +353,8 @@ let claim c =
 
 let applied c = Option.is_some (Store.find c.db c.draft.order_id)
 
-(* Step 5 after the commit (which also used the card): close the card,
-   announce the successor (whose notice failure pauses it), then tell the old
+(* Step 5 after the commit (which also used the card): announce the successor
+   (whose notice failure pauses it), close the card, then tell the old
    grantor when someone else changed their order. *)
 let changed c (v : Grant.validated) ~(announce : announce)
     ((old_after : T.order), (fresh : T.order)) =
@@ -365,26 +365,34 @@ let changed c (v : Grant.validated) ~(announce : announce)
       ("to", `String (T.display_name fresh));
     ];
   let new_display_no = fresh.display_no in
-  let* () =
-    close_card v.call c
-      (Render.card_closed old_after
-         (Render.Changed_by { by = c.clicker; new_display_no }))
-  in
   let* () = announce ~db:c.db ~call:v.call ~now:c.now fresh in
-  if c.clicker = old_after.grantor_user_id then Lwt.return_unit
-  else
-    Pause.post ~manager:c.manager ~order:old_after ~unit_label:"change_notice"
-      ~channel_id:old_after.management_channel_id
-      ~thread_ts:old_after.management_thread_ts
-      (Render.grantor_notice old_after
-         (Render.Replaced_by { by = c.clicker; new_display_no }))
+  match Store.find c.db fresh.id with
+  | Some current
+    when current.state = T.Active
+         && current.epoch = fresh.epoch
+         && Store.activation_announced c.db ~order_id:current.id ->
+      let* () =
+        close_card v.call c
+          (Render.card_closed old_after
+             (Render.Changed_by { by = c.clicker; new_display_no }))
+      in
+      if c.clicker = old_after.grantor_user_id then Lwt.return_unit
+      else
+        Pause.post ~manager:c.manager ~order:old_after
+          ~unit_label:"change_notice"
+          ~channel_id:old_after.management_channel_id
+          ~thread_ts:old_after.management_thread_ts
+          (Render.grantor_notice old_after
+             (Render.Replaced_by { by = c.clicker; new_display_no }))
+  | _ -> Lwt.return_unit
 
 (* Step 4: the compare-and-swap on plan id and digest, under the config
    revision the plan was made with, around the card claim and
    [Store.replace_in_tx] in one transaction. A Cancel that claimed the card
    while this click's evaluation waited on Slack wins: the apply then changes
    nothing and says nothing, so "SO-n is unchanged" stays true. *)
-let apply_change c (v : Grant.validated) ~announce ~action_ts ~plan_id ~digest =
+let apply_change c (v : Grant.validated) ~announce ~pause_unannounced ~action_ts
+    ~plan_id ~digest =
   let replaced = ref None and card_taken = ref false in
   let authority ~(principal : Setup_plan.principal)
       ~(destination : Setup_plan.context) =
@@ -393,21 +401,23 @@ let apply_change c (v : Grant.validated) ~announce ~action_ts ~plan_id ~digest =
     else Error "not the requester"
   in
   let apply_ops ~plan:_ ~receipt_id:_ =
-    match claim c with
-    | Error e -> Error ("change card claim failed: " ^ e)
-    | Ok false ->
-        card_taken := true;
-        Error "the change card was already used"
-    | Ok true ->
-        Result.map
-          (fun pair -> replaced := Some pair)
-          (Store.replace_in_tx c.db ~old_id:c.old.id
-             ~expected_epoch:c.card.order_epoch ~new_id:c.draft.order_id
-             ~grantor_user_id:c.clicker ?principal_id:c.draft.principal_id
-             ~action:c.draft.action
-             ~management_thread_ts:c.draft.management_thread_ts
-             ~active_since:action_ts ~confirmed_by:c.clicker
-             ~bot_user_id:v.bot_user_id ~bot_id:v.bot_id ~now:c.now ())
+    try
+      match claim c with
+      | Error _ -> Error "change_card_claim_failed"
+      | Ok false ->
+          card_taken := true;
+          Error "the change card was already used"
+      | Ok true ->
+          Result.map
+            (fun pair -> replaced := Some pair)
+            (Store.replace_in_tx c.db ~old_id:c.old.id
+               ~expected_epoch:c.card.order_epoch ~new_id:c.draft.order_id
+               ~grantor_user_id:c.clicker ?principal_id:c.draft.principal_id
+               ~action:c.draft.action
+               ~management_thread_ts:c.draft.management_thread_ts
+               ~active_since:action_ts ~confirmed_by:c.clicker
+               ~bot_user_id:v.bot_user_id ~bot_id:v.bot_id ~now:c.now ())
+    with _ -> Error "change_apply_exception"
   in
   Setup_plan_apply.init_schema c.db;
   match
@@ -429,7 +439,17 @@ let apply_change c (v : Grant.validated) ~announce ~action_ts ~plan_id ~digest =
       ignored "the change plan was already applied"
   | Applied { first_time = true; _ } -> (
       match !replaced with
-      | Some pair -> changed c v ~announce pair
+      | Some ((_, fresh) as pair) ->
+          Lwt.catch
+            (fun () -> changed c v ~announce pair)
+            (fun exn ->
+              let* () =
+                pause_unannounced ~db:c.db ~call:v.call ~now:c.now fresh
+                  "change_post_commit_failed"
+              in
+              match exn with
+              | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+              | _ -> Lwt.return_unit)
       | None ->
           Logs.err (fun m ->
               m "standing-order %s change applied without a successor" c.old.id);
@@ -438,7 +458,8 @@ let apply_change c (v : Grant.validated) ~announce ~action_ts ~plan_id ~digest =
 (* Steps 1-3: a used or already-applied card is ignored; expiry, the click
    time and authority are checked before any HTTP; then the full preflights
    at the [Replace] stage. *)
-let handle_click ~manager ~now ~announce ~card ~clicker ~action_ts =
+let handle_click ~manager ~now ~announce ~pause_unannounced ~card ~clicker
+    ~action_ts =
   match bind ~manager ~now ~card ~clicker with
   | Error why -> ignored why
   | Ok c -> (
@@ -494,8 +515,8 @@ let handle_click ~manager ~now ~announce ~card ~clicker ~action_ts =
                             (Printf.sprintf "Not changed: %s."
                                (Render.reason_text f.Grant.reason))
                       | Ok v ->
-                          apply_change c v ~announce ~action_ts ~plan_id ~digest)
-                )
+                          apply_change c v ~announce ~pause_unannounced
+                            ~action_ts ~plan_id ~digest))
             | _ -> reply c Render.expired_text)
       | None, _, _ -> ignored "the change card names no plan")
 

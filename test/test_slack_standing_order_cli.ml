@@ -101,6 +101,48 @@ let test_show_and_fires _dir =
         (run db [ "orders"; sub; "so_missing" ]))
     [ "show"; "fires"; "pause"; "resume"; "cancel" ]
 
+let test_report_statuses _dir =
+  let db = S.fresh_db () in
+  let o = S.seed db ~state:T.Suspended () in
+  let manager = Session.create ~config:(S.config ()) () in
+  let ctx =
+    Slack_standing_order_ctx.make
+      ~accepting:(fun () -> true)
+      ~limit:(fun ~channel_id:_ -> Lwt.return_unit)
+      ()
+  in
+  let http ~verb:_ ~token:_ ~method_:_ ~params:_ = Lwt.fail Lwt_unix.Timeout in
+  Lwt_main.run
+    (Slack_standing_order_report.post_once ~ctx ~db ~manager ~http o
+       Slack_standing_order_report.No_pickup);
+  Session.update_config manager (S.config ~strict_rules:[] ());
+  Lwt_main.run
+    (Slack_standing_order_report.post_once ~ctx ~db ~manager ~http o
+       Slack_standing_order_report.Target_not_member);
+  Session.update_config manager
+    (S.profile (S.config ()) ~denied:[ "slack_huddles" ] ());
+  Lwt_main.run
+    (Slack_standing_order_report.post_once ~ctx ~db ~manager ~http o
+       Slack_standing_order_report.No_notes_hint);
+  let receipts = Slack_standing_order_report.statuses ~db ~order_id:o.id in
+  Alcotest.(check (list (pair string string)))
+    "report statuses"
+    [
+      ("no_notes_hint", "local_only");
+      ("no_pickup", "ambiguous");
+      ("target_not_member", "refused");
+    ]
+    receipts;
+  let show = run db [ "orders"; "show"; o.id ] in
+  List.iter
+    (fun line ->
+      check_bool "CLI reports attempt status" true (List.mem line (lines show)))
+    [
+      "Report: no_notes_hint local_only";
+      "Report: no_pickup ambiguous";
+      "Report: target_not_member refused";
+    ]
+
 let test_mutations_need_admin dir =
   let db = S.fresh_db () and m = S.mock () in
   let o = S.seed db () in
@@ -145,7 +187,7 @@ let test_mutations_need_admin dir =
   check_opt "paused by cli" (Some "cli") paused.paused_by;
   check_string "pause receipt"
     (Pause.receipt ~display_no:o.display_no ~by:"cli"
-       (Pause.Paused { order = paused; in_flight = 0 }))
+       (Pause.Paused { order = paused; in_flight = Some 0 }))
     out;
   check_bool "no bogus mention" false (contains out "<@cli>");
   (match ledger db "standing_order_paused" with
@@ -156,6 +198,28 @@ let test_mutations_need_admin dir =
     (Pause.receipt ~display_no:o.display_no ~by:"cli"
        (Pause.Already_paused paused))
     (run ~http:m.http db [ "orders"; "pause"; o.id ]);
+  no_calls m
+
+let test_unknown_count_receipt _dir =
+  Unix.putenv "CLAWQ_ADMIN" "1";
+  let db = S.fresh_db () and m = S.mock () in
+  let o = S.seed db () in
+  let fire = S.fire db o ~state:T.Posting ~room:"R1" () in
+  Sqlite3.create_fun0 db "count" (fun () -> failwith "fixture count failure");
+  let out = run ~http:m.http db [ "orders"; "pause"; o.id ] in
+  let after = find db o in
+  Alcotest.check S.state_t "paused" T.Paused after.state;
+  check_int "epoch bumped" (o.epoch + 1) after.epoch;
+  check_string "unknown count receipt"
+    "Standing order SO-1 is paused (by cli). Huddles that become ready while \
+     it is paused will never be relayed, even after a resume. Relays may \
+     already be in flight."
+    out;
+  check_string "same shared receipt" out
+    (Pause.receipt ~display_no:1 ~by:"cli"
+       (Pause.Paused { order = after; in_flight = None }));
+  check_bool "repost forbidden" true
+    (S.fire_flags db fire.id = (T.Posting, true, false));
   no_calls m
 
 let test_pause_withdraws_pending _dir =
@@ -173,10 +237,29 @@ let test_pause_withdraws_pending _dir =
     (List.length (ledger db "standing_order_withdrawn"));
   no_calls m
 
+let announce db (o : T.order) =
+  let card =
+    Store.insert_card db ~kind:T.Pause_button ~order:o ~created_by:"U123"
+      ~now:S.now ()
+  in
+  Store.set_card_message_ts db ~card_id:card.id "100.000001"
+
+let test_resume_unannounced _dir =
+  Unix.putenv "CLAWQ_ADMIN" "1";
+  let db = S.fresh_db () and m = S.mock () in
+  let o = S.seed db ~state:T.Paused () in
+  let out = run ~http:m.http db [ "orders"; "resume"; o.id ] in
+  check_bool "actionable refusal" true
+    (contains out
+       "resume it from Slack so the channel gets its activation notice");
+  Alcotest.check S.state_t "remains paused" T.Paused (find db o).state;
+  no_calls m
+
 let test_resume_preflight _dir =
   Unix.putenv "CLAWQ_ADMIN" "1";
   let db = S.fresh_db () and m = S.mock () in
   let o = S.seed db ~state:T.Paused () in
+  announce db o;
   let out = run ~http:m.http db [ "orders"; "resume"; o.id ] in
   check_string "resumed"
     "Standing order SO-1 resumed (cli). Huddles that became ready while it was \
@@ -203,6 +286,7 @@ let test_resume_preflight _dir =
     (run ~http:m.http db [ "orders"; "resume"; o.id ]);
   let db = S.fresh_db () and m = S.mock () in
   let o = S.seed db ~state:T.Paused () in
+  announce db o;
   S.override m "conversations.info" (fun params ->
       let response = S.default_response m.world "conversations.info" params in
       match response with
@@ -244,6 +328,50 @@ let test_cancel _dir =
     (run ~http:m.http db [ "orders"; "cancel"; o.id ]);
   no_calls m
 
+(* Exercise the same handler as [cmd_mutate], after its lookup-time sweep.
+   Calling [cmd] here would hide the missing Resume-boundary expiration. *)
+let test_resume_expired_conflict _dir =
+  let db = S.fresh_db () and m = S.mock () in
+  let o = S.seed db ~state:T.Suspended () in
+  announce db o;
+  let competitor = S.seed db ~state:T.Pending_confirmation () in
+  Sql_util.exec_with_params db
+    "UPDATE slack_standing_orders SET pending_expires_at = ? WHERE id = ?"
+    [ Sqlite3.Data.FLOAT (S.now -. 1.); Sqlite3.Data.TEXT competitor.id ];
+  let out = Cli.cmd_resume db ~config:(S.config ()) ~http:m.http ~now:S.now o in
+  Alcotest.check S.state_t "competitor cancelled" T.Cancelled
+    (find db competitor).state;
+  Alcotest.check S.state_t "resumed active" T.Active (find db o).state;
+  check_bool "resumed receipt" true (contains out "resumed (cli)");
+  check_bool "authority checked" true
+    (List.mem "auth.test" (S.methods_called m))
+
+let test_resume_expiration_failure _dir =
+  let db = S.fresh_db () and m = S.mock () in
+  let o = S.seed db ~state:T.Suspended () in
+  announce db o;
+  let competitor = S.seed db ~state:T.Pending_confirmation () in
+  Sql_util.exec_with_params db
+    "UPDATE slack_standing_orders SET pending_expires_at = ? WHERE id = ?"
+    [ Sqlite3.Data.FLOAT (S.now -. 1.); Sqlite3.Data.TEXT competitor.id ];
+  Sqlite3.Rc.check
+    (Sqlite3.exec db
+       "CREATE TRIGGER fail_pending_expiration BEFORE UPDATE OF state ON \
+        slack_standing_orders WHEN OLD.state = 'pending_confirmation' AND \
+        NEW.state = 'cancelled' BEGIN SELECT RAISE(ABORT, 'fixture expiration \
+        failure'); END");
+  let out = Cli.cmd_resume db ~config:(S.config ()) ~http:m.http ~now:S.now o in
+  Alcotest.check S.state_t "still suspended" T.Suspended (find db o).state;
+  Alcotest.check S.state_t "competitor remains" T.Pending_confirmation
+    (find db competitor).state;
+  check_string "uniqueness refusal"
+    ("Not resumed: "
+    ^ Render.reason_text
+        (Slack_standing_order_grant.Duplicate_order competitor.display_no)
+    ^ ".")
+    out;
+  no_calls m
+
 let test_minimal_stub _dir =
   check_bool "minimal build refuses" true
     (contains
@@ -261,9 +389,16 @@ let suite =
   [
     case "list shows every order with opaque ids" test_list;
     case "show and fires" test_show_and_fires;
+    case "show exposes report statuses" test_report_statuses;
     case "mutations need CLAWQ_ADMIN" test_mutations_need_admin;
+    case "unknown count receipt" test_unknown_count_receipt;
     case "cli pause withdraws a pending order" test_pause_withdraws_pending;
+    case "CLI refuses unannounced resume" test_resume_unannounced;
     case "cli resume runs the full preflight" test_resume_preflight;
+    case "CLI resume expires stale pending conflict"
+      test_resume_expired_conflict;
+    case "resume expiration failure preserves uniqueness"
+      test_resume_expiration_failure;
     case "cancel" test_cancel;
     case "minimal build stub" test_minimal_stub;
     case "usage" test_usage;

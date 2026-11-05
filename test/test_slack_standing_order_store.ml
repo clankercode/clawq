@@ -157,7 +157,7 @@ let test_pause_sweep () =
   let no_pickup = fire T.No_pickup "R10" in
   let change = deactivate db o (Store.Pause "U456") in
   check_bool "changed" true change.changed;
-  check_int "in flight" 2 change.in_flight;
+  Alcotest.(check (option int)) "in flight" (Some 2) change.in_flight;
   check_int "epoch" (o.epoch + 1) change.after.epoch;
   check_int "revision" (o.revision + 1) change.after.revision;
   check_state "paused" T.Paused change.after.state;
@@ -188,6 +188,75 @@ let test_pause_sweep () =
     (List.init 3 (fun _ -> Some "order_inactive"))
     reasons
 
+let test_pause_count_failure_still_commits () =
+  let db = S.fresh_db () in
+  let o = S.seed db () in
+  let queued = S.fire db o ~state:T.Detected ~room:"R1" () in
+  let claimed =
+    S.fire db o ~state:T.Fetching ~claim_until:(S.now +. 60.) ~room:"R2" ()
+  in
+  let posting = S.fire db o ~state:T.Posting ~room:"R3" () in
+  let unknown = S.fire db o ~state:T.Posting_unknown ~room:"R4" () in
+  let count_reads = ref 0 in
+  Sqlite3.create_fun0 db "count" (fun () ->
+      incr count_reads;
+      failwith "fixture count failure");
+  let change = deactivate db o (Store.Pause "U456") in
+  check_int "the final count read failed" 1 !count_reads;
+  check_bool "changed" true change.changed;
+  check_state "paused" T.Paused change.after.state;
+  check_int "epoch bumped" (o.epoch + 1) change.after.epoch;
+  Alcotest.(check (option int)) "unknown count" None change.in_flight;
+  check_bool "pause committed" true (Store.find db o.id = Some change.after);
+  check_flags "queued fire skipped"
+    (T.Skipped_inactive, false, false)
+    (S.fire_flags db queued.id);
+  check_flags "claimed fire cancelled" (T.Fetching, false, true)
+    (S.fire_flags db claimed.id);
+  check_flags "posting cannot repost" (T.Posting, true, false)
+    (S.fire_flags db posting.id);
+  check_flags "unknown posting cannot repost"
+    (T.Posting_unknown, true, false)
+    (S.fire_flags db unknown.id)
+
+let test_pause_write_failure_rolls_back () =
+  List.iter
+    (fun (name, table, column) ->
+      let db = S.fresh_db () in
+      let o = S.seed db () in
+      let queued = S.fire db o ~state:T.Detected ~room:"R1" () in
+      let claimed =
+        S.fire db o ~state:T.Fetching ~claim_until:(S.now +. 60.) ~room:"R2" ()
+      in
+      let posting = S.fire db o ~state:T.Posting ~room:"R3" () in
+      Sql_util.exec_exn db
+        (Printf.sprintf
+           "CREATE TRIGGER fixture_write_failure BEFORE UPDATE OF %s ON %s \
+            BEGIN SELECT RAISE(ABORT, 'fixture write failure'); END"
+           column table);
+      expect_error name
+        (Store.deactivate db ~order_id:o.id (Store.Pause "U456") ~now:S.now);
+      check_bool
+        (name ^ ": order rolled back")
+        true
+        (Store.find db o.id = Some o);
+      List.iter
+        (fun (label, state, (fire : T.fire)) ->
+          check_flags
+            (name ^ ": " ^ label)
+            (state, false, false) (S.fire_flags db fire.id))
+        [
+          ("queued", T.Detected, queued);
+          ("claimed", T.Fetching, claimed);
+          ("posting", T.Posting, posting);
+        ])
+    [
+      ("order write", "slack_standing_orders", "state");
+      ("skip sweep", "slack_standing_order_fires", "state");
+      ("cancel sweep", "slack_standing_order_fires", "cancel_requested");
+      ("repost sweep", "slack_standing_order_fires", "repost_forbidden");
+    ]
+
 let test_deactivate_idempotent () =
   let db = S.fresh_db () in
   let o = S.seed db () in
@@ -195,6 +264,7 @@ let test_deactivate_idempotent () =
   let fired = S.fire db o ~state:T.Detected ~room:"R1" () in
   let again = deactivate db o (Store.Pause "U789") in
   check_bool "unchanged" false again.changed;
+  Alcotest.(check (option int)) "unchanged count" (Some 0) again.in_flight;
   check_int "same epoch" first.after.epoch again.after.epoch;
   check_bool "row untouched" true (Store.find db o.id = Some first.after);
   check_opt "first pauser kept" (Some "U456") again.after.paused_by;
@@ -448,6 +518,65 @@ let test_cards () =
     | None -> false);
   check_bool "unknown card" true (Store.find_card db "soc_missing" = None)
 
+let test_store_facade_preserves_lifecycle_and_cards () =
+  let db = S.fresh_db () in
+  let pending =
+    match
+      Store.insert_pending db ~id:"so_facade" ~team_id:"T123" ~api_app_id:"A123"
+        ~channel_id:"C123" ~grantor_user_id:"U123" ~action:(S.relay_action ())
+        ~management_thread_ts:"100.000001" ~now:S.now ()
+    with
+    | Ok o -> o
+    | Error _ -> Alcotest.fail "insert pending"
+  in
+  let active =
+    ok "activate"
+      (Store.activate_in_tx db ~order_id:pending.id
+         ~active_since:"1700000000.000100" ~confirmed_by:"U123"
+         ~bot_user_id:"UBOT" ~bot_id:"BOWN" ~now:S.now)
+  in
+  let insert_fire () =
+    Store.insert_fire db ~order:active ~room_id:"R123" ~date_start:"1700000000"
+      ~now:S.now ()
+  in
+  let fire =
+    match ok "insert fire" (insert_fire ()) with
+    | Some f -> f
+    | None -> Alcotest.fail "first fire was a duplicate"
+  in
+  let card =
+    Store.insert_card db ~kind:T.Pause_button ~order:active ~created_by:"U123"
+      ~reply_thread_ts:"100.000001" ~now:S.now ()
+  in
+  Store.set_card_message_ts db ~card_id:card.id "100.000002";
+  let bound_card = { card with message_ts = Some "100.000002" } in
+  let old, successor =
+    ok "replace"
+      (Store.in_tx db ~on_error:Fun.id (fun () ->
+           Store.replace_in_tx db ~old_id:active.id ~expected_epoch:active.epoch
+             ~new_id:"so_successor" ~grantor_user_id:"U123"
+             ~action:(S.relay_action ~instruction:"New text" ())
+             ~management_thread_ts:"100.000001"
+             ~active_since:"1700000000.000200" ~confirmed_by:"U123"
+             ~bot_user_id:"UBOT" ~bot_id:"BOWN" ~now:S.now ()))
+  in
+  check_state "old cancelled" T.Cancelled old.state;
+  check_state "successor active" T.Active successor.state;
+  check_int "successor epoch" 1 successor.epoch;
+  check_bool "old reads back" true (Store.find db old.id = Some old);
+  check_bool "successor reads back" true
+    (Store.find db successor.id = Some successor);
+  check_bool "same bound card lookup" true
+    (Store.find_card db card.id = Some bound_card);
+  let retained = Store.list_fires db ~order_id:old.id ~limit:10 in
+  Alcotest.(check (list string))
+    "old fire retained" [ fire.id ]
+    (List.map (fun (f : T.fire) -> f.id) retained);
+  (match retained with
+  | [ f ] -> check_bool "old fire swept" true (f.state = T.Skipped_inactive)
+  | _ -> Alcotest.fail "expected the old fire");
+  check_bool "second insert is Ok None" true (insert_fire () = Ok None)
+
 let test_undecodable_rows () =
   let db = S.fresh_db () in
   let bad = S.seed db () in
@@ -633,6 +762,9 @@ let suite =
     S.case "activation rejects a non-Slack timestamp"
       test_activation_rejects_bad_ts;
     S.case "pause sweep" test_pause_sweep;
+    S.case "pause count failure still commits"
+      test_pause_count_failure_still_commits;
+    S.case "pause write failure rolls back" test_pause_write_failure_rolls_back;
     S.case "deactivate idempotent" test_deactivate_idempotent;
     S.case "deactivate transition table" test_transition_table;
     S.case "deactivate_in_tx joins the caller's transaction"
@@ -648,6 +780,8 @@ let suite =
     S.case "dispatch window" test_dispatch_window;
     S.case "a failed read is never empty" test_strict_reads;
     S.case "cards" test_cards;
+    S.case "store facade preserves lifecycle and cards"
+      test_store_facade_preserves_lifecycle_and_cards;
     S.case "undecodable rows" test_undecodable_rows;
     S.case "instruction validation counts code points"
       test_instruction_validation;

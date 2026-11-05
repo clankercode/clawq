@@ -48,6 +48,8 @@ val check_policy :
   uri:string ->
   ?method_:string ->
   ?audit:audit_context ->
+  ?strict_audit:bool ->
+  ?sensitive_uri:bool ->
   unit ->
   (unit, policy_error) result
 (** [check_policy ~rules ~uri ?method_ ?audit ()] evaluates the egress policy
@@ -55,7 +57,12 @@ val check_policy :
     request is allowed, or [Error policy_error] if denied.
 
     Extracts the host and path from [uri] automatically. When [audit] is
-    provided with a database, the decision is recorded to [egress_audit]. *)
+    provided with a database, the decision is recorded to [egress_audit].
+    [strict_audit=true] requires a successfully inserted audit row, raising on
+    failure (separately from a policy denial). [sensitive_uri=true] matches the
+    actual destination but replaces output host with ["[sensitive-uri]"], omits
+    the path, and uses a fixed diagnostic, including for invalid URIs. Both
+    flags default to [false]. *)
 
 val post_json :
   rules:Runtime_config_types.egress_rule list ->

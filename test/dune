@@ -5,6 +5,7 @@
   (source_tree fixtures))
  (modules
   test_main
+  test_slack_standing_order_repost_support
   test_helpers_cleanup
   test_ambient_policy
   test_plan_pipeline
@@ -322,11 +323,28 @@
   test_slack_huddle_classify
   test_slack_huddle_ledger
   test_slack_huddle_observer
+  test_slack_huddle_transcript
+  test_slack_standing_order_provenance
+  test_slack_standing_order_relay
+  test_slack_standing_order_dispatch_retry
+  test_slack_standing_order_exec_support
+  test_slack_standing_order_fetch
+  test_slack_standing_order_worker
+  test_slack_standing_order_exec_review
+  test_slack_standing_order_final_fix
+  test_slack_standing_order_exec
   test_slack_standing_order_config
   test_slack_standing_order_support
+  slack_standing_order_test_support
   test_slack_standing_order_store
+  test_slack_standing_order_fire_store
+  test_slack_standing_order_report
+  test_slack_standing_order_pickup
   test_slack_standing_order_slack
+  test_slack_standing_order_upload
   test_slack_standing_order_grant
+  test_slack_standing_order_grant_support
+  test_slack_standing_order_grant_fire
   test_slack_standing_order_target
   test_slack_standing_order_render
   test_slack_standing_order_fixtures

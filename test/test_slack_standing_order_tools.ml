@@ -639,11 +639,132 @@ let test_ops_template () =
         grant_tools)
     Agent_template_builtins.all
 
+let grant_mutation_tools =
+  [
+    Tools.create_name;
+    Slack_standing_order_change.tool_name;
+    Tools.resume_name;
+    Tools.cancel_name;
+  ]
+
+let forbids_grant_mutation registry template =
+  let effective = Agent_template.filter_tool_registry registry template in
+  List.for_all
+    (fun name -> Tool_registry.find effective name = None)
+    grant_mutation_tools
+
+let test_effective_builtin_tools () =
+  F.with_orders (fun env ->
+      let registry = Option.get env.base.manager.Session_core.tool_registry in
+      List.iter
+        (fun name ->
+          check_bool (name ^ " registered") true
+            (Tool_registry.find registry name <> None))
+        grant_mutation_tools;
+      List.iter
+        (fun (t : Agent_template.t) ->
+          check_bool
+            (t.name ^ " effective tools forbid grant mutation")
+            true
+            (forbids_grant_mutation registry t))
+        Agent_template_builtins.all;
+      let unrestricted =
+        {
+          Agent_template_builtins.ops with
+          allowed_tools = [];
+          disallowed_tools = [];
+        }
+      in
+      check_bool "empty allowlist and no denials rejected" false
+        (forbids_grant_mutation registry unrestricted);
+      check_bool "empty allowlist with explicit denials accepted" true
+        (forbids_grant_mutation registry
+           { unrestricted with disallowed_tools = grant_mutation_tools });
+      let ops =
+        Agent_template.filter_tool_registry registry Agent_template_builtins.ops
+      in
+      List.iter
+        (fun name ->
+          check_bool
+            ("ops effectively allows " ^ name)
+            true
+            (Tool_registry.find ops name <> None))
+        [ Tools.list_name; Tools.show_name; Tools.pause_name ];
+      Lwt.return_unit)
+
+let standing_order_docs () =
+  List.map
+    (fun path ->
+      let rec locate dir =
+        let file = Filename.concat dir path in
+        if Sys.file_exists file then file
+        else
+          let parent = Filename.dirname dir in
+          if parent = dir then Alcotest.fail ("cannot find " ^ path)
+          else locate parent
+      in
+      let file = locate (Sys.getcwd ()) in
+      let content =
+        In_channel.with_open_bin file (fun ic -> In_channel.input_all ic)
+      in
+      (path, content))
+    [ "docs/connector-reference.md"; "docs/public/llms-full.txt" ]
+
+let test_executor_status_docs () =
+  List.iter
+    (fun (path, content) ->
+      check_bool
+        (path ^ " removes stale status")
+        false
+        (contains content "no huddle is relayed yet");
+      List.iter
+        (fun text ->
+          check_bool (path ^ " includes " ^ text) true (contains content text))
+        [ "include_transcription=true"; "files.slack.com"; "posting_unknown" ])
+    (standing_order_docs ())
+
+let test_executor_egress_methods () =
+  List.iter
+    (fun (path, content) ->
+      let rows =
+        String.split_on_char '\n' content
+        |> List.filter_map (fun line ->
+            match String.split_on_char '|' line |> List.map String.trim with
+            | [ ""; method_; (("GET" | "POST") as verb); "" ]
+              when String.starts_with ~prefix:"`" method_ ->
+                Some (String.trim method_, verb)
+            | _ -> None)
+      in
+      let expected =
+        List.map
+          (fun (method_, verb) -> ("`" ^ method_ ^ "`", verb))
+          Slack_standing_order_slack.methods
+      in
+      Alcotest.(check (list (pair string string)))
+        (path ^ " closed method table")
+        expected rows)
+    (standing_order_docs ())
+
+let test_executor_upload_egress () =
+  let rule =
+    "Upload egress: allow POST to `" ^ Slack_standing_order_slack.upload_prefix
+    ^ "` (all paths); no redirects are followed."
+  in
+  List.iter
+    (fun (path, content) ->
+      check_bool (path ^ " raw upload rule") true (contains content rule))
+    (standing_order_docs ())
+
 let suite =
   List.map
     (fun (name, f) -> (name, `Quick, f))
     [
       ("ops template exposes read and pause only", test_ops_template);
+      ( "builtin effective tools never allow grant mutation",
+        test_effective_builtin_tools );
+      ("executor status docs no longer say no relay", test_executor_status_docs);
+      ("executor docs match closed API verbs", test_executor_egress_methods);
+      ("executor docs pin raw upload egress", test_executor_upload_egress);
       ("create posts a bound card", test_create_card);
       ("create needs a live turn", test_live_turn);
       ("identity arguments are rejected", test_identity_args);

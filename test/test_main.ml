@@ -299,9 +299,22 @@ let all_suites =
     ("slack_huddle_classify", Test_slack_huddle_classify.suite);
     ("slack_huddle_ledger", Test_slack_huddle_ledger.suite);
     ("slack_huddle_observer", Test_slack_huddle_observer.suite);
+    ("slack_huddle_transcript", Test_slack_huddle_transcript.suite);
+    ( "slack_standing_order_provenance",
+      Test_slack_standing_order_provenance.suite );
+    ("slack_standing_order_relay", Test_slack_standing_order_relay.suite);
+    ( "slack_standing_order_dispatch_retry",
+      Test_slack_standing_order_dispatch_retry.suite );
+    ("slack_standing_order_report", Test_slack_standing_order_report.suite);
+    ("slack_standing_order_pickup", Test_slack_standing_order_pickup.suite);
+    ("slack_standing_order_exec", Test_slack_standing_order_exec.suite);
+    ("slack_standing_order_final_fix", Test_slack_standing_order_final_fix.suite);
     ("slack_standing_order_config", Test_slack_standing_order_config.suite);
     ("slack_standing_order_store", Test_slack_standing_order_store.suite);
+    ( "slack_standing_order_fire_store",
+      Test_slack_standing_order_fire_store.suite );
     ("slack_standing_order_slack", Test_slack_standing_order_slack.suite);
+    ("slack_standing_order_upload", Test_slack_standing_order_upload.suite);
     ("slack_standing_order_grant", Test_slack_standing_order_grant.suite);
     ("slack_standing_order_target", Test_slack_standing_order_target.suite);
     ("slack_standing_order_render", Test_slack_standing_order_render.suite);

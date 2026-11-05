@@ -71,43 +71,53 @@ let denial_hint matched_rule_index =
     [audit.db] is provided. Returns [Ok ()] if allowed, [Error policy_error] if
     denied. URIs with missing/empty hosts are denied at the policy layer. *)
 let check_policy ~rules ?(egress = strict_empty_egress) ~uri ?method_
-    ?(audit = no_audit) () =
-  let host_opt, path = parse_uri uri in
+    ?(audit = no_audit) ?(strict_audit = false) ?(sensitive_uri = false) () =
+  let sensitive_message = "egress policy decision for [sensitive-uri]" in
+  let host_opt, path =
+    try parse_uri uri
+    with exn -> if sensitive_uri then (None, None) else raise exn
+  in
   match host_opt with
   | None ->
-      let msg = Printf.sprintf "egress denied: invalid URI (no host): %s" uri in
+      let host = if sensitive_uri then "[sensitive-uri]" else "" in
+      let msg =
+        if sensitive_uri then sensitive_message
+        else Printf.sprintf "egress denied: invalid URI (no host): %s" uri
+      in
       Log.warn (fun m -> m "%s" msg);
       (* Emit audit event for invalid URI denial *)
       (match audit.db with
       | Some db ->
-          Egress_audit.record ~db ~decision:Denied ~host:"" ?method_
+          Egress_audit.record ~db ~decision:Denied ~host ?method_
             ~matched_rule_index:(-1) ?session_key:audit.session_key
             ?snapshot_id:audit.snapshot_id ?tool_name:audit.tool_name
             ?profile_id:audit.profile_id
-            ~credential_handle_ids:audit.credential_handle_ids ()
-      | None -> ());
+            ~credential_handle_ids:audit.credential_handle_ids
+            ~strict:strict_audit ()
+      | None -> if strict_audit then failwith "egress audit unavailable");
       Error
-        {
-          host = "";
-          path = None;
-          method_;
-          matched_rule_index = -1;
-          message = msg;
-        }
+        { host; path = None; method_; matched_rule_index = -1; message = msg }
   | Some host -> (
       let result =
         Egress_evaluator.evaluate ~rules
           ~default_allowlist:egress.default_allowlist
           ~strictness:egress.strictness ~host ?path ?method_ ()
       in
+      (* Match the real destination above; only sanitized values cross any
+         output boundary below, including the audit writer. *)
+      let host, path =
+        if sensitive_uri then ("[sensitive-uri]", None) else (host, path)
+      in
       match result.action with
       | Allow ->
           (match result.log_policy with
           | Log ->
-              Log.info (fun m ->
-                  m "egress allow: %s %s (rule %d)" host
-                    (Option.value path ~default:"/")
-                    result.matched_rule_index)
+              if sensitive_uri then Log.info (fun m -> m "%s" sensitive_message)
+              else
+                Log.info (fun m ->
+                    m "egress allow: %s %s (rule %d)" host
+                      (Option.value path ~default:"/")
+                      result.matched_rule_index)
           | No_log -> ());
           (* Emit audit event for allowed decision *)
           (match audit.db with
@@ -116,8 +126,9 @@ let check_policy ~rules ?(egress = strict_empty_egress) ~uri ?method_
                 ~matched_rule_index:result.matched_rule_index
                 ?session_key:audit.session_key ?snapshot_id:audit.snapshot_id
                 ?tool_name:audit.tool_name ?profile_id:audit.profile_id
-                ~credential_handle_ids:audit.credential_handle_ids ()
-          | None -> ());
+                ~credential_handle_ids:audit.credential_handle_ids
+                ~strict:strict_audit ()
+          | None -> if strict_audit then failwith "egress audit unavailable");
           Ok ()
       | Deny ->
           let path_str = Option.value path ~default:"/" in
@@ -125,9 +136,11 @@ let check_policy ~rules ?(egress = strict_empty_egress) ~uri ?method_
             match method_ with Some m -> m ^ " " | None -> ""
           in
           let msg =
-            Printf.sprintf "egress denied: %s%s %s (rule %d). %s" method_str
-              host path_str result.matched_rule_index
-              (denial_hint result.matched_rule_index)
+            if sensitive_uri then sensitive_message
+            else
+              Printf.sprintf "egress denied: %s%s %s (rule %d). %s" method_str
+                host path_str result.matched_rule_index
+                (denial_hint result.matched_rule_index)
           in
           (match result.log_policy with
           | Log -> Log.warn (fun m -> m "%s" msg)
@@ -139,8 +152,9 @@ let check_policy ~rules ?(egress = strict_empty_egress) ~uri ?method_
                 ~matched_rule_index:result.matched_rule_index
                 ?session_key:audit.session_key ?snapshot_id:audit.snapshot_id
                 ?tool_name:audit.tool_name ?profile_id:audit.profile_id
-                ~credential_handle_ids:audit.credential_handle_ids ()
-          | None -> ());
+                ~credential_handle_ids:audit.credential_handle_ids
+                ~strict:strict_audit ()
+          | None -> if strict_audit then failwith "egress audit unavailable");
           Error
             {
               host;

@@ -61,7 +61,7 @@ let test_receipt_copy () =
     (fun (name, outcome, want) -> check_string name want (receipt outcome))
     [
       ( "several in flight",
-        P.Paused { order = o; in_flight = 2 },
+        P.Paused { order = o; in_flight = Some 2 },
         "Standing order SO-4 is paused (by <@U456>). Huddles that become ready \
          while it is paused will never be relayed, even after a resume. 2 \
          relays were already being sent before the pause." );
@@ -92,7 +92,37 @@ let test_receipt_copy () =
   check_string "a non-user actor is verbatim"
     "Standing order SO-4 is paused (by cli). Huddles that become ready while \
      it is paused will never be relayed, even after a resume."
-    (P.receipt ~display_no:4 ~by:"cli" (P.Paused { order = o; in_flight = 0 }))
+    (P.receipt ~display_no:4 ~by:"cli"
+       (P.Paused { order = o; in_flight = Some 0 }))
+
+let test_unknown_count_receipt () =
+  let o = S.seed (S.fresh_db ()) () in
+  check_string "unknown suffix" " Relays may already be in flight."
+    (P.in_flight_note None);
+  check_string "zero suffix" "" (P.in_flight_note (Some 0));
+  check_string "singular suffix"
+    " 1 relay was already being sent before the pause."
+    (P.in_flight_note (Some 1));
+  check_string "unknown count receipt"
+    (paused_receipt ~by:"U123" ^ " Relays may already be in flight.")
+    (P.receipt ~display_no:1 ~by:"U123"
+       (P.Paused { order = o; in_flight = None }))
+
+let test_pause_count_failure () =
+  F.with_orders (fun env ->
+      let o = F.seed env () in
+      let fire = S.fire env.db o ~state:T.Posting ~room:"R1" () in
+      Sqlite3.create_fun0 env.db "count" (fun () ->
+          failwith "fixture count failure");
+      let* _ = F.say env "pause SO-1" in
+      check_state env o T.Paused;
+      check_bool "unknown count receipt" true
+        (has_text env
+           (paused_receipt ~by:"U123" ^ " Relays may already be in flight."));
+      check_bool "repost forbidden" true
+        (S.fire_flags env.db fire.id = (T.Posting, true, false));
+      check_bool "no provider call" true (!(env.seen) = []);
+      Lwt.return_unit)
 
 let test_channel_has_orders () =
   let db = S.fresh_db () in
@@ -573,6 +603,8 @@ let suite =
   [
     case "parse exact pause commands" test_parse;
     case "receipt copy" test_receipt_copy;
+    case "unknown count receipt" test_unknown_count_receipt;
+    case "pause count failure still commits" test_pause_count_failure;
     case "channel_has_orders sees any row" test_channel_has_orders;
     case "member outside the allowlist can pause" test_member_outside_allowlist;
     case "pause works with the llm down" test_llm_down;

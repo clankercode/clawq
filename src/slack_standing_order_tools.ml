@@ -495,6 +495,7 @@ let list p =
 let show p (o : T.order) =
   Yojson.Safe.to_string
     (Render.order_detail_json o
+       ~reports:(Slack_standing_order_report.statuses ~db:p.db ~order_id:o.id)
        ~fires:(Store.list_fires p.db ~order_id:o.id ~limit:10))
 
 (* ── pause, resume, cancel ──────────────────────────────────────────────── *)

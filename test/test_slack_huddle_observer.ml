@@ -16,6 +16,7 @@ let watch_all ?(log = ref []) () =
       (fun ~team ~app ~channel ->
         log := !log @ [ (team, app, channel) ];
         team = "T123");
+    huddles = (fun ~team:_ ~app:_ ~channel:_ -> true);
     context =
       (fun ~team:_ ~app:_ ~channel:_ -> Slack_huddle_classify.empty_context);
   }
@@ -333,8 +334,215 @@ let test_real_store_ledger () =
         (room_row "R0ROOM9" (rows db) = None);
       Alcotest.(check int) "still one row" 1 (List.length (rows db)))
 
+module P = Test_slack_standing_order_pickup
+module FS = Test_slack_standing_order_fire_store
+module T = Slack_standing_order_types
+
+let ingest ?(team = "T123") ?(app = "A123") ?watch db event =
+  let watch = Option.value watch ~default:(W.of_db db) in
+  Slack_huddle_observer.observe_db ~db ~watch ~now:(Store.now ())
+    (F.envelope ~team ~app event)
+
+let file_reaction ?(user = "UCLAUDE") id =
+  F.reaction ~user ~item:(obj [ ("type", str "file"); ("file", str id) ]) ()
+
+let test_file_reaction () =
+  List.iter
+    (fun (n, id) ->
+      P.fixture (fun db _ _ fire lease ->
+          P.second db fire lease;
+          Slack_standing_order_pickup.init db;
+          List.iter
+            (fun (team, app, file) ->
+              ingest ~team ~app db (file_reaction file);
+              Alcotest.(check (option string))
+                "scoped lookup refuses" None
+                (Store.channel_for_file db ~team_id:team ~api_app_id:app
+                   ~file_id:file))
+            [
+              ("T999", "A123", id);
+              ("T123", "A999", id);
+              ("T123", "A123", "FUNKNOWN");
+            ];
+          ingest db (file_reaction ~user:"U456" id);
+          P.integer "foreign/unknown/non-target queue nothing" 0 (P.queued db);
+          Alcotest.(check (option string))
+            "retained file resolves channel" (Some "C123")
+            (Store.channel_for_file db ~team_id:"T123" ~api_app_id:"A123"
+               ~file_id:id);
+          ingest db (file_reaction id);
+          ingest db (file_reaction id);
+          P.integer "one acknowledgement queued" 1 (P.queued db);
+          check_bool "observer does not reduce" false
+            (P.attempt db fire n).reaction_seen;
+          P.confirm db fire;
+          P.state db fire T.Acknowledged;
+          check_bool "correct retained attempt acknowledged" true
+            (P.attempt db fire n).reaction_seen))
+    [ (0, "FONE"); (1, "FTWO") ]
+
+let unresolved db =
+  Slack_standing_order_pickup.init db;
+  let o, fire = FS.seed db in
+  let lease = FS.claim db fire.id "observer-test" S.now in
+  FS.prepare db fire.id lease S.now;
+  check_bool "reserve" true (FS.ok (FS.reserve db fire.id lease S.now false));
+  let before = FS.runtime db fire.id in
+  let a =
+    {
+      (Option.get (Store.attempt before 0)) with
+      uploaded_file_ids = [ "FONE" ];
+      upload_started_at = Some S.now;
+    }
+  in
+  check_bool "persist unresolved identity" true
+    (FS.ok
+       (Store.cas db ~lease ~before
+          ~after:
+            {
+              before with
+              nonce = Some F.relay_nonce;
+              attempts = [ a ];
+              fire = { before.fire with state = T.Posting_unknown };
+            }
+          ~now:S.now));
+  (o, fire.id, lease)
+
+let test_own_bot () =
+  List.iter
+    (fun changed ->
+      with_db (fun db ->
+          let _, id, lease = unresolved db in
+          let event bot =
+            let m =
+              F.own_relay ~channel:"C123" ~ts:P.ts0 ~bot_id:bot
+                ~files:[ F.md_file ~id:"FONE" () ]
+                ()
+            in
+            if changed then
+              update
+                (F.root_changed ~channel:"C123" m)
+                [
+                  ( "bot_id",
+                    str (if bot = Some "BOWN" then "BWRONG" else "BOWN") );
+                ]
+            else m
+          in
+          List.iter (fun bot -> ingest db (event bot)) [ Some "BWRONG"; None ];
+          P.integer "wrong/missing stored bot id rejected" 0 (P.queued db);
+          ingest ~team:"T999" db (event (Some "BOWN"));
+          ingest ~app:"A999" db (event (Some "BOWN"));
+          P.integer "own relay envelope scoped" 0 (P.queued db);
+          ingest db (event (Some "BOWN"));
+          P.integer "verified own relay queued" 1 (P.queued db);
+          check_bool "lease preserved" true
+            ((FS.runtime db id).claim = Some lease);
+          Alcotest.(check (option string))
+            "not reduced by observer" None (P.attempt db id 0).relay_ts;
+          P.confirm db id;
+          Alcotest.(check (option string))
+            "worker records relay ts" (Some P.ts0) (P.attempt db id 0).relay_ts))
+    [ false; true ]
+
+let test_inactive_tracking () =
+  List.iter
+    (fun op ->
+      P.fixture (fun db _ o id _ ->
+          deactivate db o op;
+          check_bool "dispatched inactive channel remains watched" true
+            (observed db "C123");
+          ingest db (F.huddle_root ~channel:"C123" ());
+          ingest db (F.notes_ready ~channel:"C123" ());
+          check_bool "inactive-only channel creates no huddle or stub" true
+            (L.list_rows ~db ~team:"T123" ~channel:"C123" = []);
+          ingest db (file_reaction "FONE");
+          P.integer "late pickup queued" 1 (P.queued db);
+          P.confirm db id;
+          P.state db id T.Acknowledged;
+          let watch = W.of_db db in
+          let watch =
+            {
+              watch with
+              W.context =
+                (fun ~team ~app ~channel ->
+                  {
+                    (watch.context ~team ~app ~channel) with
+                    matchers = P.fake_matchers;
+                  });
+            }
+          in
+          ingest ~watch db
+            (F.claude_reply ~channel:"C123" ~bot_id:"BCLAUDE" ~app_id:"ACLAUDE"
+               ~thread_ts:(Some P.ts0) ~text:"FAKE DISABLED" ());
+          P.confirm db id;
+          P.state db id T.Not_delivered))
+    [ Store.Suspend "test"; Store.Cancel "U123" ]
+
+let with_hooks f =
+  let wake = !Slack_huddle_observer.wake
+  and posture = !Slack_huddle_observer.posture_changed in
+  Fun.protect
+    ~finally:(fun () ->
+      Slack_huddle_observer.wake := wake;
+      Slack_huddle_observer.posture_changed := posture)
+    f
+
+let test_effect_hooks () =
+  with_hooks (fun () ->
+      let wakes = ref 0 and postures = ref [] in
+      (Slack_huddle_observer.wake := fun () -> incr wakes);
+      (Slack_huddle_observer.posture_changed :=
+         fun ~channel -> postures := channel :: !postures);
+      with_db (fun db ->
+          ignore (S.seed db ());
+          ingest db (F.huddle_root ~channel:"C123" ());
+          ingest db (F.notes_ready ~channel:"C123" ());
+          Alcotest.(check int) "hints wake after writes" 2 !wakes;
+          ingest db (F.posture ~channel:"C123" "channel_shared");
+          Alcotest.(check (list string))
+            "posture invalidates channel" [ "C123" ] !postures;
+          Alcotest.(check int) "posture wakes worker" 3 !wakes;
+          ingest db (F.human ~channel:"C123" "irrelevant");
+          Alcotest.(check int) "irrelevant does not wake" 3 !wakes);
+      let db = Sqlite3.db_open ":memory:" in
+      ignore (Sqlite3.db_close db);
+      ingest ~watch:(watch_all ()) db (F.huddle_root ~channel:"C123" ());
+      Alcotest.(check int) "failed write does not wake" 3 !wakes)
+
+let test_effects_no_network () =
+  with_ingress (fun base calls _ seen _ _ ->
+      let _, id, lease = unresolved base.db in
+      Slack_huddle_observer.observe ~manager:base.manager
+        (F.envelope
+           (F.own_relay ~channel:"C123" ~ts:P.ts0
+              ~files:[ F.md_file ~id:"FONE" () ]
+              ()));
+      ingest base.db (file_reaction "FONE");
+      check_bool "fixture resolves relay without HTTP" true
+        (FS.ok (FS.record_relay base.db id lease P.ts0 S.now));
+      ingest base.db
+        (F.claude_reply ~channel:"C123" ~bot_id:"BCLAUDE" ~app_id:"ACLAUDE"
+           ~thread_ts:(Some P.ts0) ());
+      ingest base.db (F.huddle_root ~channel:"C123" ());
+      ingest base.db (F.notes_ready ~channel:"C123" ());
+      ingest base.db (F.posture ~channel:"C123" "member_joined_channel");
+      Alcotest.(check int)
+        "relay, reaction and reply effects queued" 3 (P.queued base.db);
+      check_bool "pickup still pending worker" true
+        ((FS.runtime base.db id).fire.state = T.Posted);
+      Alcotest.(check int) "Slack calls" 0 (List.length !calls);
+      Alcotest.(check int) "Provider calls" 0 (List.length !seen);
+      Lwt.return_unit)
+
 let suite =
   [
+    S.case "channel-less file reaction resolves through fire" test_file_reaction;
+    S.case "own relay effect verifies stored bot id" test_own_bot;
+    S.case "dispatched inactive orders track pickup without huddle hints"
+      test_inactive_tracking;
+    S.case "observer wakes writes and invalidates posture" test_effect_hooks;
+    S.case "observer effects never call Slack or Provider"
+      test_effects_no_network;
     ("observed channel records huddle and notes", `Quick, test_observed_channel);
     ("envelope, watch and dm gates", `Quick, test_gates);
     ("store failure never escapes; malformed ignored", `Quick, test_failures);

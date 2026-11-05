@@ -13,10 +13,7 @@ let get = Slack_huddles.get
 let field = Slack_huddles.field
 let flag = Slack_huddles.flag
 let valid_id = Slack_huddles.valid_id
-
-let capability_names =
-  [ "slack_huddles"; "slack_huddle_content"; "slack_standing_order_fire" ]
-
+let capability_names = SO.capability_names
 let max_pages = 5
 let page_size = 200
 let max_scan_members = max_pages * page_size
@@ -27,7 +24,9 @@ type stage =
   | Confirm
   | Replace of { replaces : string; replaced_epoch : int }
   | Resume
-  | Fire of { fire_epoch : int }
+  | Resolve
+  | Fire of { fire_epoch : int; fire_id : string }
+  | Track of { fire_id : string }
 
 type failure_class = Hard | Transient | Inactive | Capped
 
@@ -41,6 +40,7 @@ type reason =
   | Order_expired
   | Epoch_mismatch
   | Daily_cap_reached
+  | Activation_unannounced
   | Identity_changed
   | Target_not_allowlisted
   | Grantor_not_allowed
@@ -68,7 +68,7 @@ let classify = function
   | Epoch_mismatch ->
       Inactive
   | Daily_cap_reached -> Capped
-  | Indeterminate _ | Config_changed -> Transient
+  | Indeterminate _ | Config_changed | Activation_unannounced -> Transient
   | Credentials_invalid | Identity_changed | Target_not_allowlisted
   | Grantor_not_allowed | Grantor_not_admin | Tool_denied _ | Duplicate_order _
   | Team_mismatch | App_mismatch | Bot_not_member | Private_policy_denied
@@ -89,6 +89,7 @@ let reason_code = function
   | Order_expired -> "order_expired"
   | Epoch_mismatch -> "epoch_mismatch"
   | Daily_cap_reached -> "daily_cap_reached"
+  | Activation_unannounced -> "activation_unannounced"
   | Identity_changed -> "identity_changed"
   | Target_not_allowlisted -> "target_not_allowlisted"
   | Grantor_not_allowed -> "grantor_not_allowed"
@@ -140,6 +141,7 @@ type validated = {
   enterprise_id : string option;
   bot_user_id : string;
   bot_id : string;
+  team_url : string;
   call : SO.call;
 }
 
@@ -203,7 +205,11 @@ let no_live_conflict db (s : subject) ~excluding =
 let own_row db (s : subject) =
   match Store.find db s.order_id with
   | None -> Error Order_missing
-  | Some o when same_scope s o && o.grantor_user_id = s.grantor_user_id -> Ok o
+  | Some o
+    when same_scope s o
+         && o.enterprise_id = s.enterprise_id
+         && o.grantor_user_id = s.grantor_user_id ->
+      Ok o
   | Some _ -> Error Identity_changed
 
 let replaced_row db (s : subject) id =
@@ -249,6 +255,14 @@ let plan_rows db (s : subject) ~replaces ~replaced_epoch =
     in
     Ok { row = None; old_row = replaced }
 
+(* A fire id is authority only for its owning order. Use the strict store
+   query before any Slack reads, and repeat it after the last await. *)
+let bound_fire db (o : T.order) fire_id =
+  match Store.query_fires db "WHERE id = ?" [ Sqlite3.Data.TEXT fire_id ] with
+  | [ f ] when f.order_id = o.id -> Ok f
+  | [ _ ] -> Error Identity_changed
+  | _ -> Error (Indeterminate "fire")
+
 let stage_rows db ~now ~stage (s : subject) =
   let only o = Ok { row = Some o; old_row = None } in
   match stage with
@@ -265,11 +279,28 @@ let stage_rows db ~now ~stage (s : subject) =
       let*? () = require_state o T.[ Paused; Suspended ] in
       let*? () = no_live_conflict db s ~excluding:o.id in
       only o
-  | Fire { fire_epoch } ->
+  | Track { fire_id } ->
+      let*? o = own_row db s in
+      let*? f = bound_fire db o fire_id in
+      (* Dispatch evidence survives terminal states and pause/cancel epochs. *)
+      if Option.is_some f.dispatched_at then only o
+      else Error (Indeterminate "fire")
+  | Resolve ->
       let*? o = own_row db s in
       let*? () = require_state o [ T.Active ] in
-      if o.epoch <> fire_epoch then Error Epoch_mismatch
+      if not (unexpired o ~now) then Error Order_expired
+      else if not (Store.activation_announced db ~order_id:o.id) then
+        Error Activation_unannounced
+      else only o
+  | Fire { fire_epoch; fire_id } ->
+      let*? o = own_row db s in
+      let*? f = bound_fire db o fire_id in
+      let*? () = require_state o [ T.Active ] in
+      if o.epoch <> fire_epoch || f.epoch <> fire_epoch then
+        Error Epoch_mismatch
       else if not (unexpired o ~now) then Error Order_expired
+      else if not (Store.activation_announced db ~order_id:o.id) then
+        Error Activation_unannounced
       else if
         Store.dispatches_since db ~order_id:o.id ~since:(now -. 86400.)
         >= o.max_fires_per_day
@@ -310,6 +341,9 @@ let refuse reason = Lwt.return (Error reason)
 let typed_bool key json = match get key json with `Bool _ -> true | _ -> false
 let user_flags = [ "deleted"; "is_bot"; "is_restricted"; "is_ultra_restricted" ]
 
+let reported_id prefix key json =
+  match get key json with `String id -> valid_id prefix id | _ -> false
+
 let cursor_params cursor =
   if cursor = "" then [] else [ ("cursor", `String cursor) ]
 
@@ -320,7 +354,10 @@ let next_cursor json =
   | _ -> None
 
 let reason_of_error ~user_not_found method_ : SO.error -> reason = function
-  | Rate_limited | Http_status _ | Transport -> Indeterminate method_
+  | Dispatch_refused -> Epoch_mismatch
+  | Rate_limited | Http_status _ | Transport | Audit_unavailable
+  | Snapshot_unavailable ->
+      Indeterminate method_
   | Slack_error "missing_scope" -> Missing_scope method_
   | Slack_error
       ("invalid_auth" | "token_revoked" | "account_inactive" | "not_authed") ->
@@ -338,6 +375,30 @@ let request (call : SO.call) ?(user_not_found = Indeterminate "users.info")
   let+ result = call method_ params in
   Result.map_error (reason_of_error ~user_not_found method_) result
 
+(* Only workspace origins may supply relay links. Return a normalized trailing
+   slash; paths, credentials and markup never enter the fixed comment. *)
+let workspace_url url =
+  try
+    let uri = Uri.of_string url in
+    match Uri.host uri with
+    | Some host
+      when Uri.scheme uri = Some "https"
+           && String.ends_with ~suffix:".slack.com" host
+           && String.length host > String.length ".slack.com"
+           && String.for_all
+                (function
+                  | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '.' -> true
+                  | _ -> false)
+                host
+           && Uri.userinfo uri = None
+           && Uri.port uri = None
+           && Uri.query uri = []
+           && Uri.fragment uri = None
+           && (Uri.path uri = "" || Uri.path uri = "/") ->
+        "https://" ^ String.lowercase_ascii host ^ "/"
+    | _ -> ""
+  with _ -> ""
+
 (* Steps 5-6: the team (and enterprise) by auth.test, our app by bots.info. *)
 let installation call (s : subject) =
   let*! auth = request call "auth.test" [] in
@@ -345,18 +406,24 @@ let installation call (s : subject) =
   let enterprise =
     match field "enterprise_id" auth with "" -> None | e -> Some e
   in
-  if field "team_id" auth <> s.team_id then refuse Team_mismatch
-  else if
+  if
     not
-      (valid_id "UW" bot_user_id && valid_id "B" bot_id
+      (reported_id "T" "team_id" auth
+      && valid_id "UW" bot_user_id && valid_id "B" bot_id
       && Option.fold ~none:true ~some:(valid_id "E") enterprise)
   then refuse (Indeterminate "auth.test")
+  else if field "team_id" auth <> s.team_id then refuse Team_mismatch
   else if Option.is_some s.enterprise_id && s.enterprise_id <> enterprise then
     refuse Team_mismatch
   else
     let*! info = request call "bots.info" [ ("bot", `String bot_id) ] in
-    if field "app_id" (get "bot" info) <> s.api_app_id then refuse App_mismatch
-    else Lwt.return (Ok (bot_user_id, bot_id, enterprise))
+    if not (reported_id "A" "app_id" (get "bot" info)) then
+      refuse (Indeterminate "bots.info")
+    else if field "app_id" (get "bot" info) <> s.api_app_id then
+      refuse App_mismatch
+    else
+      Lwt.return
+        (Ok (bot_user_id, bot_id, enterprise, workspace_url (field "url" auth)))
 
 (* Step 7, with [Grant_fire]'s share-flag rule ([Slack_huddles.channel_sharing])
    so an order that confirms can also read its huddles: a reported share is
@@ -371,8 +438,10 @@ let posture call (sc : Runtime_config.slack_config) (s : subject) =
     Slack_api.check_private_channel_policy ~config:sc ~channel_id:s.channel_id
       ~is_private_opt:(Some (flag "is_private" channel))
   in
-  if field "id" channel <> s.channel_id || not (flag "is_member" channel) then
-    refuse Bot_not_member
+  if not (reported_id "CG" "id" channel && typed_bool "is_member" channel) then
+    refuse (Indeterminate "conversations.info")
+  else if field "id" channel <> s.channel_id || not (flag "is_member" channel)
+  then refuse Bot_not_member
   else
     match Slack_huddles.channel_sharing channel with
     | Slack_huddles.Shared -> refuse Channel_shared
@@ -407,10 +476,20 @@ let channel_members call ~channel_id =
   in
   page "" 1 []
 
-let well_formed ~team_id ~id user =
-  field "id" user = id
-  && field "team_id" user = team_id
-  && List.for_all (fun key -> typed_bool key user) user_flags
+let member_metadata (s : subject) ~id ~method_ user =
+  let profile = get "profile" user in
+  if
+    not
+      (reported_id "UW" "id" user
+      && reported_id "T" "team_id" user
+      && List.for_all (fun key -> typed_bool key user) user_flags
+      && (id <> s.target.user_id
+         || reported_id "A" "api_app_id" profile
+            && reported_id "B" "bot_id" profile))
+  then Error (Indeterminate method_)
+  else if field "id" user <> id then Error Identity_changed
+  else if field "team_id" user <> s.team_id then Error Team_mismatch
+  else Ok ()
 
 (* Step 9: a well-formed record per needed member, from at most [max_pages]
    users.list pages and then at most [max_member_lookups] users.info calls. *)
@@ -425,9 +504,9 @@ let member_records call (s : subject) ~needed =
     let*? () = result in
     let id = field "id" user in
     if (not (Hashtbl.mem wanted id)) || Hashtbl.mem records id then Ok ()
-    else if well_formed ~team_id:s.team_id ~id user then
+    else
+      let*? () = member_metadata s ~id ~method_:"users.list" user in
       Ok (Hashtbl.replace records id user)
-    else Error (Indeterminate "users.list")
   in
   let rec list_page cursor n =
     let*! json =
@@ -450,7 +529,7 @@ let member_records call (s : subject) ~needed =
   else
     let rec lookup = function
       | [] -> Lwt.return (Ok records)
-      | id :: rest ->
+      | id :: rest -> (
           let user_not_found =
             if id = s.grantor_user_id then Grantor_unavailable
             else if id = s.target.user_id then Target_unavailable
@@ -460,10 +539,11 @@ let member_records call (s : subject) ~needed =
             request call ~user_not_found "users.info" [ ("user", `String id) ]
           in
           let user = get "user" json in
-          if well_formed ~team_id:s.team_id ~id user then (
-            Hashtbl.replace records id user;
-            lookup rest)
-          else refuse (Indeterminate "users.info")
+          match member_metadata s ~id ~method_:"users.info" user with
+          | Ok () ->
+              Hashtbl.replace records id user;
+              lookup rest
+          | Error r -> refuse r)
     in
     lookup misses
 
@@ -488,7 +568,7 @@ let judge_members (s : subject) records =
       | _ -> Error Target_unavailable)
 
 let slack_reads call sc (s : subject) =
-  let*! bot_user_id, bot_id, enterprise_id = installation call s in
+  let*! bot_user_id, bot_id, enterprise_id, team_url = installation call s in
   let*! () = posture call sc s in
   let*! members = channel_members call ~channel_id:s.channel_id in
   if not (List.mem s.grantor_user_id members) then refuse Grantor_not_member
@@ -501,17 +581,32 @@ let slack_reads call sc (s : subject) =
     let*! records = member_records call s ~needed in
     match judge_members s records with
     | Error r -> refuse r
-    | Ok () -> Lwt.return (Ok (bot_user_id, bot_id, enterprise_id))
+    | Ok () -> Lwt.return (Ok (bot_user_id, bot_id, enterprise_id, team_url))
 
 (* ── evaluate ───────────────────────────────────────────────────────────── *)
 
-let evaluate ~db ~current_config ?http ?now ~stage ~unit_label (s : subject) =
+(* [auth.test] and [canvases.getContent] are reads despite using POST. An
+   explicit list keeps Track read-only when the transport gains new writes. *)
+let tracking_call (call : SO.call) method_ params =
+  match method_ with
+  | "auth.test" | "bots.info" | "users.info" | "users.list"
+  | "users.conversations" | "conversations.info" | "conversations.members"
+  | "conversations.history" | "conversations.replies" | "files.info"
+  | "canvases.getContent" | "reactions.get" ->
+      call method_ params
+  | _ -> Lwt.return (Error (SO.Method_not_permitted method_))
+
+let evaluate ~db ~current_config ?http ?limit ?now ~stage ~unit_label
+    (s : subject) =
   let now = match now with Some t -> t | None -> Store.now () in
   let run () =
     let cfg : Runtime_config.t = current_config () in
-    let order_ref =
-      Some { Access_snapshot.order_id = s.order_id; fire_id = None }
+    let fire_id =
+      match stage with
+      | Fire { fire_id; _ } | Track { fire_id } -> Some fire_id
+      | Plan _ | Confirm | Replace _ | Resume | Resolve -> None
     in
+    let order_ref = Some { Access_snapshot.order_id = s.order_id; fire_id } in
     match gate ~db ~config:cfg ~channel_id:s.channel_id ~order_ref with
     | Error f -> Lwt.return (Error f)
     | Ok (sc, snapshot) -> (
@@ -522,15 +617,27 @@ let evaluate ~db ~current_config ?http ?now ~stage ~unit_label (s : subject) =
         | Error r -> Lwt.return (Error (failure r))
         | Ok () ->
             let call =
-              SO.make ~db ~current_config ~snapshot ~channel_id:s.channel_id
+              SO.make ~capability_fence:true ~db ~current_config ~snapshot
+                ~channel_id:s.channel_id
                 ~audit:(SO.audit_label ~order_id:(Some s.order_id) ~unit_label)
-                ?http ()
+                ?http ?limit ()
+            in
+            let call =
+              match stage with Track _ -> tracking_call call | _ -> call
             in
             let+ reads = slack_reads call sc s in
             (* Step 11, with no yield from here to the caller's action: the
                same config, then step 3's admin read, then the rows, last. *)
             Result.map_error failure
-              (let*? bot_user_id, bot_id, enterprise_id = reads in
+              (let*? () =
+                 match
+                   SO.capability_denied (current_config ())
+                     ~channel_id:s.channel_id
+                 with
+                 | Some name -> Error (Tool_denied name)
+                 | None -> Ok ()
+               in
+               let*? bot_user_id, bot_id, enterprise_id, team_url = reads in
                let*? () =
                  if current_config () != cfg then Error Config_changed
                  else Ok ()
@@ -546,6 +653,7 @@ let evaluate ~db ~current_config ?http ?now ~stage ~unit_label (s : subject) =
                    enterprise_id;
                    bot_user_id;
                    bot_id;
+                   team_url;
                    call;
                  }))
   in
@@ -572,8 +680,9 @@ let member_refusal_of_error method_ : SO.error -> member_refusal = function
   | Egress_denied m | Method_not_permitted m -> Member_egress m
   | Slack_error "user_not_found" when method_ = "users.info" ->
       Member_unavailable
-  | Rate_limited | Http_status _ | Transport | Slack_error _ | Channel_denied
-  | Not_configured ->
+  | Rate_limited | Http_status _ | Transport | Audit_unavailable
+  | Snapshot_unavailable | Slack_error _ | Channel_denied | Not_configured
+  | Dispatch_refused ->
       Member_indeterminate method_
 
 let check_member ~(call : SO.call) ~(config : Runtime_config.t) ~team_id
@@ -593,6 +702,7 @@ let check_member ~(call : SO.call) ~(config : Runtime_config.t) ~team_id
     let user = get "user" json in
     if
       field "id" user <> user_id
+      || (not (reported_id "T" "team_id" user))
       || not (List.for_all (fun key -> typed_bool key user) user_flags)
     then refuse (Member_indeterminate "users.info")
     else if field "team_id" user <> team_id then refuse Member_team_mismatch

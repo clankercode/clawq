@@ -60,7 +60,7 @@ let parse_command text =
 (* ── Core ───────────────────────────────────────────────────────────────── *)
 
 type outcome =
-  | Paused of { order : T.order; in_flight : int }
+  | Paused of { order : T.order; in_flight : int option }
   | Already_paused of T.order
   | Withdrawn of T.order
   | Not_active of T.order  (** Suspended or cancelled. *)
@@ -290,9 +290,11 @@ let run ~manager ?now ~team_id ~app_id ~channel_id ~user_id ~target ~source () =
 (* ── Receipts ───────────────────────────────────────────────────────────── *)
 
 let in_flight_note = function
-  | 0 -> ""
-  | 1 -> " 1 relay was already being sent before the pause."
-  | k -> Printf.sprintf " %d relays were already being sent before the pause." k
+  | None -> " Relays may already be in flight."
+  | Some 0 -> ""
+  | Some 1 -> " 1 relay was already being sent before the pause."
+  | Some k ->
+      Printf.sprintf " %d relays were already being sent before the pause." k
 
 let refused_text r =
   "Pause not applied: " ^ Render.member_refusal_text ~action:`Pause r ^ "."

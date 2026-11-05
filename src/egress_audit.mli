@@ -48,11 +48,13 @@ val record :
   ?tool_name:string ->
   ?profile_id:string ->
   ?credential_handle_ids:string list ->
+  ?strict:bool ->
   unit ->
   unit
 (** Record an egress audit event. All sensitive fields are redacted before
     storage. Credential IDs are stored as-is (they are opaque aliases, never
-    actual values). *)
+    actual values). With [strict=true], failed binds/steps and an INSERT that
+    does not insert exactly one row raise instead of permitting dispatch. *)
 
 val query :
   db:Sqlite3.db ->

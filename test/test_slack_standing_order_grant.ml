@@ -1,197 +1,4 @@
-(* Slack_standing_order_grant: the zero-HTTP capability gate, the §6.4
-   re-validation at every stage (the §7.1 authority matrix), failure classes
-   and the pause-time member check. Fake ids only. *)
-module S = Test_slack_standing_order_support
-module T = Slack_standing_order_types
-module Store = Slack_standing_order_store
-module SO = Slack_standing_order_slack
-module G = Slack_standing_order_grant
-
-let check_bool = Alcotest.(check bool)
-let check_int = Alcotest.(check int)
-let check_string = Alcotest.(check string)
-
-let class_name : G.failure_class -> string = function
-  | Hard -> "hard"
-  | Transient -> "transient"
-  | Inactive -> "inactive"
-  | Capped -> "capped"
-
-let unit_label : G.stage -> string = function
-  | Plan _ -> "plan"
-  | Confirm -> "confirm"
-  | Replace _ -> "replace"
-  | Resume -> "resume"
-  | Fire _ -> "fire"
-
-(* ---- JSON edits ---- *)
-
-let set key (value : Yojson.Safe.t) (json : Yojson.Safe.t) : Yojson.Safe.t =
-  match json with
-  | `Assoc xs -> `Assoc (List.remove_assoc key xs @ [ (key, value) ])
-  | other -> other
-
-let drop key (json : Yojson.Safe.t) : Yojson.Safe.t =
-  match json with
-  | `Assoc xs -> `Assoc (List.remove_assoc key xs)
-  | other -> other
-
-let set_profile key value user =
-  set "profile" (set key value (Slack_huddles.get "profile" user)) user
-
-(* ---- Harness ---- *)
-
-type env = { db : Sqlite3.db; m : S.mock; cfg : Runtime_config.t ref }
-
-let env ?(cfg = S.config ()) () =
-  { db = S.fresh_db (); m = S.mock (); cfg = ref cfg }
-
-let plan_subject ?(grantor = "U123") () : G.subject =
-  {
-    order_id = Store.new_id ~prefix:"so";
-    team_id = "T123";
-    enterprise_id = None;
-    api_app_id = "A123";
-    channel_id = "C123";
-    grantor_user_id = grantor;
-    target = S.claude;
-  }
-
-(* One evaluation; returns the result and only this evaluation's methods. *)
-let evaluate ?(now = S.now) e ~stage subject =
-  e.m.calls := [];
-  let r =
-    Lwt_main.run
-      (G.evaluate ~db:e.db
-         ~current_config:(fun () -> !(e.cfg))
-         ~http:e.m.http ~now ~stage ~unit_label:(unit_label stage) subject)
-  in
-  (r, S.methods_called e.m)
-
-(* Seeds an order in [state] in a fresh db and mock; [mutate] then edits the
-   world, overrides methods or arranges a mid-evaluation change. The stage
-   defaults to a fire at the order's epoch. *)
-let eval ?cfg ?(state = T.Active) ?stage ?now ?(mutate = fun _ _ -> ()) () =
-  let e = env ?cfg () in
-  let order = S.seed e.db ~state () in
-  mutate e order;
-  let stage =
-    match stage with
-    | Some f -> f order
-    | None -> G.Fire { fire_epoch = order.epoch }
-  in
-  evaluate ?now e ~stage (G.subject_of_order order)
-
-let eval_plan cfg =
-  let e = env ~cfg () in
-  evaluate e ~stage:(G.Plan { replaces = None }) (plan_subject ())
-
-let eval_resume cfg = eval ~cfg ~state:T.Paused ~stage:(fun _ -> G.Resume) ()
-let eval_fire cfg = eval ~cfg ()
-
-let expect_fail ?(http = true) name cls reason (r, calls) =
-  match r with
-  | Ok (_ : G.validated) ->
-      Alcotest.failf "%s: expected %s, got Ok" name (G.reason_code reason)
-  | Error (f : G.failure) ->
-      check_string (name ^ ": reason") (G.reason_code reason)
-        (G.reason_code f.reason);
-      check_string (name ^ ": class") (class_name cls) (class_name f.cls);
-      if not http then
-        check_bool
-          (name ^ ": zero HTTP (" ^ String.concat "," calls ^ ")")
-          true (calls = [])
-
-let expect_ok name (r, _) : G.validated =
-  match r with
-  | Ok v -> v
-  | Error (f : G.failure) ->
-      Alcotest.failf "%s: unexpected %s" name (G.reason_code f.reason)
-
-let count method_ calls = List.length (List.filter (( = ) method_) calls)
-
-let params_of e method_ =
-  List.filter_map
-    (fun (_, m, params) -> if m = method_ then Some params else None)
-    !(e.m.calls)
-
-(* ---- Mock shapes ---- *)
-
-let extra prefix n = List.init n (fun i -> Printf.sprintf "%s%04d" prefix i)
-
-let add_users e ids =
-  e.m.world.users :=
-    !(e.m.world.users)
-    @ List.map (fun id -> (id, S.user ~id ~is_bot:false [])) ids
-
-let add_members e ids = e.m.world.members := !(e.m.world.members) @ ids
-
-let rec chunks n = function
-  | [] -> []
-  | xs ->
-      let rec take k acc = function
-        | x :: rest when k > 0 -> take (k - 1) (x :: acc) rest
-        | rest -> (List.rev acc, rest)
-      in
-      let page, rest = take n [] xs in
-      page :: chunks n rest
-
-let page_response ids next =
-  S.ok
-    [
-      ("members", `List (List.map S.str ids));
-      ("response_metadata", S.obj [ ("next_cursor", S.str next) ]);
-    ]
-
-(* [conversations.members] answers page i for cursor ["p<i>"]; past the last
-   page the cursor is empty or, when [endless], continues over empty pages. *)
-let paged_members ?(endless = false) e pages =
-  S.override e.m "conversations.members" (fun params ->
-      let i =
-        match S.param params "cursor" with
-        | "" -> 0
-        | c -> int_of_string (String.sub c 1 (String.length c - 1))
-      in
-      let page = Option.value (List.nth_opt pages i) ~default:[] in
-      let next =
-        if endless || i + 1 < List.length pages then Printf.sprintf "p%d" (i + 1)
-        else ""
-      in
-      (200, page_response page next))
-
-let users_listing e ?(next = "") keep =
-  S.override e.m "users.list" (fun _ ->
-      ( 200,
-        S.ok
-          [
-            ( "members",
-              `List
-                (List.filter_map
-                   (fun (id, u) -> if keep id then Some u else None)
-                   !(e.m.world.users)) );
-            ("response_metadata", S.obj [ ("next_cursor", S.str next) ]);
-          ] ))
-
-let channel_with edits e _ =
-  S.override e.m "conversations.info" (fun params ->
-      let response = S.default_response e.m.world "conversations.info" params in
-      let channel =
-        List.fold_left
-          (fun c (k, v) -> set k v c)
-          (Slack_huddles.get "channel" response)
-          edits
-      in
-      (200, set "channel" channel response))
-
-let answer method_ status body e _ =
-  S.override e.m method_ (fun _ -> (status, body))
-
-let slack_error code = S.obj [ ("ok", `Bool false); ("error", S.str code) ]
-
-let make_admin db id =
-  Sql_util.exec_with_params db
-    "INSERT INTO channel_admins(channel, sender_id) VALUES ('slack', ?)"
-    [ Sqlite3.Data.TEXT id ]
+open Test_slack_standing_order_grant_support
 
 (* ---- Cases ---- *)
 
@@ -222,11 +29,11 @@ let test_capability_gate () =
 let test_pass () =
   let e = env () in
   let order = S.seed e.db () in
-  let r, calls =
-    evaluate e
-      ~stage:(G.Fire { fire_epoch = order.epoch })
-      (G.subject_of_order order)
+  let stage = fire_stage e order in
+  let fire_id =
+    match stage with G.Fire { fire_id; _ } -> fire_id | _ -> assert false
   in
+  let r, calls = evaluate e ~stage (G.subject_of_order order) in
   let v = expect_ok "fire on an active order" (r, calls) in
   check_bool "standing-order snapshot" true
     (v.snapshot.work_type = Access_snapshot.Standing_order);
@@ -234,7 +41,11 @@ let test_pass () =
     (v.snapshot.session_key = Some "slack:C123");
   check_bool "names the order" true
     (v.snapshot.standing_order
-    = Some { Access_snapshot.order_id = order.id; fire_id = None });
+    = Some { Access_snapshot.order_id = order.id; fire_id = Some fire_id });
+  (match Access_snapshot.get_by_id ~db:e.db v.snapshot.id with
+  | Some stored ->
+      check_bool "persisted fire snapshot" true (stored = v.snapshot)
+  | _ -> Alcotest.fail "snapshot not persisted");
   check_string "bot user from auth.test" "UBOT" v.bot_user_id;
   check_string "bot id from auth.test" "BOWN" v.bot_id;
   check_bool "no enterprise" true (v.enterprise_id = None);
@@ -397,7 +208,7 @@ let test_member_flags_scale () =
   let e = env () in
   let order = S.seed e.db () in
   let subject = G.subject_of_order order in
-  let stage = G.Fire { fire_epoch = order.epoch } in
+  let stage = fire_stage e order in
   let ids = extra "UM" 596 in
   add_users e ids;
   add_members e ids;
@@ -410,7 +221,7 @@ let test_member_flags_scale () =
   let e = env () in
   let order = S.seed e.db () in
   let subject = G.subject_of_order order in
-  let stage = G.Fire { fire_epoch = order.epoch } in
+  let stage = fire_stage e order in
   users_listing e (( <> ) "U456");
   ignore
     (expect_ok "one member missed by users.list" (evaluate e ~stage subject));
@@ -431,11 +242,8 @@ let test_member_flags_scale () =
   let e = env () in
   add_members e (extra "UZ" 21);
   let order = S.seed e.db () in
-  let r, calls =
-    evaluate e
-      ~stage:(G.Fire { fire_epoch = order.epoch })
-      (G.subject_of_order order)
-  in
+  let stage = fire_stage e order in
+  let r, calls = evaluate e ~stage (G.subject_of_order order) in
   expect_fail "21 misses" Transient (Indeterminate "users.list") (r, calls);
   check_int "zero users.info" 0 (count "users.info" calls);
   expect_fail "users.list record without is_restricted" Transient
@@ -443,8 +251,7 @@ let test_member_flags_scale () =
     (eval
        ~mutate:(fun e _ -> S.edit_user e.m.world "U456" (drop "is_restricted"))
        ());
-  expect_fail "users.list record from another team" Transient
-    (Indeterminate "users.list")
+  expect_fail "users.list record from another team" Hard Team_mismatch
     (eval
        ~mutate:(fun e _ ->
          S.edit_user e.m.world "U456" (set "team_id" (S.str "T999")))
@@ -619,7 +426,7 @@ let test_inactive_and_cap () =
   expect_fail ~http:false "fire on a paused order" Inactive
     (Order_not_in_state Paused) (eval ~state:T.Paused ());
   expect_fail ~http:false "fire at a stale epoch" Inactive Epoch_mismatch
-    (eval ~stage:(fun o -> G.Fire { fire_epoch = o.epoch - 1 }) ());
+    (eval ~stage:(fun e o -> fire_stage e ~epoch:(o.epoch - 1) o) ());
   expect_fail ~http:false "kill switch" Inactive Feature_disabled
     (eval ~cfg:(S.config ~enabled:false ()) ());
   let base = S.config () in
@@ -664,7 +471,7 @@ let test_inactive_and_cap () =
   let e = env () in
   let o = S.seed e.db () in
   let subject = G.subject_of_order o in
-  let stage = G.Fire { fire_epoch = o.epoch } in
+  let stage = fire_stage e o in
   expect_fail ~http:false "missing order" Inactive Order_missing
     (evaluate e ~stage { subject with order_id = "so_missing" });
   expect_fail ~http:false "another grantor" Hard Identity_changed
@@ -714,12 +521,14 @@ let test_plan_and_confirm () =
     expect_ok "plan with no conflict"
       (evaluate e ~stage:(G.Plan { replaces = None }) (plan_subject ()))
   in
+  check_order_snapshot v;
   check_bool "no order row at plan" true (v.order = None && v.replaced = None);
   let pending = S.seed e.db ~state:T.Pending_confirmation () in
   let v =
     expect_ok "confirm a pending order"
       (evaluate e ~stage:G.Confirm (G.subject_of_order pending))
   in
+  check_order_snapshot v;
   check_bool "the pending row" true (v.order = Some pending);
   expect_fail ~http:false "confirm after the window" Inactive Order_expired
     (evaluate ~now:(S.now +. 601.) e ~stage:G.Confirm
@@ -729,16 +538,17 @@ let test_plan_and_confirm () =
        { (G.subject_of_order pending) with grantor_user_id = "U456" });
   expect_fail ~http:false "confirm an active order" Inactive
     (Order_not_in_state Active)
-    (eval ~stage:(fun _ -> G.Confirm) ())
+    (eval ~stage:(fun _ _ -> G.Confirm) ())
 
 let test_resume_stage () =
-  ignore (expect_ok "resume a paused order" (eval_resume (S.config ())));
+  check_order_snapshot
+    (expect_ok "resume a paused order" (eval_resume (S.config ())));
   ignore
     (expect_ok "resume a suspended order"
-       (eval ~state:T.Suspended ~stage:(fun _ -> G.Resume) ()));
+       (eval ~state:T.Suspended ~stage:(fun _ _ -> G.Resume) ()));
   expect_fail ~http:false "resume an active order" Inactive
     (Order_not_in_state Active)
-    (eval ~stage:(fun _ -> G.Resume) ());
+    (eval ~stage:(fun _ _ -> G.Resume) ());
   let e = env () in
   let suspended = S.seed e.db ~state:T.Suspended () in
   ignore (S.seed e.db () : T.order);
@@ -754,6 +564,7 @@ let test_replace_stage () =
       (evaluate e ~stage:(G.Plan { replaces = Some a.id }) subject)
   in
   check_bool "the fresh old row" true (v.replaced = Some a);
+  check_order_snapshot v;
   check_bool "no new row yet" true (v.order = None);
   let v =
     expect_ok "replace at the card's epoch"
@@ -761,6 +572,7 @@ let test_replace_stage () =
          ~stage:(G.Replace { replaces = a.id; replaced_epoch = a.epoch })
          subject)
   in
+  check_order_snapshot v;
   check_bool "replace reads the old row" true (v.replaced = Some a);
   expect_fail ~http:false "replace at a stale epoch" Inactive Epoch_mismatch
     (evaluate e
@@ -830,6 +642,11 @@ let test_check_member () =
   check_string "a bot" "unavailable" (with_user (set "is_bot" (`Bool true)));
   check_string "another team" "team_mismatch"
     (with_user (set "team_id" (S.str "T999")));
+  List.iter
+    (fun edit ->
+      check_string "missing member team" "indeterminate:users.info"
+        (with_user edit))
+    [ drop "team_id"; set "team_id" `Null; set "team_id" (`Int 1) ];
   check_string "untyped flags" "indeterminate:users.info"
     (with_user (drop "is_bot"));
   let e = env () in
@@ -898,6 +715,7 @@ let test_classes_and_codes () =
       (Daily_cap_reached, Capped, "daily_cap_reached");
       (Indeterminate "users.list", Transient, "indeterminate:users.list");
       (Config_changed, Transient, "config_changed");
+      (Activation_unannounced, Transient, "activation_unannounced");
       (Credentials_invalid, Hard, "credentials_invalid");
       (Identity_changed, Hard, "identity_changed");
       (Target_not_allowlisted, Hard, "target_not_allowlisted");
@@ -923,23 +741,24 @@ let test_classes_and_codes () =
     ]
 
 let suite =
-  [
-    S.case "capability gate" test_capability_gate;
-    S.case "pass" test_pass;
-    S.case "allowlist" test_allowlist;
-    S.case "grantor matrix" test_grantor_matrix;
-    S.case "posture matrix" test_posture_matrix;
-    S.case "member flags scale" test_member_flags_scale;
-    S.case "installation" test_installation;
-    S.case "target matrix" test_target_matrix;
-    S.case "slack errors" test_slack_errors;
-    S.case "snapshot fails closed" test_snapshot_fails_closed;
-    S.case "store errors are transient" test_store_errors_are_transient;
-    S.case "inactive and cap" test_inactive_and_cap;
-    S.case "state read last" test_state_read_last;
-    S.case "plan and confirm stages" test_plan_and_confirm;
-    S.case "resume stage" test_resume_stage;
-    S.case "replace stage" test_replace_stage;
-    S.case "check member" test_check_member;
-    S.case "classes and codes" test_classes_and_codes;
-  ]
+  Test_slack_standing_order_grant_fire.suite
+  @ [
+      S.case "capability gate" test_capability_gate;
+      S.case "fire snapshot carries fire id" test_pass;
+      S.case "allowlist" test_allowlist;
+      S.case "grantor matrix" test_grantor_matrix;
+      S.case "posture matrix" test_posture_matrix;
+      S.case "member flags scale" test_member_flags_scale;
+      S.case "installation" test_installation;
+      S.case "target matrix" test_target_matrix;
+      S.case "slack errors" test_slack_errors;
+      S.case "snapshot fails closed" test_snapshot_fails_closed;
+      S.case "store errors are transient" test_store_errors_are_transient;
+      S.case "inactive and cap" test_inactive_and_cap;
+      S.case "state read last" test_state_read_last;
+      S.case "plan and confirm stages" test_plan_and_confirm;
+      S.case "resume stage" test_resume_stage;
+      S.case "replace stage" test_replace_stage;
+      S.case "check member" test_check_member;
+      S.case "classes and codes" test_classes_and_codes;
+    ]
