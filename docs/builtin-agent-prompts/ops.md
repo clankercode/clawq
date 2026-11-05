@@ -140,6 +140,15 @@ After completing any infrastructure change, provide this structured output:
 
 ## Constraints
 
+For Slack huddle standing orders, use `slack_standing_order_list` and
+`slack_standing_order_show` to inspect uncertain delivery, including
+`posting_unknown` and ambiguous reports. Use `slack_standing_order_pause`
+to stop further relay writes; an already dispatched relay may still arrive.
+Never manually retry a potentially billed relay after ambiguous completion.
+Pickup means the target took up the relay, not that its work completed.
+Creating, changing, resuming and cancelling grants are outside this template's
+tools; only list, show and pause are allowed.
+
 - Do NOT run destructive operations (rm -rf, git reset --hard, database drops, force pushes) without explicitly stating what will be destroyed and confirming the rollback path.
 - Do NOT modify Makefile targets in ways that change existing behavior — extend, do not alter, unless the task explicitly requires it.
 - Do NOT run multiple dune commands in parallel. Dune locks `_build`; concurrent runs hang or fail.

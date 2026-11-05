@@ -488,8 +488,8 @@ The bot token needs the relevant `channels:read`/`groups:read`,
 Under strict HTTP egress policy, explicitly allow GET requests to
 `slack.com` at `/api/*` in the applicable egress rules for huddle reads; every
 method is checked against the frozen turn policy. [Standing
-orders](#standing-orders-huddle-relay) also need **POST** to `slack.com` at
-`/api/auth.test`, `/api/chat.postMessage` and `/api/chat.update`. Without them
+orders](#standing-orders-huddle-relay) also need the API POST and raw-upload
+rules in their [egress table](#egress). Without the management POST rules,
 every create fails at `auth.test` (`Egress_denied`), and pauses still apply but
 their receipts and grantor notices are refused and only logged. Reinstall the app after granting scopes. The `xapp` Socket Mode token grants no
 content access. Scope/access/rate-limit errors explain how to proceed, with no
@@ -517,10 +517,12 @@ manage orders in natural language in that channel. Only a bound Block Kit
 click confirms, changes or resumes an order, and anyone in the channel can
 pause one.
 
-> **Status:** this release stores orders, posts their confirm, change and
-> resume cards, applies pauses, and records huddles in channels that have an
-> order. The relay executor (fetching notes and posting them to the target)
-> ships later, so no huddle is relayed yet.
+> **Status:** Phase 3 includes the deterministic daemon executor: verified
+> notes/transcript fetch, same-channel upload v2, pickup tracking, caps and
+> fixed failure reports. Restart the daemon after upgrading to run the new
+> executor. P4 recovery, shared 429/Retry-After limiter and source-deletion
+> propagation, and P5 live acceptance are still pending; P0-5 huddle captures
+> remain deferred. P3 does not catch up missed startup/reconnect history.
 
 #### Config
 
@@ -543,7 +545,8 @@ pause one.
 | `allowed_targets` | Bots an order may relay to: `{"app_id", "label"}` objects, or bare `A…` app ids (the label is then the id). The trimmed label (1–80 characters) is the only target name cards and notices show. Malformed and repeated entries are dropped with a warning. **An empty allowlist denies every order**, so the feature is off until you add a target. | `[]` |
 | `creator_policy` | Who may create an order: `member` (any verified human channel member who is not deleted, not a guest and passes `allow_users`) or `admin` (clawq admins only). An unknown value falls back to `admin`. | `"member"` |
 
-The daily relay cap is a per-order value (10 a day), not a config key.
+The daily relay cap defaults to 10 per order over the preceding 86400 s,
+including re-posts; it is not a config key.
 `security.tools_enabled` must also be true. Config changes apply live: the
 next check reads the current config, and a confirm or change card made before
 a config change answers "ask again to get a new card" when clicked.
@@ -554,7 +557,7 @@ The full daemon registers seven tools beside the huddle tools:
 
 | Tool | Arguments | Risk |
 | --- | --- | --- |
-| `slack_standing_order_create` | `instruction` (≤ 1000 characters), `target` (an approved bot's name or mention), optional `when_no_transcript` (`relay_notes`, the default, or `skip`) | Medium |
+| `slack_standing_order_create` | `instruction` (≤ 1000 Unicode code points), `target` (an approved bot's name or mention), optional `when_no_transcript` (`relay_notes`, the default, or `skip`) | Medium |
 | `slack_standing_order_list` | none | Low |
 | `slack_standing_order_show` | `order` (`SO-n`) | Low |
 | `slack_standing_order_pause` | `order` | Low |
@@ -597,13 +600,97 @@ snapshot:
 | `conversations.members` | GET |
 | `chat.postMessage` | POST |
 | `chat.update` | POST |
+| `conversations.history` | GET |
+| `conversations.replies` | GET |
+| `files.info` | GET |
+| `canvases.getContent` | POST |
+| `reactions.get` | GET |
+| `files.getUploadURLExternal` | GET |
+| `files.completeUploadExternal` | POST |
+| `files.delete` | POST |
 
 Under strict egress, allow GET `slack.com` `/api/*` (as for huddle reads) plus
-POST `slack.com` `/api/auth.test`, `/api/chat.postMessage` and
-`/api/chat.update`. Without the POST rules every create fails at `auth.test`
-(`Egress_denied`), and pauses still apply but their receipts and grantor
+POST `slack.com` `/api/auth.test`, `/api/chat.postMessage`,
+`/api/chat.update`, `/api/canvases.getContent`,
+`/api/files.completeUploadExternal` and `/api/files.delete`.
+`files.getUploadURLExternal` uses GET. Without the management POST rules every
+create fails at `auth.test` (`Egress_denied`), and pauses still apply but their receipts and grantor
 notices are refused and only logged. `clawq slack orders resume` makes these
 calls from the CLI process too.
+
+Upload egress: allow POST to `https://files.slack.com/` (all paths); no redirects are followed.
+
+The raw upload is separate from the Slack API method table. It sends binary
+content headers without an Authorization header. Policy checks the actual
+upload capability URI, while logs, audit inputs and errors redact it. Every
+API call and raw upload requires a persisted order/fire snapshot and strict
+audit insertion before HTTP; an unavailable audit blocks the request. Allow
+`canvases:read`, `reactions:read`, `files:read` and `files:write` in addition to
+the channel/history/user scopes above, then reinstall the app after scope changes.
+
+#### Executor delivery and pickup
+
+The worker serializes fires per channel using DB leases and spaces posts by
+at least 1 s. It rechecks current config, all three capabilities and live grant
+authority before relay writes. It verifies the ended huddle root, the canvas
+on the root and Slackbot notes-ready reply, and Slackbot's same-channel share.
+`room.transcript_file_id` names the notes canvas, not the transcript. An absent
+room-to-canvas link is accepted only with the other strict evidence; a
+conflicting link is refused. Transcript discovery uses the verified canvas's
+`huddle_transcript_file_id`, never a participant-editable markdown embed.
+Transcript metadata must match the channel and huddle start date.
+
+`files.info(include_transcription=true)` uses an undocumented parameter,
+approved on 2026-11-04 and feature-detected. Absent/empty transcription or
+unusable transcript provenance follows `when_no_transcript`: `relay_notes`
+uploads clearly labelled notes only; `skip` records `skipped_no_transcript`. API disappearance
+gets one "transcript unavailable (Slack API change?)" report. Missing notes
+wait with delays of 120, 300, 600, then 1200 s, ending as `no_notes` at 3600 s
+from huddle end, with a one-time automatic-notes hint.
+
+Upload v2 posts markdown files in the order's channel only.
+`files.completeUploadExternal` uses that `channel_id` with no `thread_ts`, so
+the relay is one top-level target mention with its own reply thread. All
+meeting content travels in the files. The fixed comment carries an
+Australia/Sydney date window, `SO-n`, the grantor's plain id, the escaped
+instruction, and a link to the verified huddle thread using the workspace URL
+already returned by `auth.test`. It says: "If you already summarised this
+huddle from Slack’s notes, reply with only what the transcript adds or changes."
+Clawq's only live user mention is the pinned target. Claude tagging people in
+its replies is expected; privacy here means outside Amaroo. The comment treats
+meeting content as data and says not to act on spoken requests. Spoken-request
+extraction and confirmation cards remain P6 work.
+
+`posted` means the relay share was located, not that Claude completed anything.
+The executor resolves the share timestamp from completion, an own-relay event,
+or `files.info` for up to 120 s. A target reaction (any emoji) on the message
+or a relay file means `acknowledged`; the first target reply that is not a
+known notice means `picked_up` and also acknowledges it. Pickup means Claude
+took up the relay, not downstream work completion; no working-username signal
+is required. Production notice matchers are empty until exact notice wordings
+are captured, so fixture coverage does not establish live notice recognition.
+After 180 s without acknowledgement, successful reaction/reply confirmation
+reads are required before `no_pickup`; failed reads stay pending. An
+acknowledged relay without a reply after 3600 s gets an informational report.
+Recognized spend-limit/disabled notices mean `not_delivered`, even after pickup.
+
+Timeouts, 5xx responses and unresolved shares become `posting_unknown`.
+Reconciliation is read-only; never blindly retry an ambiguous completion or
+manually repeat a potentially billed relay. At most 1 re-post is allowed ever
+per order/huddle, only after proving no share occurred, or after a recognized
+rate-limit notice with no acknowledgement and a fixed 300 s wait. Re-posts
+count toward the rolling cap. Three consecutive `no_pickup`, `not_delivered`
+or `failed` fires auto-pause the order. Cap reports occur once per day;
+hard authority failures suspend the order. Management-thread failure reports
+use fixed ids/reasons and at-most-once write-ahead attempts per cause, with
+ambiguous report sends visible in `show`.
+Use list/show to inspect uncertain delivery and pause the order before any
+operator intervention.
+
+Pause fences new uploads, completions and re-posts. A relay already dispatched
+can still arrive; the receipt reports in-flight work (or an unverifiable
+count). Read-only timestamp, pickup and notice tracking continues after pause
+or cancel. Resuming never replays huddles that became ready while paused.
 
 #### Cards, changes and pauses
 
@@ -635,6 +722,9 @@ calls from the CLI process too.
   clawq admin's click resumes. The click re-runs every check, resets
   `active_since` to the click time and bumps the order's epoch. Huddles that
   became ready while the order was paused are never relayed.
+  If the order has no bound activation notice, Slack resume repairs it and
+  fail-safe pauses again if the notice fails; ordinary resumes reuse the
+  order's existing notice across epochs.
 - **Cancel.** The grantor or a clawq admin, who must also be a channel member.
 - **Pause.** Pause doesn't depend on the LLM. It has three paths: an exact
   `pause SO-n` message (case-insensitive, optionally after one leading user
@@ -686,7 +776,9 @@ pause ID | resume ID | cancel ID` gives operator parity. Reads are open;
 mutations need `CLAWQ_ADMIN=1`, a refused one is audited, and each applied one
 writes a room ledger row with actor `cli`. `ID` is the opaque id `list`
 shows. CLI pause and cancel post nothing to Slack and don't notify the grantor.
-CLI resume re-runs the resume checks with Slack. Orders are created and changed
+CLI resume re-runs the resume checks with Slack. An order without a bound
+activation notice must be resumed from Slack so the channel gets its notice.
+Orders are created and changed
 only in Slack. See the [CLI reference](cli-reference.md#clawq-slack).
 
 ### Socket Mode connection recovery
