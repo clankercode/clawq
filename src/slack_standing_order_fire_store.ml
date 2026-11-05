@@ -404,9 +404,9 @@ let declared_transition before after =
 
 let retained_tracking_transition (before : fire_runtime) (after : fire_runtime)
     =
-  (* A failed or cap-refused re-post does not close observation of the
-     original relay. Only retained dispatch evidence may reopen tracking. *)
-  List.mem before.fire.state T.[ Skipped_cap; Failed ]
+  (* A prepared, failed or cap-refused re-post does not close observation of
+     the original relay. Only retained dispatch evidence may reopen tracking. *)
+  List.mem before.fire.state T.[ Skipped_cap; Failed; Uploading ]
   && (after.fire.state = T.Not_delivered
      || not
           (List.exists
@@ -732,6 +732,21 @@ let suspend_if_epoch db ~order_id ~epoch ~reason ~now =
       ensure_schema db;
       in_tx db ~on_error:Fun.id (fun () ->
           suspend_if_epoch_in_tx db ~order_id ~epoch ~reason ~now))
+
+let pause_if_epoch_in_tx db ~order_id ~epoch ~by ~now =
+  guard (fun () ->
+      match find_raw db order_id with
+      | Some o when o.state = T.Active && o.epoch = epoch ->
+          Result.map
+            (fun change -> change.changed)
+            (deactivate_in_tx db ~order_id (Pause by) ~now)
+      | _ -> Ok false)
+
+let pause_if_epoch db ~order_id ~epoch ~by ~now =
+  guard (fun () ->
+      ensure_schema db;
+      in_tx db ~on_error:Fun.id (fun () ->
+          pause_if_epoch_in_tx db ~order_id ~epoch ~by ~now))
 
 (* A failed suspension must leave the fire due for retry. Keep the lease CAS,
    epoch check and lifecycle sweep in one transaction, before ledger writes. *)
