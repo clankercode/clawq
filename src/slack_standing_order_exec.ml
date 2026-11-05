@@ -240,7 +240,7 @@ let process_fire ~ctx ~db ~manager ?http ?upload_http ?renew_wait ~allow_new
             | _ -> Lwt.return_unit
           else if r.fire.dispatched_at <> None then (
             let order = Option.get (Store.find db r.fire.order_id) in
-            if Pickup.terminal_tracking r then
+            if Pickup.terminal_tracking ~now:(ctx.now ()) r then
               Dispatch.save ~ctx ~db ~lease ~before:r
                 ~after:
                   {
@@ -284,7 +284,7 @@ let process_fire ~ctx ~db ~manager ?http ?upload_http ?renew_wait ~allow_new
 let channel_locks = Hashtbl.create 8
 
 let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
-    ?(held = []) ?(read_only = []) () =
+    ?roots_for_order ?(held = []) ?(read_only = []) () =
   Pickup.init db;
   let orders =
     Option.value orders ~default:(Store.list db ~include_cancelled:true ())
@@ -292,6 +292,14 @@ let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
   let channels =
     List.map (fun (o : T.order) -> o.channel_id) orders
     |> List.sort_uniq String.compare
+  in
+  let guard (order : T.order) work =
+    Lwt.catch work (function
+      | Lwt.Canceled | Dispatch.Stop -> Lwt.return_unit
+      | _ ->
+          Logs.warn (fun m ->
+              m "standing-order executor pass failed for %s" order.id);
+          Lwt.return_unit)
   in
   Lwt_list.iter_p
     (fun channel ->
@@ -304,23 +312,33 @@ let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
             lock
       in
       Lwt_mutex.with_lock lock (fun () ->
-          (* Leave room for new arrivals even with a month of retained relays. *)
-          let terminal_polled = ref false in
-          Lwt_list.iter_s
-            (fun (order : T.order) ->
-              let work () =
-                if not (ctx.Ctx.accepting ()) then Lwt.return_unit
-                else
-                  let () = account ~db ~order ~now:(ctx.now ()) in
-                  let allowed () =
-                    local_gate ~db ~manager order ~now:(ctx.now ())
-                  in
-                  let* () =
-                    if allowed () && order.state = T.Active && roots <> Some []
-                    then resolve_pending ~ctx ~db ~manager ?http ?roots order
-                    else Lwt.return_unit
-                  in
-                  let* () =
+          let orders =
+            List.filter (fun (o : T.order) -> o.channel_id = channel) orders
+          in
+          let allowed order =
+            ctx.Ctx.accepting ()
+            && local_gate ~db ~manager order ~now:(ctx.now ())
+          in
+          (* Resolve and reduce local observations for every order before
+             choosing network work. Root eligibility remains per order. *)
+          let* () =
+            Lwt_list.iter_s
+              (fun (order : T.order) ->
+                guard order (fun () ->
+                    let roots =
+                      match roots_for_order with
+                      | Some select -> Some (select order)
+                      | None -> roots
+                    in
+                    if ctx.accepting () then
+                      account ~db ~order ~now:(ctx.now ());
+                    let* () =
+                      if
+                        allowed order && order.state = T.Active
+                        && roots <> Some []
+                      then resolve_pending ~ctx ~db ~manager ?http ?roots order
+                      else Lwt.return_unit
+                    in
                     Lwt_list.iter_s
                       (fun (r : Store.fire_runtime) ->
                         if ctx.accepting () && not (List.mem r.fire.id held)
@@ -328,61 +346,64 @@ let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
                           process_fire ~ctx ~db ~manager ?http ?upload_http
                             ?renew_wait ~allow_new:false ~poll:false r.fire
                         else Lwt.return_unit)
-                      (Pickup.queued db ~order_id:order.id)
-                  in
-                  let* () =
-                    if ctx.accepting () && allowed () then
-                      Lwt_list.iter_s
-                        (fun (fire : T.fire) ->
-                          if
-                            (not (ctx.accepting () && allowed ()))
-                            || List.mem fire.id held
-                          then Lwt.return_unit
-                          else
-                            Lwt.catch
-                              (fun () ->
-                                process_fire ~ctx ~db ~manager ?http
-                                  ?upload_http ?renew_wait
-                                  ~allow_new:(not (List.mem fire.id read_only))
-                                  fire)
-                              (function
-                                | Dispatch.Tracking_refused (tracked, failure)
-                                  ->
-                                    if failure.Grant.cls = Grant.Hard then
-                                      ignore
-                                        (Store.suspend_if_epoch db
-                                           ~order_id:tracked.T.id
-                                           ~epoch:tracked.epoch
-                                           ~reason:
-                                             (Grant.reason_code failure.reason)
-                                           ~now:(ctx.now ()));
-                                    Lwt.return_unit
-                                | Dispatch.Stop | Lwt.Canceled ->
-                                    Lwt.return_unit
-                                | exn -> Lwt.fail exn))
-                        (Store.due db ~now:(ctx.now ())
-                        |> List.filter (fun (r : Store.fire_runtime) ->
-                            r.fire.order_id = order.id
-                            && not (List.mem r.fire.id held))
-                        |> List.filter (fun r ->
-                            if not (Pickup.terminal_tracking r) then true
-                            else if !terminal_polled then false
-                            else (
-                              terminal_polled := true;
-                              true))
-                        |> List.map (fun (r : Store.fire_runtime) -> r.fire))
-                    else Lwt.return_unit
-                  in
-                  ignore (allowed ());
-                  report_order ~ctx ~db ~manager ?http order
-              in
-              Lwt.catch work (function
-                | Lwt.Canceled | Dispatch.Stop -> Lwt.return_unit
-                | _ ->
-                    Logs.warn (fun m ->
-                        m "standing-order executor pass failed for %s" order.id);
-                    Lwt.return_unit))
-            (List.filter (fun (o : T.order) -> o.channel_id = channel) orders)))
+                      (Pickup.queued db ~order_id:order.id)))
+              orders
+          in
+          (* One terminal poll for the whole channel job, after every order's
+             relay-producing work. Store.due keeps fresh preparation first. *)
+          let due =
+            Store.due db ~now:(ctx.now ())
+            |> List.filter_map (fun (r : Store.fire_runtime) ->
+                Option.map
+                  (fun order -> (order, r))
+                  (List.find_opt
+                     (fun (o : T.order) -> o.id = r.fire.order_id)
+                     orders))
+          in
+          let terminal, active =
+            List.partition
+              (fun (_, r) -> Pickup.terminal_tracking ~now:(ctx.now ()) r)
+              due
+          in
+          let terminal_polled = ref false in
+          let* () =
+            Lwt_list.iter_s
+              (fun (order, (r : Store.fire_runtime)) ->
+                guard order (fun () ->
+                    let terminal =
+                      Pickup.terminal_tracking ~now:(ctx.now ()) r
+                    in
+                    if
+                      (not (allowed order))
+                      || List.mem r.fire.id held
+                      || (terminal && !terminal_polled)
+                    then Lwt.return_unit
+                    else (
+                      if terminal then terminal_polled := true;
+                      Lwt.catch
+                        (fun () ->
+                          process_fire ~ctx ~db ~manager ?http ?upload_http
+                            ?renew_wait
+                            ~allow_new:(not (List.mem r.fire.id read_only))
+                            r.fire)
+                        (function
+                          | Dispatch.Tracking_refused (tracked, failure) ->
+                              if failure.Grant.cls = Grant.Hard then
+                                ignore
+                                  (Store.suspend_if_epoch db
+                                     ~order_id:tracked.T.id ~epoch:tracked.epoch
+                                     ~reason:(Grant.reason_code failure.reason)
+                                     ~now:(ctx.now ()));
+                              Lwt.return_unit
+                          | exn -> Lwt.fail exn))))
+              (active @ terminal)
+          in
+          Lwt_list.iter_s
+            (fun order ->
+              guard order (fun () ->
+                  ignore (allowed order);
+                  report_order ~ctx ~db ~manager ?http order))
+            orders))
     channels
 
 type worker = {
@@ -539,25 +560,22 @@ let start ~ctx ~db ~manager ?http ?upload_http () =
                 Lwt.finalize
                   (fun () ->
                     let* () = Lwt.pause () in
-                    Lwt_list.iter_s
-                      (fun (order : T.order) ->
-                        let roots =
-                          Hashtbl.to_seq origins |> List.of_seq
-                          |> List.filter_map
-                               (fun ((team, app, ch, ts), eligible) ->
-                                 if
-                                   eligible && team = order.team_id
-                                   && app = order.api_app_id
-                                   && ch = order.channel_id
-                                 then Some ts
-                                 else None)
-                        in
-                        pass ~ctx:local ~db ~manager ?http ?upload_http
-                          ~renew_wait:ctx.wait ~roots ~held ~read_only
-                          ~orders:[ order ] ())
-                      (List.filter
-                         (fun (o : T.order) -> o.channel_id = channel)
-                         all))
+                    let roots_for_order (order : T.order) =
+                      Hashtbl.to_seq origins |> List.of_seq
+                      |> List.filter_map (fun ((team, app, ch, ts), eligible) ->
+                          if
+                            eligible && team = order.team_id
+                            && app = order.api_app_id && ch = order.channel_id
+                          then Some ts
+                          else None)
+                    in
+                    pass ~ctx:local ~db ~manager ?http ?upload_http
+                      ~renew_wait:ctx.wait ~roots_for_order ~held ~read_only
+                      ~orders:
+                        (List.filter
+                           (fun (o : T.order) -> o.channel_id = channel)
+                           all)
+                      ())
                   (fun () ->
                     Hashtbl.remove w.jobs channel;
                     Lwt.return_unit)

@@ -280,7 +280,10 @@ let project (r : Store.fire_runtime) =
     else if any (fun (a : Store.relay_attempt) -> a.picked_up_at <> None) then
       (T.Picked_up, None)
     else if any (fun (a : Store.relay_attempt) -> a.acknowledged_at <> None)
-    then (T.Acknowledged, None)
+    then
+      ( T.Acknowledged,
+        if r.fire.reason = Some "acknowledged_no_reply" then r.fire.reason
+        else None )
     else if
       relay_ts <> None
       && List.mem r.fire.state T.[ Posting; Posting_unknown; Uploading ]
@@ -526,7 +529,9 @@ let rate_wait db (r : Store.fire_runtime) =
        ~some:(fun (a : Store.relay_attempt) -> a.rate_limited_at <> None)
        (Store.attempt r 0)
 
-let terminal_tracking (r : Store.fire_runtime) =
+(* Retained timing keeps an aged acknowledgement terminal even if another
+   projection or tracking failure changes its diagnostic reason. *)
+let terminal_tracking ~now (r : Store.fire_runtime) =
   r.fire.dispatched_at <> None
   && (List.mem r.fire.state
         T.
@@ -540,7 +545,14 @@ let terminal_tracking (r : Store.fire_runtime) =
             Skipped_inactive;
           ]
      || r.fire.state = T.Acknowledged
-        && r.fire.reason = Some "acknowledged_no_reply")
+        && (r.fire.reason = Some "acknowledged_no_reply"
+           || List.exists
+                (fun (a : Store.relay_attempt) ->
+                  a.acknowledged_at <> None
+                  && Option.fold ~none:false
+                       ~some:(fun at -> at +. 3600. <= now)
+                       a.pickup_started_at)
+                r.attempts))
 
 let tracking_poll_seconds = 300.
 
@@ -597,6 +609,7 @@ let schedule db (r : Store.fire_runtime) ~complete ~now =
               fire = { r.fire with reason = Some "acknowledged_no_reply" };
               next_attempt_at = poll;
             }
+        | due :: _ when due <= now -> { r with next_attempt_at = poll }
         | due :: _ -> { r with next_attempt_at = pending due }
         | [] -> r)
     | _ -> { r with next_attempt_at = poll }

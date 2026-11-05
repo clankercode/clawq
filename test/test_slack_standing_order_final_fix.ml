@@ -203,6 +203,140 @@ let seed_terminal e room at =
     [ Sqlite3.Data.FLOAT at; Sql.text f.id ];
   f.id
 
+let successor e =
+  ignore
+    (H.ok
+       (Store.deactivate e.db ~order_id:e.order.id (Store.Cancel "U123")
+          ~now:(Store.now ())));
+  let order = S.seed e.db () in
+  let card =
+    Store.insert_card e.db ~kind:T.Pause_button ~order ~created_by:"U123"
+      ~now:(Store.now ()) ()
+  in
+  Store.set_card_message_ts e.db ~card_id:card.id "1700000000.000200";
+  { e with order }
+
+let cancelled_history e =
+  let rec seed e n ids =
+    if n = 3 then (e, ids)
+    else
+      let batch =
+        List.init 2 (fun i ->
+            seed_terminal e
+              (Printf.sprintf "RCANCEL%d_%d" n i)
+              (Store.now () -. 7200.))
+      in
+      seed (successor e) (n + 1) (ids @ batch)
+  in
+  seed e 0 []
+
+let test_worker_cancelled_history () =
+  with_env (fun e ->
+      let e, retained = cancelled_history e in
+      Test_slack_standing_order_exec.setup e;
+      H.pickup_reads e;
+      e.mock.calls := [];
+      let c = Test_slack_standing_order_worker.clock () in
+      Lwt_main.run
+        (Lwt.finalize
+           (fun () ->
+             E.start
+               ~ctx:(Test_slack_standing_order_worker.context e c)
+               ~db:e.db ~manager:e.manager ~http:e.mock.http
+               ~upload_http:Relay.raw_success ();
+             seen e;
+             ready e ();
+             E.wake ();
+             let* () = Test_slack_standing_order_worker.flush 100 in
+             let rec dispatch_first = function
+               | "files.completeUploadExternal" :: _ -> true
+               | "reactions.get" :: _ | [] -> false
+               | _ :: rest -> dispatch_first rest
+             in
+             check "newest order dispatches before cancelled history" true
+               (dispatch_first (S.methods_called e.mock));
+             integer "one terminal poll across all channel orders" 1
+               (List.length
+                  (List.filter
+                     (fun id -> (runtime e id).next_attempt_at <> None)
+                     retained));
+             integer "one historical poll reads file and message reactions" 2
+               (count e "reactions.get");
+             Lwt.return_unit)
+           (fun () ->
+             let* () = E.stop () in
+             Test_slack_standing_order_worker.cleanup c;
+             Lwt.return_unit)))
+
+let test_acknowledged_grant_retry () =
+  with_env (fun e ->
+      let e, retained = cancelled_history e in
+      let now = Store.now () in
+      Report.init e.db;
+      Slack_standing_order_pickup.init e.db;
+      List.iter
+        (fun id ->
+          Sql.exec e.db
+            "UPDATE slack_standing_order_dispatches SET picked_up_at=NULL, \
+             acknowledged_at=?,pickup_started_at=CAST(relay_ts AS REAL) WHERE \
+             fire_id=?"
+            [ Sqlite3.Data.FLOAT (now -. 7200.); Sql.text id ];
+          Sql.exec e.db
+            "UPDATE slack_standing_order_fires SET \
+             state='acknowledged',reason='acknowledged_no_reply' WHERE id=?"
+            [ Sql.text id ];
+          (* Isolate tracking calls from the independent outcome report path. *)
+          Sql.exec e.db
+            "INSERT OR IGNORE INTO slack_standing_order_reports \
+             (order_id,cause_key,period_key,fire_id,status) \
+             VALUES(?,'reply_delayed','once',?,'sent')"
+            [ Sql.text (runtime e id).fire.order_id; Sql.text id ])
+        retained;
+      integer "no observations queued" 0
+        (Sql.int_query e.db
+           "SELECT COUNT(*) FROM slack_standing_order_observations" []);
+      let calls = ref 0 in
+      let http ~verb:_ ~token:_ ~method_ ~params:_ =
+        Alcotest.(check string) "tracking grant fails first" "auth.test" method_;
+        incr calls;
+        Lwt.return (503, "{}")
+      in
+      let pass () =
+        E.pass ~ctx:(ctx e) ~db:e.db ~manager:e.manager ~http ~roots:[] ()
+      in
+      integer "six retained acknowledgements are due" 6
+        (List.length (Store.due e.db ~now));
+      Lwt_main.run (pass ());
+      integer "failed grant uses one channel terminal budget" 1 !calls;
+      let attempted =
+        List.filter (fun id -> (runtime e id).next_attempt_at <> None) retained
+      in
+      integer "one terminal cadence armed before failed grant" 1
+        (List.length attempted);
+      List.iter
+        (fun id ->
+          check "acknowledged marker survives empty drain" true
+            ((runtime e id).fire.reason = Some "acknowledged_no_reply");
+          check "failed grant persists full cadence" true
+            ((runtime e id).next_attempt_at = Some (now +. 300.)))
+        attempted;
+      (* Each subsequent job may track one other retained fire, never retry
+         one already attempted. Once all six are scheduled, no calls remain. *)
+      for i = 1 to 5 do
+        S.at (now +. float_of_int (i * 5));
+        Lwt_main.run (pass ());
+        integer "one terminal grant per channel job" (i + 1) !calls
+      done;
+      List.iter
+        (fun seconds ->
+          S.at (now +. seconds);
+          Lwt_main.run (pass ());
+          integer "no terminal repoll before 300 seconds" 6 !calls)
+        [ 30.; 100.; 299. ];
+      S.at (now +. 300.);
+      Lwt_main.run (pass ());
+      integer "first terminal becomes due at 300 seconds" 7 !calls)
+
 let test_worker_history () =
   with_env (fun e ->
       Test_slack_standing_order_exec.setup e;
@@ -329,6 +463,10 @@ let suite =
           (test_write_authority m `Egress))
       [ "files.getUploadURLExternal"; "upload"; "files.completeUploadExternal" ]
   @ [
+      S.case "worker shares terminal budget across cancelled orders"
+        test_worker_cancelled_history;
+      S.case "aged acknowledged grant failure retains cadence and budget"
+        test_acknowledged_grant_retry;
       S.case "worker bounds historical tracking and terminal polling"
         test_worker_history;
       S.case "expired completed history stays offline on cancelled orders"
