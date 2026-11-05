@@ -305,6 +305,7 @@ let test_absence fixture () =
               (Store.empty_attempt 0) with
               uploaded_file_ids = [ "FONE"; "FTWO" ];
               dispatched_at = Some (Store.now ());
+              complete_rejected_before_share = kind <> `Successful;
             }
           in
           let r =
@@ -610,3 +611,217 @@ let test_original_history fixture () =
           integer "no repost" 0 saved.fire.reposts;
           E.no_upload e))
     [ false; true ]
+
+(* Drive rejection, retry scheduling and send fences through the real dispatch
+   path. All HTTP is injected; polling and due retries use the fixture clock. *)
+let retry_ctx e =
+  {
+    (E.ctx e) with
+    Ctx.wait =
+      (fun ~seconds ->
+        S.at (Store.now () +. seconds);
+        Lwt.return_unit);
+  }
+
+let raw_success _ =
+  Lwt.return
+    Slack_standing_order_upload.{ status = 200; headers = []; body = "" }
+
+let with_rejected fixture f =
+  fixture (fun (e : E.env) lease (r : Store.fire_runtime) payload ->
+      history e [];
+      let reject = ref true in
+      let http ~verb ~token ~method_ ~params =
+        if method_ = "files.completeUploadExternal" && !reject then
+          Lwt.return
+            ( 200,
+              Yojson.Safe.to_string
+                (`Assoc
+                   [
+                     ("ok", `Bool false); ("error", `String "invalid_arguments");
+                   ]) )
+        else if
+          method_ = "files.info"
+          && List.assoc "file" params <> `String "FCANVAS"
+        then
+          Lwt.return
+            ( 200,
+              Yojson.Safe.to_string
+                (S.ok
+                   [
+                     ( "file",
+                       `Assoc
+                         [
+                           ("id", List.assoc "file" params);
+                           ( "shares",
+                             `Assoc
+                               [ ("public", `Assoc []); ("private", `Assoc []) ]
+                           );
+                         ] );
+                   ]) )
+        else e.mock.http ~verb ~token ~method_ ~params
+      in
+      Lwt_main.run
+        (D.deliver ~ctx:(retry_ctx e) ~db:e.db ~manager:e.manager ~http
+           ~upload_http:raw_success ~lease r payload);
+      E.check_state e r.fire.id T.Posting_unknown;
+      integer "original debit" 1
+        (Store.dispatches_since e.db ~order_id:e.order.id ~since:0.);
+      reject := false;
+      f e lease (E.runtime e r.fire.id) payload http)
+
+let check_recovered e id =
+  let saved = E.runtime e id in
+  E.check_state e id T.Posted;
+  integer "exactly one repost debit" 1 saved.fire.reposts;
+  integer "both debits retained" 2
+    (Store.dispatches_since e.db ~order_id:e.order.id ~since:0.);
+  integer "both attempts retained" 2 (List.length saved.attempts);
+  integer "one successful repost complete" 1
+    (E.count e "files.completeUploadExternal")
+
+let test_absence_fire_retry fixture () =
+  with_rejected fixture (fun e lease r payload base_http ->
+      let auths = ref 0 in
+      let http ~verb ~token ~method_ ~params =
+        if method_ = "auth.test" then incr auths;
+        if method_ = "auth.test" && !auths = 2 then Lwt.return (503, "")
+        else base_http ~verb ~token ~method_ ~params
+      in
+      Lwt_main.run
+        (D.repost ~ctx:(retry_ctx e) ~db:e.db ~manager:e.manager ~http
+           ~upload_http:raw_success ~lease r payload);
+      let saved = E.runtime e r.fire.id in
+      check "Fire failure overwrites only retry reason" true
+        (saved.fire.reason = Some "indeterminate:auth.test");
+      check "attempt retains rejection despite retry reason" true
+        (Option.get (Store.attempt saved 0)).complete_rejected_before_share;
+      S.at (Option.get saved.next_attempt_at);
+      let lease = fresh_lease e r.fire.id in
+      Lwt_main.run
+        (D.repost ~ctx:(retry_ctx e) ~db:e.db ~manager:e.manager ~http
+           ~upload_http:raw_success ~lease saved payload);
+      check_recovered e r.fire.id;
+      Lwt_main.run
+        (D.repost ~ctx:(retry_ctx e) ~db:e.db ~manager:e.manager ~http
+           ~upload_http:raw_success ~lease (E.runtime e r.fire.id) payload);
+      check_recovered e r.fire.id)
+
+let test_absence_prepare_retry ?(late_share = false) fixture () =
+  with_rejected fixture (fun e lease r payload base_http ->
+      let allocations = ref 0 and shared = ref false in
+      let http ~verb ~token ~method_ ~params =
+        if method_ = "files.getUploadURLExternal" then incr allocations;
+        if method_ = "files.getUploadURLExternal" && !allocations = 1 then
+          Lwt.return (503, "")
+        else if
+          !shared && method_ = "files.info"
+          && List.assoc "file" params = `String "FUPLOAD1"
+        then
+          Lwt.return
+            ( 200,
+              Yojson.Safe.to_string
+                (S.ok
+                   [
+                     ( "file",
+                       `Assoc
+                         [
+                           ("id", `String "FUPLOAD1");
+                           ( "shares",
+                             `Assoc
+                               [
+                                 ( "private",
+                                   `Assoc
+                                     [
+                                       ( "C123",
+                                         `List
+                                           [ `Assoc [ ("ts", `String ts0) ] ] );
+                                     ] );
+                               ] );
+                         ] );
+                   ]) )
+        else base_http ~verb ~token ~method_ ~params
+      in
+      Lwt_main.run
+        (D.repost ~ctx:(retry_ctx e) ~db:e.db ~manager:e.manager ~http
+           ~upload_http:raw_success ~lease r payload);
+      let saved = E.runtime e r.fire.id in
+      E.check_state e r.fire.id T.Uploading;
+      integer "second attempt preparation" 1 saved.current_attempt;
+      integer "preparation has no repost debit" 0 saved.fire.reposts;
+      S.at (Option.get saved.next_attempt_at -. 1.);
+      Lwt_main.run
+        (D.repost ~ctx:(retry_ctx e) ~db:e.db ~manager:e.manager ~http
+           ~upload_http:raw_success ~lease saved payload);
+      integer "no early allocation retry" 1 !allocations;
+      S.at (Option.get saved.next_attempt_at);
+      shared := late_share;
+      let lease = fresh_lease e r.fire.id in
+      Lwt_main.run
+        (D.repost ~ctx:(retry_ctx e) ~db:e.db ~manager:e.manager ~http
+           ~upload_http:raw_success ~lease saved payload);
+      if late_share then (
+        let saved = E.runtime e r.fire.id in
+        check "late original recorded on original attempt" true
+          ((Option.get (Store.attempt saved 0)).relay_ts = Some ts0);
+        check "unreserved second has no relay" true
+          ((Option.get (Store.attempt saved 1)).relay_ts = None);
+        integer "no repost after late original share" 0 saved.fire.reposts;
+        integer "no complete after late original share" 0
+          (E.count e "files.completeUploadExternal");
+        integer "no retry allocation after late original share" 1 !allocations)
+      else (
+        integer "allocation retried at due time" 2 !allocations;
+        check_recovered e r.fire.id;
+        Lwt_main.run
+          (D.repost ~ctx:(retry_ctx e) ~db:e.db ~manager:e.manager ~http
+             ~upload_http:raw_success ~lease (E.runtime e r.fire.id) payload);
+        integer "no extra allocation after recovery" 2 !allocations;
+        check_recovered e r.fire.id))
+
+let test_repost_final_cap fixture () =
+  fixture (fun (e : E.env) lease (r : Store.fire_runtime) payload ->
+      let r = seed e lease r false in
+      history e [ message ts0 [ "FORIGINAL" ] ];
+      pickup_reads e;
+      S.at (Store.now () +. 300.);
+      let lease = fresh_lease e r.fire.id in
+      let raw = ref false
+      and complete_ready = ref false
+      and exhausted = ref false in
+      let http ~verb ~token ~method_ ~params =
+        if !raw && method_ = "users.list" then complete_ready := true;
+        e.mock.http ~verb ~token ~method_ ~params
+      in
+      let ctx =
+        {
+          (retry_ctx e) with
+          Ctx.limit =
+            (fun ~channel_id:_ ->
+              if !complete_ready then (
+                exhausted := true;
+                Store.exec e.db
+                  "UPDATE slack_standing_orders SET max_fires_per_day=1 WHERE \
+                   id=?"
+                  [ Store.text e.order.id ]);
+              Lwt.pause ());
+        }
+      in
+      Lwt_main.run
+        (D.repost ~ctx ~db:e.db ~manager:e.manager ~http
+           ~upload_http:(fun req ->
+             raw := true;
+             raw_success req)
+           ~lease r payload);
+      check "cap exhausted during final limiter wait" true !exhausted;
+      integer "no complete after cap exhaustion" 0
+        (E.count e "files.completeUploadExternal");
+      let saved = E.runtime e r.fire.id in
+      integer "no repost debit" 0 saved.fire.reposts;
+      integer "original debit retained" 1
+        (Store.dispatches_since e.db ~order_id:e.order.id ~since:0.);
+      check "original identity retained" true
+        ((Option.get (Store.attempt saved 0)).relay_ts = Some ts0);
+      E.check_state e r.fire.id T.Skipped_cap;
+      check "cap reason retained" true
+        (saved.fire.reason = Some "daily_cap_reached"))

@@ -140,6 +140,7 @@ type relay_attempt = {
   acknowledged_at : float option;
   picked_up_at : float option;
   not_delivered : bool;
+  complete_rejected_before_share : bool;
 }
 
 type fire_runtime = {
@@ -172,10 +173,11 @@ let empty_attempt attempt_no : relay_attempt =
     acknowledged_at = None;
     picked_up_at = None;
     not_delivered = false;
+    complete_rejected_before_share = false;
   }
 
 let attempt_columns =
-  "attempt_no,uploaded_file_ids,relay_ts,upload_started_at,dispatched_at,pickup_started_at,first_reply_ts,rate_limited_at,reaction_seen,acknowledged_at,picked_up_at,not_delivered"
+  "attempt_no,uploaded_file_ids,relay_ts,upload_started_at,dispatched_at,pickup_started_at,first_reply_ts,rate_limited_at,reaction_seen,acknowledged_at,picked_up_at,not_delivered,complete_rejected_before_share"
 
 let decode_attempt stmt : relay_attempt =
   let ids =
@@ -200,6 +202,7 @@ let decode_attempt stmt : relay_attempt =
     acknowledged_at = opt_float_column stmt 9;
     picked_up_at = opt_float_column stmt 10;
     not_delivered = Sql_util.sql_bool stmt 11;
+    complete_rejected_before_share = Sql_util.sql_bool stmt 12;
   }
 
 let runtime_raw db ~fire_id =
@@ -352,9 +355,9 @@ let attempt (r : fire_runtime) n =
 let save_attempt db fire_id (a : relay_attempt) =
   exec db
     ("INSERT INTO slack_standing_order_dispatches (fire_id," ^ attempt_columns
-   ^ ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(fire_id,attempt_no) DO \
-      UPDATE SET \
-      uploaded_file_ids=excluded.uploaded_file_ids,relay_ts=excluded.relay_ts,upload_started_at=excluded.upload_started_at,dispatched_at=excluded.dispatched_at,pickup_started_at=excluded.pickup_started_at,first_reply_ts=excluded.first_reply_ts,rate_limited_at=excluded.rate_limited_at,reaction_seen=excluded.reaction_seen,acknowledged_at=excluded.acknowledged_at,picked_up_at=excluded.picked_up_at,not_delivered=excluded.not_delivered"
+   ^ ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(fire_id,attempt_no) \
+      DO UPDATE SET \
+      uploaded_file_ids=excluded.uploaded_file_ids,relay_ts=excluded.relay_ts,upload_started_at=excluded.upload_started_at,dispatched_at=excluded.dispatched_at,pickup_started_at=excluded.pickup_started_at,first_reply_ts=excluded.first_reply_ts,rate_limited_at=excluded.rate_limited_at,reaction_seen=excluded.reaction_seen,acknowledged_at=excluded.acknowledged_at,picked_up_at=excluded.picked_up_at,not_delivered=excluded.not_delivered,complete_rejected_before_share=excluded.complete_rejected_before_share"
     )
     [
       text fire_id;
@@ -372,6 +375,7 @@ let save_attempt db fire_id (a : relay_attempt) =
       opt_float a.acknowledged_at;
       opt_float a.picked_up_at;
       bool a.not_delivered;
+      bool a.complete_rejected_before_share;
     ]
 
 let declared_transition before after =
@@ -503,6 +507,9 @@ let validate_attempts (before : fire_runtime) (after : fire_runtime) =
           || (not (kept old.picked_up_at a.picked_up_at))
           || (old.reaction_seen && not a.reaction_seen)
           || (old.not_delivered && not a.not_delivered)
+          || old.complete_rejected_before_share
+             && not a.complete_rejected_before_share
+          || (a.complete_rejected_before_share && a.dispatched_at = None)
         then Error "attempt identity or evidence cannot be overwritten"
         else loop (a :: acc) rest
   in

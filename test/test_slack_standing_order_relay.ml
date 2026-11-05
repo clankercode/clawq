@@ -890,6 +890,14 @@ let suite =
   let module H = Test_slack_standing_order_repost_support in
   let fixture f = with_delivery f in
   [
+    S.case "rejected complete survives transient Fire grant retry"
+      (H.test_absence_fire_retry fixture);
+    S.case "proven absent repost resumes preparation after allocation 503"
+      (H.test_absence_prepare_retry fixture);
+    S.case "late original share stops unreserved repost preparation"
+      (H.test_absence_prepare_retry ~late_share:true fixture);
+    S.case "repost final limiter cap exhaustion records skipped cap"
+      (H.test_repost_final_cap fixture);
     S.case "share resolution complete then observer then files info"
       (H.test_precedence fixture);
     S.case "negative complete needs authoritative files and complete history"

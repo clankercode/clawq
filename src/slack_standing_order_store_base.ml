@@ -99,7 +99,9 @@ let dispatch_schema =
    first_reply_ts TEXT, rate_limited_at REAL, reaction_seen INTEGER NOT NULL \
    DEFAULT 0 CHECK (reaction_seen IN (0,1)), acknowledged_at REAL, \
    picked_up_at REAL, not_delivered INTEGER NOT NULL DEFAULT 0 CHECK \
-   (not_delivered IN (0,1)), PRIMARY KEY(fire_id,attempt_no))"
+   (not_delivered IN (0,1)), complete_rejected_before_share INTEGER NOT NULL \
+   DEFAULT 0 CHECK (complete_rejected_before_share IN (0,1)), PRIMARY \
+   KEY(fire_id,attempt_no))"
 
 let ensure_schema_tables db =
   List.iter (Sql_util.exec_schema ~label db) schema;
@@ -117,7 +119,30 @@ let ensure_schema_tables db =
      with exn when is_db_error exn ->
        (* Another handle may have installed the column after our PRAGMA. *)
        if not (has_current_attempt ()) then raise exn);
-  Sql_util.exec_schema ~label db dispatch_schema
+  Sql_util.exec_schema ~label db dispatch_schema;
+  let has_complete_evidence () =
+    query db "PRAGMA table_info(slack_standing_order_dispatches)" [] (fun s ->
+        Sql_util.text_column s 1)
+    |> List.mem "complete_rejected_before_share"
+  in
+  if not (has_complete_evidence ()) then (
+    (try
+       exec db
+         "ALTER TABLE slack_standing_order_dispatches ADD COLUMN \
+          complete_rejected_before_share INTEGER NOT NULL DEFAULT 0 CHECK \
+          (complete_rejected_before_share IN (0,1))"
+         []
+     with exn when is_db_error exn ->
+       if not (has_complete_evidence ()) then raise exn);
+    (* Preserve pre-migration evidence while the current retry reason still
+       identifies the dispatched attempt that received the rejection. *)
+    exec db
+      "UPDATE slack_standing_order_dispatches SET \
+       complete_rejected_before_share=1 WHERE dispatched_at IS NOT NULL AND \
+       EXISTS (SELECT 1 FROM slack_standing_order_fires f WHERE f.id=fire_id \
+       AND f.current_attempt=attempt_no AND \
+       f.reason='complete_rejected_before_share')"
+      [])
 
 (* Import only rows with legacy evidence and no retained attempt. A single
    statement imports both debits, so repeated initialization cannot turn a
@@ -127,14 +152,16 @@ let ensure_schema_tables db =
 let migrate_fire_attempts db =
   exec db
     "INSERT INTO slack_standing_order_dispatches \
-     (fire_id,attempt_no,uploaded_file_ids,relay_ts,dispatched_at,pickup_started_at) \
+     (fire_id,attempt_no,uploaded_file_ids,relay_ts,dispatched_at,pickup_started_at,complete_rejected_before_share) \
      SELECT f.id,n.n,CASE WHEN n.n=0 THEN f.uploaded_file_ids ELSE '[]' END, \
      CASE WHEN n.n=0 THEN f.relay_ts ELSE NULL END,f.dispatched_at, CASE WHEN \
      n.n=0 AND f.relay_ts IS NOT NULL THEN CAST(f.relay_ts AS REAL) ELSE NULL \
-     END FROM slack_standing_order_fires f JOIN (SELECT 0 AS n UNION ALL \
-     SELECT 1) n ON n.n=0 OR f.reposts=1 WHERE (f.dispatched_at IS NOT NULL OR \
-     f.relay_ts IS NOT NULL OR f.uploaded_file_ids <> '[]') AND NOT EXISTS \
-     (SELECT 1 FROM slack_standing_order_dispatches d WHERE d.fire_id=f.id)"
+     END, CASE WHEN n.n=f.current_attempt AND f.dispatched_at IS NOT NULL AND \
+     f.reason='complete_rejected_before_share' THEN 1 ELSE 0 END FROM \
+     slack_standing_order_fires f JOIN (SELECT 0 AS n UNION ALL SELECT 1) n ON \
+     n.n=0 OR f.reposts=1 WHERE (f.dispatched_at IS NOT NULL OR f.relay_ts IS \
+     NOT NULL OR f.uploaded_file_ids <> '[]') AND NOT EXISTS (SELECT 1 FROM \
+     slack_standing_order_dispatches d WHERE d.fire_id=f.id)"
     []
 
 let ensure_schema db =

@@ -57,9 +57,22 @@ let set_state ~ctx ~db ~lease ~fire_id state reason next_attempt_at =
 
 let dispatch_refused ~ctx ~db ~lease ~fire_id () =
   let r = current db fire_id in
-  if r.fire.state = T.Uploading then
-    set_state ~ctx ~db ~lease ~fire_id T.Skipped_inactive
-      (Some "dispatch_refused") None;
+  (if r.fire.state = T.Uploading then
+     (* The transport deliberately hides synchronous fence details. Recover the
+       row refusal without yielding so cap reporting keeps its actual cause. *)
+     let capped =
+       match Store.find db r.fire.order_id with
+       | Some order ->
+           Grant.stage_rows db ~now:(ctx.Ctx.now ())
+             ~stage:(Grant.Fire { fire_epoch = r.fire.epoch; fire_id })
+             (Grant.subject_of_order order)
+           = Error Grant.Daily_cap_reached
+       | None -> false
+     in
+     set_state ~ctx ~db ~lease ~fire_id
+       (if capped then T.Skipped_cap else T.Skipped_inactive)
+       (Some (if capped then "daily_cap_reached" else "dispatch_refused"))
+       None);
   raise Stop
 
 let source_matches (r : Store.fire_runtime) (payload : P.verified) =
@@ -337,9 +350,7 @@ let resolve_share ~ctx ?(observe = fun () -> None) ~call ~(order : T.order)
             in
             match history with
             | Ok (Some (ts, _)) -> Lwt.return (Shared ts)
-            | Ok None
-              when all_absent
-                   && r.fire.reason = Some "complete_rejected_before_share" ->
+            | Ok None when all_absent && a.complete_rejected_before_share ->
                 Lwt.return Proven_absent
             | _ -> (
                 let r = fresh () in
@@ -588,12 +599,30 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
                   ~ids;
                 Lwt.return_unit
             | _ ->
-                set_state ~ctx ~db ~lease ~fire_id T.Posting_unknown
-                  (Some
-                     (if rejected_before_share completed then
-                        "complete_rejected_before_share"
-                      else "complete_unknown"))
-                  (Some (ctx.Ctx.now ()));
+                let before = current db fire_id in
+                let rejected = rejected_before_share completed in
+                let after =
+                  update_attempt before
+                    {
+                      (attempt before) with
+                      complete_rejected_before_share = rejected;
+                    }
+                in
+                save ~ctx ~db ~lease ~before
+                  ~after:
+                    {
+                      after with
+                      fire =
+                        {
+                          after.fire with
+                          state = T.Posting_unknown;
+                          reason =
+                            Some
+                              (if rejected then "complete_rejected_before_share"
+                               else "complete_unknown");
+                        };
+                      next_attempt_at = Some (ctx.Ctx.now ());
+                    };
                 Lwt.return_unit))
   in
   Lwt.catch run (function
@@ -725,13 +754,15 @@ let repost ~ctx ~db ~manager ?http ?upload_http ~lease
     let* call = track ~ctx ~db ~manager ?http r order in
     let nonce = match r.nonce with Some n -> n | None -> raise Stop in
     (* With no original timestamp, the shared nonce cannot distinguish an
-       original history match from a new attempt. Resolve attempt zero first. *)
+       original history match from a new attempt. Re-establish absence even
+       when resuming an unreserved preparation: retry reasons are not proof. *)
     let first = Option.get (Store.attempt r 0) in
     let* first_absent =
       if
-        r.current_attempt = 0
-        && r.fire.state = T.Posting_unknown
-        && first.relay_ts = None
+        first.relay_ts = None
+        && ((r.current_attempt = 0 && r.fire.state = T.Posting_unknown)
+           || r.current_attempt = 1 && r.fire.state = T.Uploading
+              && (attempt r).dispatched_at = None)
       then (
         let* result =
           resolve_share ~ctx ~call ~order ~attempt_no:0
@@ -749,13 +780,30 @@ let repost ~ctx ~db ~manager ?http ?upload_http ~lease
                 Lwt.return first.uploaded_file_ids
               else
                 let* found =
-                  scan ~ctx ~call ~order ~r ~nonce ~oldest:(oldest db r)
+                  scan ~ctx ~call ~order
+                    ~r:{ r with current_attempt = 0 }
+                    ~nonce ~oldest:(oldest db r)
                 in
                 match found with
                 | Ok (Some (found_ts, ids)) when found_ts = ts -> Lwt.return ids
                 | _ -> raise Stop
             in
-            record_posted ~ctx ~db ~lease ~fire_id ~ts ~ids;
+            (if r.current_attempt = 0 then
+               record_posted ~ctx ~db ~lease ~fire_id ~ts ~ids
+             else
+               (* A late original share ends the unreserved second preparation.
+                 Keep its identity on attempt zero and the current projection. *)
+               let after =
+                 update_attempt r
+                   { first with relay_ts = Some ts; uploaded_file_ids = ids }
+               in
+               save ~ctx ~db ~lease ~before:r
+                 ~after:
+                   {
+                     after with
+                     fire = { after.fire with state = T.Posted; reason = None };
+                     next_attempt_at = None;
+                   });
             raise Stop)
       else Lwt.return false
     in
@@ -801,6 +849,14 @@ let repost ~ctx ~db ~manager ?http ?upload_http ~lease
             Lwt.return_unit)
           else Lwt.return_unit
         else
+          let () =
+            if
+              r.current_attempt = 1
+              && Option.fold ~none:false
+                   ~some:(fun due -> ctx.Ctx.now () < due)
+                   r.next_attempt_at
+            then raise Stop
+          in
           let writable r =
             Store.relay_allowed db r
             && (not r.Store.fire.repost_forbidden)

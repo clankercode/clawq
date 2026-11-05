@@ -714,8 +714,116 @@ let test_second_adoption_identity () =
       check "cannot debit adopted result again" false
         (ok (reserve db f.id lease S.now true)))
 
+let test_complete_evidence () =
+  with_handles (fun db other ->
+      let _, f = seed db in
+      let lease = claim db f.id "worker" S.now in
+      prepare db f.id lease S.now;
+      let before = runtime db f.id in
+      let rejected =
+        { (Store.empty_attempt 0) with complete_rejected_before_share = true }
+      in
+      check "undispatched rejection refused" true
+        (Result.is_error
+           (Store.cas db ~lease ~before
+              ~after:{ before with attempts = [ rejected ] }
+              ~now:S.now));
+      check "original reserved" true (ok (reserve db f.id lease S.now false));
+      let before = runtime db f.id in
+      let rejected =
+        {
+          (some (Store.attempt before 0)) with
+          complete_rejected_before_share = true;
+        }
+      in
+      check "retain rejection" true
+        (ok
+           (Store.cas db ~lease ~before
+              ~after:
+                {
+                  before with
+                  attempts = [ rejected ];
+                  fire =
+                    {
+                      before.fire with
+                      state = T.Posting_unknown;
+                      reason = Some "complete_rejected_before_share";
+                    };
+                }
+              ~now:S.now));
+      let before = runtime db f.id in
+      check "retry reason can change" true
+        (ok
+           (Store.cas db ~lease ~before
+              ~after:
+                {
+                  before with
+                  fire =
+                    { before.fire with reason = Some "indeterminate:auth.test" };
+                }
+              ~now:S.now));
+      Store.ensure_schema other;
+      let before = runtime other f.id in
+      check "durable across handles and schema initialization" true
+        (some (Store.attempt before 0)).complete_rejected_before_share;
+      let cleared = { rejected with complete_rejected_before_share = false } in
+      check "rejection cannot be erased" true
+        (Result.is_error
+           (Store.cas other ~lease ~before
+              ~after:{ before with attempts = [ cleared ] }
+              ~now:S.now));
+      check "reserve second" true (ok (reserve db f.id lease S.now true));
+      let saved = runtime other f.id in
+      check "original rejection retained independently" true
+        (some (Store.attempt saved 0)).complete_rejected_before_share;
+      check "second attempt has independent outcome" false
+        (some (Store.attempt saved 1)).complete_rejected_before_share)
+
+let test_complete_evidence_migration () =
+  with_handles (fun db other ->
+      let _, f = seed db in
+      let lease = claim db f.id "worker" S.now in
+      prepare db f.id lease S.now;
+      check "reserve original" true (ok (reserve db f.id lease S.now false));
+      let before = runtime db f.id in
+      check "legacy rejection reason" true
+        (ok
+           (Store.cas db ~lease ~before
+              ~after:
+                {
+                  before with
+                  fire =
+                    {
+                      before.fire with
+                      state = T.Posting_unknown;
+                      reason = Some "complete_rejected_before_share";
+                    };
+                }
+              ~now:S.now));
+      Store.exec db
+        "ALTER TABLE slack_standing_order_dispatches DROP COLUMN \
+         complete_rejected_before_share"
+        [];
+      Store.ensure_schema db;
+      Store.ensure_schema other;
+      check "legacy rejection migrated idempotently" true
+        (some (Store.attempt (runtime other f.id) 0))
+          .complete_rejected_before_share;
+      (* A pre-attempt-table fire must import the same evidence, too. *)
+      Store.exec db
+        "DELETE FROM slack_standing_order_dispatches WHERE fire_id=?"
+        [ Store.text f.id ];
+      Store.ensure_schema db;
+      check "legacy fire import retains rejection" true
+        (some (Store.attempt (runtime db f.id) 0))
+          .complete_rejected_before_share)
+
 let suite =
   [
+    S.case "complete rejection is durable immutable per attempt evidence"
+      test_complete_evidence;
+    S.case "complete rejection migration preserves existing evidence"
+      test_complete_evidence_migration;
     S.case
       "adopted second attempt retains identities and exactly one repost debit"
       test_second_adoption_identity;
