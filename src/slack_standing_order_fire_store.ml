@@ -180,6 +180,13 @@ let attempt_columns =
   "attempt_no,uploaded_file_ids,relay_ts,upload_started_at,dispatched_at,pickup_started_at,first_reply_ts,rate_limited_at,reaction_seen,acknowledged_at,picked_up_at,not_delivered,complete_rejected_before_share"
 
 let decode_attempt stmt : relay_attempt =
+  let timestamp i =
+    match Sqlite3.column stmt i with
+    | Sqlite3.Data.NULL -> None
+    | Sqlite3.Data.INT n -> Some (Int64.to_float n)
+    | Sqlite3.Data.FLOAT f when Float.is_finite f -> Some f
+    | _ -> failwith "invalid relay attempt timestamp"
+  in
   let ids =
     match Yojson.Safe.from_string (Sql_util.text_column stmt 1) with
     | `List xs ->
@@ -193,14 +200,14 @@ let decode_attempt stmt : relay_attempt =
     attempt_no = Sql_util.int_column stmt 0;
     uploaded_file_ids = ids;
     relay_ts = Sql_util.opt_text_column stmt 2;
-    upload_started_at = opt_float_column stmt 3;
-    dispatched_at = opt_float_column stmt 4;
-    pickup_started_at = opt_float_column stmt 5;
+    upload_started_at = timestamp 3;
+    dispatched_at = timestamp 4;
+    pickup_started_at = timestamp 5;
     first_reply_ts = Sql_util.opt_text_column stmt 6;
-    rate_limited_at = opt_float_column stmt 7;
+    rate_limited_at = timestamp 7;
     reaction_seen = Sql_util.sql_bool stmt 8;
-    acknowledged_at = opt_float_column stmt 9;
-    picked_up_at = opt_float_column stmt 10;
+    acknowledged_at = timestamp 9;
+    picked_up_at = timestamp 10;
     not_delivered = Sql_util.sql_bool stmt 11;
     complete_rejected_before_share = Sql_util.sql_bool stmt 12;
   }
@@ -234,13 +241,12 @@ let in_flight_file db ~channel ~file_id =
 let unconfirmed_since db ~channel =
   List.fold_left
     (fun earliest (a : relay_attempt) ->
-      match (a.relay_ts, a.upload_started_at) with
-      | None, Some started when Float.is_finite started ->
+      match (a.dispatched_at, a.relay_ts, a.upload_started_at) with
+      | Some _, None, Some started ->
           Some
             (match earliest with
             | None -> started
             | Some old -> min old started)
-      | None, Some _ -> failwith "invalid upload start time"
       | _ -> earliest)
     None
     (channel_attempts db ~channel)

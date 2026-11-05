@@ -335,17 +335,28 @@ let test_retained_registry () =
       ignore
         (Test_slack_standing_order_fire_store.ok
            (Store.deactivate db ~order_id:o.id (Store.Cancel "U123") ~now:S.now));
-      check_bool "cancel preserves registry" true
-        (r.recorded_relay ~channel:"C123" ~ts:P.ts0))
+      List.iter
+        (fun ts ->
+          check_bool "cancel preserves retained relay" true
+            (r.recorded_relay ~channel:"C123" ~ts))
+        [ P.ts0; P.ts1 ];
+      List.iter
+        (fun file_id ->
+          check_bool "cancel preserves retained file" true
+            (r.in_flight_file ~channel:"C123" ~file_id))
+        [ "FONE"; "FTWO" ])
 
 let test_unconfirmed_registry () =
-  P.fixture (fun db _ _ id lease ->
+  P.fixture (fun db _ o id lease ->
       P.second db id lease;
       Store.exec db
         "UPDATE slack_standing_order_dispatches SET \
          relay_ts=NULL,upload_started_at=? + attempt_no WHERE fire_id=?"
         [ Sqlite3.Data.FLOAT S.now; Store.text id ];
       let r = db_registry db in
+      ignore
+        (Test_slack_standing_order_fire_store.ok
+           (Store.deactivate db ~order_id:o.id (Store.Cancel "U123") ~now:S.now));
       Alcotest.(check (option (float 0.)))
         "earliest unresolved attempt" (Some S.now)
         (r.unconfirmed_since ~channel:"C123");
@@ -364,6 +375,67 @@ let test_unconfirmed_registry () =
       Alcotest.(check (option (float 0.)))
         "all resolved" None
         (r.unconfirmed_since ~channel:"C123"))
+
+let test_undispatched_registry ~cancel ~reason ~files () =
+  with_ingress (fun base _ _ _ _ _ ->
+      let o = S.seed base.db ~channel:"C0TEST" () in
+      let fire =
+        S.fire base.db o
+          ~state:
+            Slack_standing_order_types.(if cancel then Uploading else Failed)
+          ~room:"R1" ()
+      in
+      Store.exec base.db
+        "UPDATE slack_standing_order_fires SET reason=? WHERE id=?"
+        [ Store.text reason; Store.text fire.id ];
+      Store.save_attempt base.db fire.id
+        {
+          (Store.empty_attempt 0) with
+          upload_started_at = Some S.now;
+          uploaded_file_ids = files;
+        };
+      if cancel then
+        ignore
+          (Test_slack_standing_order_fire_store.ok
+             (Store.deactivate base.db ~order_id:o.id (Store.Cancel "U123")
+                ~now:S.now));
+      let registry = G.phase1_registry base.manager in
+      Alcotest.(check (option (float 0.)))
+        "undispatched upload is not an unresolved post" None
+        (registry.unconfirmed_since ~channel:"C0TEST");
+      check_bool "unrelated own file thread remains conversational" false
+        (silent ~registry ~root:(Some (F.own_relay ~footer:None ())) "hello");
+      Lwt.return_unit)
+
+let test_invalid_upload_time value () =
+  with_ingress (fun base _ _ _ _ _ ->
+      let o = S.seed base.db ~channel:"C0TEST" () in
+      let fire =
+        S.fire base.db o ~state:Slack_standing_order_types.Posting_unknown
+          ~dispatched_at:S.now ~room:"R1" ()
+      in
+      Store.ensure_schema base.db;
+      Store.exec base.db
+        "UPDATE slack_standing_order_dispatches SET upload_started_at=? WHERE \
+         fire_id=?"
+        [ value; Store.text fire.id ];
+      let registry = G.phase1_registry base.manager in
+      check_bool "invalid upload time raises instead of appearing absent" true
+        (match registry.unconfirmed_since ~channel:"C0TEST" with
+        | _ -> false
+        | exception Failure _ -> true);
+      Alcotest.(check (option (float 0.)))
+        "total registry supplies conservative upload time"
+        (Some Float.neg_infinity)
+        ((G.total registry).unconfirmed_since ~channel:"C0TEST");
+      let root = Some (F.own_relay ~footer:None ()) in
+      check_bool "unreadable upload time stays silent" true
+        (silent ~registry ~root "hello");
+      check_bool "explicit mention escapes unreadable upload time" false
+        (silent ~registry ~root "<@UBOT> hello");
+      check_bool "unreadable registry history remains untrusted" true
+        (G.untrusted_in_history ~registry ~channel:"C0TEST" (F.human "hello"));
+      Lwt.return_unit)
 
 let test_db_unreadable () =
   with_ingress (fun base _ _ _ _ _ ->
@@ -422,6 +494,21 @@ let suite =
       test_retained_registry;
     S.case "registry protects earliest unresolved upload"
       test_unconfirmed_registry;
+    S.case "allocation failure does not silence unrelated threads"
+      (test_undispatched_registry ~cancel:false
+         ~reason:"upload_allocation_failed" ~files:[]);
+    S.case "raw upload failure does not silence unrelated threads"
+      (test_undispatched_registry ~cancel:false ~reason:"upload_failed"
+         ~files:[ "FUPLOAD" ]);
+    S.case "cancel before dispatch does not silence unrelated threads"
+      (test_undispatched_registry ~cancel:true ~reason:"cancelled"
+         ~files:[ "FUPLOAD" ]);
+    S.case "malformed upload time fails closed"
+      (test_invalid_upload_time (Sqlite3.Data.TEXT "invalid_time"));
+    S.case "infinite upload time fails closed"
+      (test_invalid_upload_time (Sqlite3.Data.FLOAT Float.infinity));
+    S.case "negative infinite upload time fails closed"
+      (test_invalid_upload_time (Sqlite3.Data.FLOAT Float.neg_infinity));
     S.case "registry unreadable fails closed" test_db_unreadable;
     S.case "production registry reads stored relays" test_production_registry;
     S.case "registry without database fails closed" test_no_db_registry;
