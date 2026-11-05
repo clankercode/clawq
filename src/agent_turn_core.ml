@@ -317,6 +317,7 @@ let run_turn agent ~mk_io ~user_message ?db ?session_key ?interrupt_check
   in
   let open Lwt.Syntax in
   refresh_profiled_room_flag agent ?db ?session_key ();
+  refresh_unavailable_tools agent ?db ?session_key ();
   let* _compaction_info =
     if history_prepared then Lwt.return_none
     else prepare_turn_history agent ~user_message ?db ?session_key ()

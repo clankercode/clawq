@@ -849,6 +849,8 @@ Room-scoped memory provides per-room persistent storage with visibility controls
 - **correct** — update memory content (via tool)
 - **forget** — redact a memory (sets content to NULL, archives to workspace)
 
+Room turns offer the `room_memory_*` agent tools only when the room has a profile binding or a memory scope, and the `github_room_*` item tools only when a GitHub feed has routed issues or PRs to the room; elsewhere a turn leaves them out of its tools and system prompt (B844).
+
 All CRUD operations are gated by `check_room_access` which requires either a profile binding (ownership) or an explicit grant. Raw API calls (`query_scoped_memories`, `correct_scoped_memory`, `delete_scoped_memory`) do not enforce scope isolation by themselves — isolation is enforced at the tool layer.
 
 ### Visibility Levels

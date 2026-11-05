@@ -255,6 +255,7 @@
   github_action_reconcile
   github_feed_settings_tool
   github_room_tools
+  room_tool_availability
   github_auth_selection
   github_attribution_policy
   github_attribution_fallback

@@ -28,9 +28,7 @@ let resolve_tool_search agent (tc : Provider.tool_call) =
         ~content:"No tool registry available"
   | Some registry ->
       (* Discovery is scoped to the frozen catalog (not the live registry). *)
-      let cat =
-        Tool_catalog.freeze_for_access ~registry ?snap:agent.access_snapshot ()
-      in
+      let cat = turn_catalog agent registry in
       let top = Tool_catalog.search cat ~query ~limit:10 in
       let tools_json =
         `List
@@ -323,14 +321,18 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
                   | None -> (tc, Error "Error: no tool registry available")
                   | Some registry -> (
                       (* Final execution guard: must be in frozen catalog. *)
-                      let cat =
-                        Tool_catalog.freeze_for_access ~registry
-                          ?snap:agent.access_snapshot ()
-                      in
+                      let cat = turn_catalog agent registry in
                       match
                         Tool_catalog.authorize_invoke cat
                           ~tool_name:tc.function_name
                       with
+                      | Error _
+                        when List.mem tc.function_name agent.unavailable_tools
+                        ->
+                          ( tc,
+                            Error
+                              (Room_tool_availability.unavailable_error
+                                 tc.function_name) )
                       | Error msg -> (tc, Error msg)
                       | Ok _entry -> (
                           match

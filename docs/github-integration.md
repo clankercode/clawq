@@ -224,6 +224,21 @@ Each subscription has fine-grained preference toggles for event types:
 
 Unknown event types default to `true` (always notify).
 
+### Agent Tools: this room's tracked issues and PRs
+
+`github_room_list_items`, `github_room_search_items`, `github_room_get_item`
+and `github_room_get_status` read the GitHub issues and PRs that GitHub feeds
+have routed to the calling room (its event journal and item projections). They
+do not query GitHub, the web, chat history or room memory, and the room comes
+from the turn's access snapshot.
+
+A room turn offers them only when the room has at least one journal entry or
+projection. In a room that no feed has routed anything to, they would fail with
+"has no GitHub item access", so the turn leaves them out of the model's tool
+list and system prompt (B844). The first routed event makes them available
+from the next turn on. `github_feed_settings` reads subscription rows instead,
+so it is offered either way.
+
 ### Agent Tool: `github_feed_settings`
 
 In-room agents can read and change these toggles themselves with the

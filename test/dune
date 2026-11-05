@@ -11,6 +11,7 @@
   test_agent_router
   test_agent_scoped_memory
   test_room_memory_tools
+  test_room_tool_availability
   test_agent_template
   test_audit
   test_b710

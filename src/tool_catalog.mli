@@ -37,6 +37,7 @@ val freeze :
   registry:Tool_registry.t ->
   ?allowed_tools:string list ->
   ?denied_tools:string list ->
+  ?unavailable:string list ->
   ?access_revision:string ->
   ?room_id:string ->
   ?session_key:string ->
@@ -45,11 +46,13 @@ val freeze :
   unit ->
   t
 (** Capture an immutable catalog filtered by deny-wins [Tool_authz]. When both
-    allow and deny lists are empty, all registry tools are frozen. *)
+    allow and deny lists are empty, all registry tools are frozen. Tools with
+    any name in [unavailable] (they cannot work this turn) are left out too. *)
 
 val freeze_from_snapshot :
   registry:Tool_registry.t ->
   snap:Access_snapshot.t ->
+  ?unavailable:string list ->
   ?room_id:string ->
   ?session_key:string ->
   ?now:float ->
@@ -80,6 +83,7 @@ val search : t -> query:string -> limit:int -> entry list
 val freeze_for_access :
   registry:Tool_registry.t ->
   ?snap:Access_snapshot.t ->
+  ?unavailable:string list ->
   ?room_id:string ->
   ?session_key:string ->
   unit ->

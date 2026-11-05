@@ -35,6 +35,7 @@ let all_suites =
     ("agent_loop_conformance", Test_agent_loop_conformance.suite);
     ("agent_scoped_memory", Test_agent_scoped_memory.suite);
     ("room_memory_tools", Test_room_memory_tools.suite);
+    ("room_tool_availability", Test_room_tool_availability.suite);
     ("cli_exit", Test_cli_exit.suite);
     ("command_bridge", Test_command_bridge.suite);
     ("phase3", Test_phase3.suite);
