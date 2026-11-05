@@ -804,9 +804,30 @@ let test_complete_evidence_migration () =
         "ALTER TABLE slack_standing_order_dispatches DROP COLUMN \
          complete_rejected_before_share"
         [];
+      Store.exec db
+        "CREATE TRIGGER fail_backfill BEFORE UPDATE ON \
+         slack_standing_order_dispatches BEGIN SELECT RAISE(FAIL,'injected \
+         backfill failure'); END"
+        [];
+      check "first backfill fails" true
+        (try
+           Store.ensure_schema db;
+           false
+         with exn when Store.is_db_error exn -> true);
+      check "column installation committed before backfill" true
+        (List.mem "complete_rejected_before_share"
+           (Store.query other
+              "PRAGMA table_info(slack_standing_order_dispatches)" [] (fun s ->
+                Sql_util.text_column s 1)));
+      integer "failed backfill leaves evidence unset" 0
+        (Store.int_query other
+           "SELECT complete_rejected_before_share FROM \
+            slack_standing_order_dispatches WHERE fire_id=?"
+           [ Store.text f.id ]);
+      Store.exec db "DROP TRIGGER fail_backfill" [];
       Store.ensure_schema db;
       Store.ensure_schema other;
-      check "legacy rejection migrated idempotently" true
+      check "retry restores legacy rejection idempotently" true
         (some (Store.attempt (runtime other f.id) 0))
           .complete_rejected_before_share;
       (* A pre-attempt-table fire must import the same evidence, too. *)

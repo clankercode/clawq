@@ -125,8 +125,8 @@ let ensure_schema_tables db =
         Sql_util.text_column s 1)
     |> List.mem "complete_rejected_before_share"
   in
-  if not (has_complete_evidence ()) then (
-    (try
+  (if not (has_complete_evidence ()) then
+     try
        exec db
          "ALTER TABLE slack_standing_order_dispatches ADD COLUMN \
           complete_rejected_before_share INTEGER NOT NULL DEFAULT 0 CHECK \
@@ -134,15 +134,17 @@ let ensure_schema_tables db =
          []
      with exn when is_db_error exn ->
        if not (has_complete_evidence ()) then raise exn);
-    (* Preserve pre-migration evidence while the current retry reason still
-       identifies the dispatched attempt that received the rejection. *)
-    exec db
-      "UPDATE slack_standing_order_dispatches SET \
-       complete_rejected_before_share=1 WHERE dispatched_at IS NOT NULL AND \
-       EXISTS (SELECT 1 FROM slack_standing_order_fires f WHERE f.id=fire_id \
-       AND f.current_attempt=attempt_no AND \
-       f.reason='complete_rejected_before_share')"
-      [])
+  (* Retry independently of column installation: initialization may have failed
+     after ALTER committed. Only add evidence while the legacy reason still
+     identifies the dispatched attempt that received the rejection. *)
+  exec db
+    "UPDATE slack_standing_order_dispatches SET \
+     complete_rejected_before_share=1 WHERE complete_rejected_before_share=0 \
+     AND dispatched_at IS NOT NULL AND EXISTS (SELECT 1 FROM \
+     slack_standing_order_fires f WHERE f.id=fire_id AND \
+     f.current_attempt=attempt_no AND \
+     f.reason='complete_rejected_before_share')"
+    []
 
 (* Import only rows with legacy evidence and no retained attempt. A single
    statement imports both debits, so repeated initialization cannot turn a

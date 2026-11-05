@@ -680,6 +680,41 @@ let check_recovered e id =
   integer "one successful repost complete" 1
     (E.count e "files.completeUploadExternal")
 
+let test_absence_migration_retry fixture () =
+  with_rejected fixture (fun e lease r payload http ->
+      Store.exec e.db
+        "ALTER TABLE slack_standing_order_dispatches DROP COLUMN \
+         complete_rejected_before_share"
+        [];
+      Store.exec e.db
+        "CREATE TRIGGER fail_backfill BEFORE UPDATE ON \
+         slack_standing_order_dispatches BEGIN SELECT RAISE(FAIL,'injected \
+         backfill failure'); END"
+        [];
+      check "first backfill fails after column installation" true
+        (try
+           Store.ensure_schema e.db;
+           false
+         with exn when Store.is_db_error exn -> true);
+      Store.exec e.db "DROP TRIGGER fail_backfill" [];
+      Store.ensure_schema e.db;
+      Store.ensure_schema e.db;
+      let saved = E.runtime e r.fire.id in
+      check "retry restores definitive rejection" true
+        (Option.get (Store.attempt saved 0)).complete_rejected_before_share;
+      let first = Option.get (Store.attempt saved 0) in
+      let repost () =
+        Lwt_main.run
+          (D.repost ~ctx:(retry_ctx e) ~db:e.db ~manager:e.manager ~http
+             ~upload_http:raw_success ~lease (E.runtime e r.fire.id) payload)
+      in
+      repost ();
+      check_recovered e r.fire.id;
+      repost ();
+      check_recovered e r.fire.id;
+      check "original identity and rejection retained" true
+        (Store.attempt (E.runtime e r.fire.id) 0 = Some first))
+
 let test_absence_fire_retry fixture () =
   with_rejected fixture (fun e lease r payload base_http ->
       let auths = ref 0 in
