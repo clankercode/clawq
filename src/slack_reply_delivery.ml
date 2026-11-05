@@ -75,7 +75,8 @@ let upload_file ~call ~post ~clock ~wait ~target ~summary ~body =
     U.allocate ~call ~filename:"clawq-answer.md" ~length:(String.length body)
   in
   match allocated with
-  | Error (U.Remote C.Policy_denied) -> Lwt.return (Error C.Policy_denied)
+  | Error (U.Remote C.Policy_denied | U.Invalid_upload_url) ->
+      Lwt.return (Error C.Policy_denied)
   | Error _ -> Lwt.return (Ok Definitely_not_shared)
   | Ok ticket -> (
       let* posted = C.protect (fun () -> post ~uri:ticket.upload_url ~body) in

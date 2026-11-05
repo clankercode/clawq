@@ -137,6 +137,30 @@ let test_fallback () =
       "canvases.create"; "files.info"; "chat.postMessage"; "canvases.access.set";
     ]
 
+let test_create_once () =
+  List.iter
+    (fun create ->
+      let deps, _, calls, texts, files, handler = fixture () in
+      (handler := fun _ _ -> create ());
+      check "unknown create falls back to file" true
+        (run (D.deliver ~deps ~target:(target ()) ~body) = Ok D.File_sent);
+      Alcotest.(check (list string))
+        "one create and no publication without a known ID" [ "canvases.create" ]
+        (List.map fst !calls);
+      check "exact original file fallback" true
+        (!files = [ (target (), "Opening &amp; &lt;safe&gt;", body) ]
+        && !texts = []))
+    [
+      (fun () -> Lwt.fail Lwt_unix.Timeout);
+      (fun () -> Lwt.return (Error (C.Transport "transport")));
+      (fun () -> Lwt.return (Error (C.Completion_unknown "create_unknown")));
+      (fun () -> Lwt.return (Error (C.Transport "rate_limited")));
+      (fun () -> Lwt.return (Error (C.Transport "ratelimited")));
+      (fun () -> Lwt.return (Ok `Null));
+      (fun () -> Lwt.return (ok []));
+      (fun () -> Lwt.return (ok [ ("canvas_id", `String "invalid") ]));
+    ]
+
 let test_retry () =
   List.iter
     (fun stage ->
@@ -643,6 +667,59 @@ let test_upload_definite () =
         (!completions = if stage = "complete" then 1 else 0))
     [ "allocate"; "post"; "complete" ]
 
+let test_allocation_security () =
+  List.iter
+    (fun thread_ts ->
+      List.iter
+        (fun (allocation, denied) ->
+          let deps, _, calls, texts, _, handler =
+            fixture ~mode:Slack_config_types.File ()
+          in
+          let raw = ref 0 in
+          (handler := fun _ _ -> Lwt.return allocation);
+          let deps =
+            {
+              deps with
+              upload =
+                (fun target ~summary ~body ->
+                  D.upload_file ~call:(deps.call target)
+                    ~post:(fun ~uri:_ ~body:_ ->
+                      incr raw;
+                      Lwt.return (Ok ()))
+                    ~clock:(fun () -> 0.)
+                    ~wait:(fun _ -> Lwt.return_unit)
+                    ~target ~summary ~body);
+            }
+          in
+          let result =
+            run (D.deliver ~deps ~target:(target ~thread_ts ()) ~body)
+          in
+          Alcotest.(check (list string))
+            "allocation only; no completion or cleanup"
+            [ "files.getUploadURLExternal" ]
+            (List.map fst !calls);
+          Alcotest.(check int) "no raw uploads" 0 !raw;
+          if denied then (
+            check "unpinned allocation is policy denied" true
+              (result = Error C.Policy_denied);
+            check "security rejection stops text fallback" true (!texts = []))
+          else (
+            check "ordinary allocation failure permits text" true
+              (result = Ok D.Text_sent);
+            check "exact text and original destination" true
+              (!texts = [ ("C123", thread_ts, body) ])))
+        [
+          ( ok
+              [
+                ("file_id", `String "FOWN");
+                ("upload_url", `String "https://untrusted.example/upload");
+              ],
+            true );
+          (Error (C.Transport "transport"), false);
+          (ok [], false);
+        ])
+    [ None; Some "100.000001" ]
+
 let test_revocation () =
   List.iter
     (fun stage ->
@@ -878,6 +955,8 @@ let suite =
     [
       ("canvas success posts summary plus link", test_success);
       ("share then grant failure cleans and falls back", test_fallback);
+      ( "one delivery creates at most one canvas on unknown create",
+        test_create_once );
       ("later step retry reuses known canvas", test_retry);
       ("a DM long answer is attached as a file", test_dm);
       ("off and short stay text; blank final sends nothing", test_text);
@@ -891,6 +970,8 @@ let suite =
       ( "cleanup failure still falls back; all-send failure never succeeds",
         test_send_failure_cleanup );
       ("pre-dispatch and explicit rejection permit text", test_upload_definite);
+      ( "allocation URL security rejection stops fallback",
+        test_allocation_security );
       ("policy revocation stops fallback after each await", test_revocation);
       ("failed ambiguous denied cleanup remains unknown", test_unknown_failure);
       ("canvas rejected markdown falls back unchanged", test_markdown_rejection);
