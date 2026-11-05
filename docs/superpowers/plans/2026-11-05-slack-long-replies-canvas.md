@@ -1,414 +1,371 @@
 # I065 Slack long-reply canvas implementation plan
 
-> **For agentic workers:** Execute this plan task-by-task using the superpowers writing-plans checklist structure. This run is design-only. Implementation requires a subsequent implementation assignment; the current instruction prohibits subagents. Preserve that restriction unless Max changes it.
+> **For agentic workers:** Execute task-by-task using the writing-plans checklist format. This assignment is DESIGN only: change the spec/plan and make the requested documentation commit; do not implement these tasks or spawn subagents.
 
-**Goal:** Deliver Clawq's long final Slack answers as an opening paragraph plus a read-only canvas link, with lossless Markdown-file/plain-message fallback and an explicit research canvas tool.
+**Prerequisite:** Implementation starts only after P3 (`feat/huddle-standing-orders`) merges to master and this branch is rebased onto that master. The controller/integrator performs that prerequisite in a later assignment; this DESIGN step does not rebase, merge or push. Task 1 extracts the actual merged P3 upload code before I065 adds any upload caller.
 
-**Architecture:** Pure policy/config and a neutral final-delivery callback in core; policy-checked Slack canvas/upload adapters, a SQLite delivery journal and final-only routing in integrations. Buffer answer deltas while existing native streams show status. A durable create-attempt fence enforces at-most-one canvas even when Slack's response is lost.
+**Goal:** Readable final Slack answers: opening paragraph plus read-only channel canvas, DM/MPDM file-only overflow, exact file/full-text fallback, explicit channel research tool.
 
-**Tech Stack:** OCaml 5.1, Lwt, Yojson.Safe, SQLite3, existing Slack_transport/Policy_http_client, Alcotest fake HTTP, dune and ocamlformat 0.28.1 through the serialized remote gate.
+**Architecture:** Pure policy/config and presentation context in core; checked network adapters and final delivery in integrations. In-process create-once state only. Existing native streams remain status-only. A separate optional queue-final callback keeps notices/progress outside delivery.
 
-**Spec:** `docs/superpowers/specs/2026-11-05-slack-long-replies-canvas-design.md` (binding behaviour and public Slack API citations); approved requirements at `.superpowers/sdd/2026-11-05-slack-canvas-replies/requirements.md`.
+**Tech Stack:** OCaml 5.1, Lwt, Yojson.Safe, existing Slack transport/policy checks, Alcotest fake HTTP, dune and ocamlformat 0.28.1 through the serialized remote gate.
+
+**Binding inputs:** `.superpowers/sdd/2026-11-05-slack-canvas-replies/scope-ruling.md` (R1–R8) overrides requirements and prior design; `docs/superpowers/specs/2026-11-05-slack-long-replies-canvas-design.md` gives API citations and full behavior.
 
 ## Global Constraints
 
-- Default threshold **2500**, strictly greater-than, Unicode scalar values. Modes **canvas|file|off**, default **canvas**; threshold validation **1..40000**. Opening block summary at most **600** scalar values, title at most **120**. Canvas payload conservative ceiling **1048576 bytes and scalar values**, tables **300 cells**. Exact extraction/conversion rules are in the spec.
-- Core modules: existing `Slack_config_types`, new **Slack_reply_types**, **Slack_reply_context**, **Slack_long_reply_policy**, **Session_reply_lifecycle**, **Session_final_reply**. Integrations modules: new **Slack_canvas**, **Slack_file_upload**, **Slack_reply_store**, **Slack_reply_delivery**, **Slack_canvas_tool**, **Slack_message_transport**. Add module names to the correct explicit lists in `src/dune`. No HTTP/network dependency enters `clawq_runtime_core`; the real tool belongs in `clawq_runtime_integrations`. Core's registered placeholder returns **disabled in minimal build**.
-- Soft file-size limit **1000 lines**, hard **2000 lines**; each new module below **1000**. `src/slack.ml` starts at **1121** and must shrink when touched. Extract transport wrappers rather than append policy to it. Avoid Session↔Slack cycles.
-- All build/test/format/generation commands use **`/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh`**. Never run dune locally or in parallel. The gate isolates HOME and serializes remote work; no direct live Slack, local daemon, token, `~/.clawq`, attn, other worktree, push, merge or rebase. Only fake HTTP with injectable zero-delay clocks. Temporary SQLite/config data stays under test temp roots.
-- Register every new suite in **both `test/dune` and `test/test_main.ml`**, even when adding more cases to a suite created in an earlier task. Stage only the task's explicit files; list generated `.ml` paths explicitly after inspecting their diff. No `git add -A`.
-- Final-only semantics include native/legacy, root/thread, DM/MPDM, queue replay and autonomous/agent-command finals. Existing string notifiers remain progress/notice senders. Preserve B845 blank/suppression checks, current authorization, private-channel policy, owner/stop rules and response-sent semantics.
-- Public docs require link sharing before access-set and user grants for DM/MPDM. Do not fabricate a DM channel grant, permalink or Slack idempotency key. A failed permission operation is a canvas failure. Coordinator verifies live permissions after deployment; implementers never call live Slack.
-- Upload v2 is **absent in this checkout**. Task 2 creates its adapter; do not depend on future standing-order code. If it appears before implementation, reconcile its actual contract and reuse only a policy-safe implementation.
-- Two spec entries are **Default pending Max** (DM membership lifetime; share-before-read interval). Implement the stated defaults unless Max directs otherwise, and retain coordinator acceptance checks.
+- Five implementation tasks below. Do not add persistence or change model/recovery semantics for delivery. One call attempts create once and reuses known ID for bounded later-stage retries. Crash/restart/replay duplicates are accepted; do not test cross-crash/replay idempotency.
+- Code-point threshold strictly greater than **2500** by default; equality stays in chat. Modes **canvas|file|off**; threshold **1..40000**. Summary **600** scalars including ellipsis; title **120**. Preserve B845 and original fallback bytes. Minimal Markdown conversion only outside fences; Slack rejects unsupported structures. Conservative canvas ceiling **1048576 bytes/scalars**, without table/HTML/heading validators.
+- DMs and MPDMs always use file for automatic overflow (except `off`); tool returns the spec's exact DM error. No user grants/member enumeration. Channel order is create → permalink → carrier → read grant; failure cleans owned canvas/carrier then file/text fallback.
+- All HTTP and real tool code belong to `clawq_runtime_integrations`. Core includes policy/config, low-level presentation context, optional queued-final callback and schema-compatible minimal placeholder. Add modules to the correct explicit `src/dune` lists.
+- Cycle rule: **Session_types → Agent → Prompt_builder → Slack_reply_context → Lwt**. Context imports no Session/Agent/integration module. Shared upload imports no standing-order module. Extracted transport imports no `Slack`. Keep new modules below 1000 lines (hard 2000); shrink `slack.ml` below its initial 1121.
+- Every build/test/format/generation command uses `/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh`, sequentially. No local dune or parallel gate commands. The gate isolates HOME, serializes remote builds and caps jobs. Temporary test data stays under test temp roots.
+- No live Slack API, credentials inspection, `~/.clawq`, attn, other-worktree writes, push/merge/rebase or subagents. P3 worktree is read-only reference. Stage only explicit task paths, including individually inspected generated files. Register new suites in `test/dune` and `test/test_main.ml`.
+- Recheck current authorization/allowlist/private policy/egress and credentials before each HTTP operation. Revocation/cancellation stops writes, including fallback. Never log tokens, upload URLs, content, titles, summaries, raw HTTP bodies or HTTP exception strings.
+- Preserve notifier/progress/relay behavior and deferred/suppressed output. Cover required final paths; direct background/resume and non-native queued finals other than follow-ups remain the spec's known gaps. No new product decision is pending Max.
 
 ## Review Focus
 
-| Input most likely to bite | Owning task and proof |
+| Risk / ruling | Named test and required evidence |
 | --- | --- |
-| Slack access API rejects DM/MPDM IDs and requires prior sharing; successful create is insufficient | Task 2 `dm uses users after share`, `mpdm incomplete members falls back`, `grant failure is not success`; assert operation order and exact recipients. Task 3 proves recovery of carrier/fallback. |
-| `turn_verified_stream` is provider streaming; native streams currently contain status only | Task 4 `native long final never streams body`; inspect start/append/stop/post calls across live, drain and replay; assert one final and no answer body in stream calls. |
-| Crash after remote create but before saving ID; durable replay regenerating an answer or using another turn's identity | Task 3 `lost create response never creates twice`, Task 4 `replay resumes stored final before model`; assert one create, zero replay model calls, stable request slot despite different generated text/attempt count. |
-| Captured config and mixed progress/final notifiers; private-channel/egress revocation during fallback | Task 1 `reload changes next final`, Task 3 `policy revocation stops fallback`, Task 4 `relay and notices bypass overflow`; assert effective config and no unauthorized writes. |
-| Slack Markdown/byte limits and unsupported assumed upload implementation | Task 1 `unicode boundary and fenced opening`, Task 2 `upload v2 uses byte length and parent`, Task 3 `unsupported markdown goes to exact file`; assert original byte equality, form encoding and no lossy canvas. |
+| P3 extraction weakens policy or moves completion reservation (R6) | Task 1 `shared upload preserves relay fence`: limiter → fresh policy → synchronous reservation → one HTTP; refused reservation makes zero completion calls. Existing P3 upload/dispatch-retry/relay suites stay green. |
+| DM canvas grants reappear (R3) | Task 3 `a DM long answer is attached as a file`: DM and MPDM issue zero canvas calls or recipient enumeration for grants, exact original bytes/parent in upload. Task 5 `dm tool gives file guidance`: exact error, zero writes. |
+| Later-stage failures create again (R1/R8) | Task 3 `one delivery creates at most one canvas when a later step fails` and `later step retry reuses known canvas`: one create despite permalink/grant retry/failure; known ID reused. No restart guarantee. |
+| Sharing precedes grant; cleanup drops answer (R4) | Task 3 `share then grant failure cleans and falls back`: exact operation order, read-only channel grant, canvas delete/carrier edit or delete attempted, original file delivered even if cleanup fails. |
+| Threshold/summary or over-validation changes content (R5/R7) | Task 2 `threshold equality stays in chat`, `unicode fenced opening is capped`, `markdown only adapts tokens outside fences`; assert byte equality of unsupported structures and exact fallback. |
+| Progress intercepted or answer shown twice (R2) | Task 4 `native long final never streams body`, `relay and notices bypass overflow`, `followup idle and queued finals`: one final presentation; zero body in stream operations; acknowledgements/progress make no artifacts. |
+| Stale config or prompt creates wrong behavior (R7) | Tasks 2/3 `reload during generation changes final policy`, Task 5 `guidance rebuild follows current config`: runtime updates affect next final/request, including compaction/static prompt; active delivery does not restart. |
+| Dependency cycle / minimal linkage (R7) | Task 5 `minimal tool is disabled` plus gate `minimal`: placeholder works, full tool replaces it, no core import of integrations or prompt import of Session_types. |
 
-## Task 1: pure policy, config and neutral delivery contract
+## Task 1: extract P3 upload-v2 primitives for both callers
 
 **Files**
 
-- Create: `src/slack_reply_types.ml`, `src/slack_reply_context.ml`, `src/slack_long_reply_policy.ml`, `src/session_reply_lifecycle.ml`, `src/session_final_reply.ml`, `test/test_slack_long_reply.ml` (suite `slack_long_reply`).
-- Modify: `src/slack_config_types.ml`, `src/runtime_config_types.ml`, `src/config_loader_channels.ml`, `src/runtime_config_json_sections.ml`, `src/config_set.ml`, `src/config_tree.ml`, `src/config_search.ml`, `src/config_show.ml` where needed for actual enumeration; `src/session_types.ml`, `src/session_core.ml`, `src/dune`, `test/dune`, `test/test_main.ml`.
-- Test/fixture modifications: `test/test_config_loader.ml`, `test/test_config_set.ml`, `test/test_slack.ml` and every explicit `slack_config` record constructor found by compiler/search; add `long_reply` defaults, without unrelated fixture edits.
+- Create `src/slack_file_upload.ml`, `test/test_slack_file_upload.ml` (suite `slack_file_upload`).
+- Modify merged P3 `src/slack_standing_order_upload.ml`, `src/slack_standing_order_dispatch.ml`, `src/dune`, `test/dune`, `test/test_main.ml`.
+- Extend existing `test/test_slack_standing_order_upload.ml`, `test/test_slack_standing_order_dispatch_retry.ml` only for extraction regressions. Keep `Slack_standing_order_slack.make`/`preflight`/selector restrictions unchanged.
 
-**Interfaces — consumes JSON/current config; produces typed policy and a core callback seam**
+**Interfaces — exact shared contract from the spec**
 
 ```ocaml
-(* Slack_config_types additions *)
+(* Slack_file_upload: integration-only; no standing-order import *)
+type request = { uri : string; headers : (string * string) list; body : string }
+type response = { status : int; headers : (string * string) list; body : string }
+type raw_http = request -> response Lwt.t
+type 'e call = string -> (string * Yojson.Safe.t) list ->
+  (Yojson.Safe.t, 'e) result Lwt.t
+type 'e error = Remote of 'e | Invalid_response | Invalid_upload_url
+              | Http_status of int | Transport
+type ticket = { file_id : string; upload_url : string }
+val default_http : raw_http
+val pinned : string -> bool
+val allocate : call:'e call -> filename:string -> length:int ->
+  (ticket, 'e error) result Lwt.t
+val post : ?http:raw_http -> limit:(unit -> unit Lwt.t) ->
+  authorize:(uri:string -> (unit, 'e) result) ->
+  before_send:(unit -> (unit, 'e) result) -> uri:string -> body:string ->
+  unit -> (unit, 'e error) result Lwt.t
+val complete : call:'e call -> channel_id:string -> thread_ts:string option ->
+  initial_comment:string -> file_ids:string list ->
+  (Yojson.Safe.t, 'e error) result Lwt.t
+```
+
+P3 raw types become manifest aliases to shared types so existing injected fixtures compile. Existing `Slack_standing_order_upload.post` signature remains:
+
+```ocaml
+val post : db:Sqlite3.db -> current_config:(unit -> Runtime_config.t) ->
+  snapshot:Access_snapshot.t -> channel_id:string -> audit:string ->
+  ?http:Slack_file_upload.raw_http -> ?limit:(unit -> unit Lwt.t) ->
+  ?before_send:(unit -> (unit, Slack_standing_order_slack.error) result) ->
+  uri:string -> body:string -> unit ->
+  (unit, Slack_standing_order_slack.error) result Lwt.t
+```
+
+Do not change P3 callers' public API. `authorize` delegates to `SO.preflight ~scope:Standing_order ~sensitive_uri:true` after limiter, using actual URI/current config and returning unit. Shared `post` runs `before_send` synchronously immediately before raw HTTP, without an intervening yield.
+
+**Test-first steps**
+
+- [ ] Register suite and write `upload v2 uses byte length and parent`: allocation sends `String.length` bytes through checked GET; raw POST contains exact bytes, no bot authorization; completion has channel, optional parent, initial comment. `completion rejects empty or duplicate ids` makes zero calls on invalid input.
+- [ ] Write `upload URL pin and redaction survive extraction`: reject non-HTTPS, wrong host, userinfo, explicit port/fragment, control characters and backslash; 302 is an error with no redirect. Audit/HAR/log capture contains no capability, token or body. Retain existing P3 2xx behavior.
+- [ ] Write `shared upload preserves relay fence`: fresh config/snapshot/allowlist/egress checks after limiter; strict-audit or `before_send` refusal means zero socket calls. Assert completion reservation executes once and remains synchronous. Keep P3 tests for pause, cancellation and ambiguous completion unchanged.
+- [ ] Run red. Move P3 raw transport/pinning to shared module. In `Slack_standing_order_dispatch.deliver`, replace per-file allocation/parse with `allocate`, retaining ID save/duplicate checks; byte upload goes through compatibility wrapper. Replace batch completion with `complete`, existing checked closure, `thread_ts:None`, same IDs/comment. Preserve reservation/evidence/reconciliation logic.
+- [ ] In the compatibility wrapper unwrap `Remote e` unchanged; map invalid response/transport to `SO.Transport`, invalid URL to `SO.Egress_denied "upload"`, status to `SO.Http_status`. In dispatch allocation, local validation errors instead keep the existing terminal `upload_allocation_invalid` branch; remote errors keep `precomplete_error "upload_allocation_failed"`. Add `malformed allocation stays terminal` asserting no new transient retry and the original reason. Checked API closures retain method/allowlist gates. Shared module never imports `Slack_standing_order_slack`; this prevents a wrapper/shared cycle.
+- [ ] Run green and P3 regression gates, full tests and optimized/minimal builds for the extraction; stage listed paths only.
+
+**Verification (sequential)**
+
+```bash
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_file_upload
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_standing_order_upload
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_standing_order_slack
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_standing_order_dispatch_retry
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_standing_order_relay
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh all
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh opt
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh minimal
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh fmt-check
+```
+
+**Commit:** `refactor(slack): share P3 upload v2 primitives`
+
+## Task 2: pure overflow policy, live config and neutral prompt metadata
+
+**Files**
+
+- Create `src/slack_long_reply_policy.ml`, `src/slack_reply_context.ml`, `test/test_slack_long_reply.ml` (suite `slack_long_reply`).
+- Modify `src/slack_config_types.ml`, `src/runtime_config_types.ml`, `src/config_loader_channels.ml`, `src/runtime_config_json_sections.ml`, `src/config_set.ml`, `src/config_tree.ml`, `src/config_search.ml`, `src/config_show.ml` where enumeration needs it; `src/dune`, `test/dune`, `test/test_main.ml`.
+- Extend `test/test_config_loader.ml`, `test/test_config_set.ml`; update explicitly identified Slack-config record fixtures (including `test/test_slack.ml`) with the new default field only.
+
+**Interfaces**
+
+```ocaml
+(* Slack_config_types; slack_config adds long_reply : long_reply *)
 type long_reply_mode = Canvas | File | Off
 type long_reply = { mode : long_reply_mode; threshold : int }
 val default_long_reply : long_reply
 val long_reply_of_json : Yojson.Safe.t -> long_reply
 val long_reply_to_json : long_reply -> Yojson.Safe.t
 val validate_long_reply : Yojson.Safe.t -> (unit, string) result
-(* Runtime_config_types.slack_config adds long_reply : Slack_config_types.long_reply *)
-
-(* Slack_reply_types: no dependency on Session or integration modules *)
-type context = {
-  connector : string; session_key : string; channel_id : string;
-  thread_ts : string option; requester : string option;
-  request_id : string; ordinal : int;
-}
-type target = {
-  team_id : string; app_id : string; workspace_url : string;
-  channel_id : string; thread_ts : string option;
-  requester : string; context : context;
-}
-type installation = { team_id : string; app_id : string }
-type slot = Final of int
-type journal_key = {
-  installation : installation; session_key : string;
-  request_id : string; slot : slot;
-}
-type operation_id = string
-(* Digests do not identify operations; explicit calls bind to the active Final slot. *)
-type artifact = { canvas_id : string; permalink : string; shared_ts : string }
-type outcome = Canvas_sent of artifact | File_sent of string | Text_sent | Suppressed
-type error = Policy_denied | Storage_unavailable | Cancelled | Failed of string
-type sender = context -> string -> unit Lwt.t
-
 (* Slack_long_reply_policy *)
 val code_points : string -> (int, string) result
-val summary : string -> string
 val overflows : Slack_config_types.long_reply -> string -> bool
+val summary : string -> string
 val prepare_markdown : string -> (string, string) result
-val automatic_title : request_id:string -> string
-
-(* Session_types.t adds mutable final_reply_sender : Slack_reply_types.sender option *)
-(* Slack_reply_context: depends ONLY on Slack_reply_types and Lwt *)
-val with_context : Slack_reply_types.context -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-val current_context : unit -> Slack_reply_types.context option
-(* Tool metadata is also low-level and scoped; no Session/Agent type dependency. *)
-type invocation = { provider_call_id : string; sequence : int }
-val with_invocation : invocation -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-val current_invocation : unit -> invocation option
-
-(* Session_reply_lifecycle: core, SQLite + low-level types; no Session/Agent/HTTP *)
-val current_epoch : db:Sqlite3.db -> session_key:string -> int
-val clear_session : db:Sqlite3.db -> session_key:string -> unit
-(* Advance epoch and tombstone versioned journal tables synchronously; raises on DB failure. *)
-
-(* Session_final_reply uses Session_types.t, never Session or Slack_canvas *)
-exception Retained_delivery of Slack_reply_types.error
-val send : Session_types.t -> context:Slack_reply_types.context ->
-  fallback:(string -> unit Lwt.t) -> string -> unit Lwt.t
+val automatic_title : source_ts:string option -> string
+(* Slack_reply_context: presentation only; depends on Lwt, not config/Session *)
+type conversation = Channel | Direct | Group_direct | Unknown
+type t = { connector : string; conversation : conversation }
+val with_context : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
+val current_context : unit -> t option
 ```
 
-`Session_final_reply.send` invokes the installed sender for Slack, otherwise fallback; an absent sender also uses fallback. It does not classify arbitrary progress. The separate `Slack_reply_context` cell supplies verified presentation metadata for later prompt wiring. Initialize the field to `None`, and scope/clear metadata with `Slack_reply_context.with_context` and `Lwt.finalize`. Prompt_builder/Agent_profile must not import Session_final_reply or Session_types; compile the completed graph again in Task 5. Session_reply_lifecycle defines the epoch and tombstone SQL contract used by Task 3 (no HTTP); Task 4 wires the public clear paths. It must not imply tool authority (the tool separately resolves ingress/snapshot).
+`prepare_markdown` errors only for invalid UTF-8/size ceiling, not Markdown structures. Context is neither a final dispatcher nor a source of tool authority. Its dependency graph ends at Lwt; safe for Prompt_builder and Agent_profile upstream of Session_types.
 
 **Test-first steps**
 
-- [ ] Register `slack_long_reply`; write `threshold equality stays in chat` (2499/2500 do not overflow; 2501 does), `unicode boundary and fenced opening` (multibyte scalars, CRLF, blank line inside fence, heading/list first block, no paragraph break, 599+ellipsis, whitespace and literal mentions), `markdown limits preserve original` (300/301 cells, code untouched, h4/HTML rejected, bytes/scalars ceiling).
-- [ ] Write `long reply config round trips` (missing defaults; all three modes; unknown mode warns once with no raw value), `config set rejects malformed nested values` (leaf, whole object and parent-object routes; 0/40001/float/bool/null/unknown key; actionable examples), `reload changes next final` (swap manager config before final; sender reads new mode/threshold).
-- [ ] Add `canvas mentions and links convert only outside code`: `<@U…>`, `<#C…|label>` and `<https://…|label>` convert to documented canvas Markdown outside fenced/inline code; code bytes remain untouched. `broadcast tokens remain literal` asserts `<!channel>`, `<!here>`, `<!everyone>` are escaped literal content and cannot expand mentions. Assert the original input bytes remain available for file/text fallback.
-- [ ] Add `loader defaults invalid fields independently`: invalid threshold preserves valid mode, invalid mode preserves valid threshold, missing fields default individually, and non-object long_reply defaults both. Expect one sanitized warning per invalid supplied field (one object warning for malformed object), no warning for missing fields, no raw invalid values in logs.
-- [ ] Run the new suite red. Implement pure policy and JSON codec/schema/serialization; add `channels.slack.long_reply` leaves and whole-object/ancestor validation in config_set. Use the existing runtime reload flow; do not cache policy in a connector closure.
-- [ ] Implement/test `final callback is separate from progress` and `neutral context is restored`: callback called once for Slack final, non-Slack fallback once, a progress notifier untouched, nested context in Slack_reply_context unwinds on exception and cancellation, with no dependency on Session_types. Test lifecycle epoch advancement, missing-table no-op and failure propagation before wiring real clear callers.
-- [ ] Run green and inspect the core module graph for references to Slack network modules. Commit only explicit files.
+- [ ] Write `threshold equality stays in chat`: 2499/2500 text, 2501 overflow; repeat with multibyte scalars. `blank and invalid UTF8 bypass artifacts`: no empty writes/replacement characters.
+- [ ] Write `unicode fenced opening is capped`: CRLF, leading headings/lists/code, blank line within tilde/backtick fences, no paragraph break, 600 vs 601 scalars, 599 plus ellipsis, Slack escaping measured after cap. Original body is unchanged.
+- [ ] Write `markdown only adapts tokens outside fences`: all mention/link/broadcast conversions; fences byte-identical. HTML, h4 and 301-cell tables pass through unchanged to Slack. Byte/scalar ceiling rejection uses exact-file fallback later.
+- [ ] Add loader cases `long reply defaults fields independently`, `unknown mode warns and defaults`; validation cases `long reply validates leaves object and parents`: accept 1/40000, reject 0/40001, null/float/bool/unknown keys, including nested `channels`/`channels.slack` updates. Errors show key/example; logs do not echo untrusted values.
+- [ ] Run red; implement parsing/serialization/set/show/search/tree and current-config behavior. Add `reload during generation changes final policy` using `Session.update_config` (no production config writes); assert mode/threshold change without restart. No cached derived state.
+- [ ] Run green, quick, formatting and minimal gates. Stage explicit new/modified fixture paths after inspection.
 
-**Verification** (each command runs sequentially):
+**Verification**
 
 ```bash
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_long_reply
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite config_set
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite config_loader
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite config_set
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh quick
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh fmt-check
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh minimal
 ```
 
-**Commit:** `feat(slack): add long-reply policy and live config`
+**Commit:** `feat(slack): add long reply policy and live configuration`
 
-## Task 2: policy-safe canvas and upload-v2 adapters
+## Task 3: channel canvas delivery and DM file fallback
 
 **Files**
 
-- Create: `src/slack_canvas.ml`, `src/slack_file_upload.ml`, `test/test_slack_canvas.ml` (suite `slack_canvas`), `test/test_slack_file_upload.ml` (suite `slack_file_upload`).
-- Modify: `src/slack_thread_api.ml` (safe reusable explicit-context checks, without weakening authorization), `src/slack_transport.ml` (injectable form/raw requests if missing), `src/dune`, `test/dune`, `test/test_main.ml`.
+- Create `src/slack_canvas.ml`, `src/slack_reply_delivery.ml`, `test/test_slack_canvas.ml` (suite `slack_canvas`), `test/test_slack_reply_delivery.ml` (suite `slack_reply_delivery`).
+- Modify `src/dune`, `test/dune`, `test/test_main.ml`. Consume Task 1 shared upload; do not add another upload transport.
 
-**Interfaces — consumes a server-resolved target and policy-checked transport; produces IDs/receipts, never user-facing raw errors**
+**Interfaces**
 
 ```ocaml
-(* Slack_canvas; request encapsulates current config + egress + audit *)
+(* Slack_canvas: integration-only checked API primitives *)
+type error = Policy_denied | Transport of string
 type call = string -> (string * Yojson.Safe.t) list ->
-  (Yojson.Safe.t, Slack_reply_types.error) result Lwt.t
-type recipients = Channel of string | Users of string list
-type canvas_unavailable = Too_many_recipients | Recipient_lookup_unavailable
-(* Additional sanitized canvas-only reasons may be added; never encode policy denial here. *)
-type canvas_eligibility = Eligible of recipients | Unavailable of canvas_unavailable
-val resolve_target : manager:Session.t -> context:Slack_reply_types.context ->
-  (Slack_reply_types.target, Slack_reply_types.error) result Lwt.t
-val canvas_eligibility : manager:Session.t -> target:Slack_reply_types.target ->
-  (canvas_eligibility, Slack_reply_types.error) result Lwt.t
+  (Yojson.Safe.t, error) result Lwt.t
 val create : call:call -> title:string -> markdown:string ->
-  (string, Slack_reply_types.error) result Lwt.t
-val permalink : call:call -> target:Slack_reply_types.target -> canvas_id:string ->
-  (string, Slack_reply_types.error) result Lwt.t
-val set_read : call:call -> canvas_id:string -> recipients:recipients ->
-  (unit, Slack_reply_types.error) result Lwt.t
-
-(* Slack_file_upload; network methods remain in integrations *)
-type ticket = { file_id : string; upload_url : string }
-type transport = {
-  api : verb:string -> encoding:[ `Form | `Json ] -> method_:string ->
-    params:(string * Yojson.Safe.t) list ->
-    (Yojson.Safe.t, Slack_reply_types.error) result Lwt.t;
-  upload : uri:string -> body:string ->
-    (unit, Slack_reply_types.error) result Lwt.t;
-}
-val ticket : transport:transport -> filename:string -> length:int ->
-  (ticket, Slack_reply_types.error) result Lwt.t
-val put : transport:transport -> ticket:ticket -> body:string ->
-  (unit, Slack_reply_types.error) result Lwt.t
-val complete : transport:transport -> ticket:ticket ->
-  target:Slack_reply_types.target -> summary:string ->
-  (string, Slack_reply_types.error) result Lwt.t
-```
-
-`put` names the adapter operation; wire method is **POST**, not HTTP PUT. Callers own journalling/once-only decisions. `call` dispatches GET for files.info/metadata and POST for create/access/owned-canvas cleanup; the upload ticket method uses form encoding even though most other writes are JSON. Resolve current policy before every call, including rechecking metadata/membership before grants. Resolve legacy installation identity from auth.test plus bots.info when there is no verified envelope/native route; validate returned bot/app/team and never guess an app ID. Destination resolution establishes policy authorization independently of canvas eligibility. Bound DM/MPDM grant pagination; `Unavailable` retains the authorized target for file/text, and must never carry an oversized/partial Users list. >20 fully resolved human recipients selects `Too_many_recipients`. Incomplete canvas enumeration selects `Recipient_lookup_unavailable` only when all authorization checks independently succeeded; otherwise return Policy_denied and stop every outward write. Distinguish `is_mpim` from a private channel. Revalidate destination authorization before each fallback and membership immediately before grant. Use a closed method list and sanitized error codes. An injected fake exercises the same serialization and policy path as production.
-
-**Test-first steps**
-
-- [ ] Register suites and write `standalone create has no channel id` (exact title/document_content, no token in JSON; returns ID), `permalink requires matching private file` (files.info GET, returned permalink, missing scope/mismatched host/public-only result errors), `read channel grant` (one channel, `read`, no org/public/write).
-- [ ] Write `dm uses users after share` and `mpdm incomplete members falls back`: typed metadata selects users, remove self, dedupe, no `D…` or MPDM ID in channel_ids, paginated completeness, 20/21 boundary produces Eligible/Unavailable with the same authorized target; policy/private-channel deny produces an error before any outward write. Task 3 proves exact-file fallback for 21 members. Task 3 will test the full share-before-grant order.
-- [ ] Write `upload v2 uses byte length and parent`: ticket form fields, multibyte byte count, returned URL POST exact original bytes, complete JSON uses one channel, original parent, summary comment. `unsafe upload host never receives token` asserts HTTPS/host checks, egress denial, no redirects/bearer forwarding/logged signed URL. `api failures are sanitized` covers 429, missing_scope, disabled/free-team create, malformed response and content detail containing a secret.
-- [ ] Run red; implement adapters and metadata resolution. Never use create(channel_id) as a free-plan recovery path. Never treat the requirements' paid-plan inference as verified.
-- [ ] Run green and commit explicit paths.
-
-**Verification:**
-
-```bash
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_canvas
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_file_upload
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh quick
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh fmt-check
-```
-
-**Commit:** `feat(slack): add scoped canvas and upload-v2 adapters`
-
-## Task 3: durable artifact delivery and fallback
-
-**Files**
-
-- Create: `src/slack_reply_store.ml`, `src/slack_reply_delivery.ml`, `test/test_slack_reply_delivery.ml` (suite `slack_reply_delivery`).
-- Modify: `src/dune`, `test/dune`, `test/test_main.ml`; add recovery cases to `test/test_slack_canvas.ml` and `test/test_slack_file_upload.ml` where they own adapter behaviour.
-
-**Interfaces — consumes Task 1 policy/context and Task 2 adapters; produces persisted delivery outcome**
-
-```ocaml
-(* Slack_reply_store; row is abstract, persisted with original body and all stages *)
-type row
-val init : Sqlite3.db -> unit
-(* All keys come from verified installation resolution, never just a legacy session key. *)
-val activate_request : db:Sqlite3.db -> key:Slack_reply_types.journal_key ->
-  epoch:int -> target:Slack_reply_types.target ->
-  (Slack_reply_types.operation_id, Slack_reply_types.error) result
-(* Persisted before execution; no final body or policy choice is required yet. *)
-val ensure : db:Sqlite3.db -> key:Slack_reply_types.journal_key ->
-  epoch:int -> target:Slack_reply_types.target -> policy:Slack_config_types.long_reply ->
-  title:string -> body:string -> (row, Slack_reply_types.error) result
-val lookup : db:Sqlite3.db -> key:Slack_reply_types.journal_key -> row option
-val claim_canvas : db:Sqlite3.db -> operation:Slack_reply_types.operation_id ->
-  key:Slack_reply_types.journal_key -> epoch:int ->
-  (bool, Slack_reply_types.error) result
-val save_canvas : db:Sqlite3.db -> row -> epoch:int -> canvas_id:string -> unit
-val save_carrier : db:Sqlite3.db -> row -> epoch:int -> ts:string -> unit
-val body : row -> string
-val outcome : row -> Slack_reply_types.outcome option
-(* Discovery uses installation + session, then returns complete original keys. *)
-val recoverable_keys : db:Sqlite3.db -> installation:Slack_reply_types.installation ->
-  session_key:string -> Slack_reply_types.journal_key list
-(* Core Session_reply_lifecycle owns synchronous tombstoning and epoch checks. *)
-
+  (string, error) result Lwt.t
+val permalink : call:call -> canvas_id:string -> (string, error) result Lwt.t
+val grant_read : call:call -> canvas_id:string -> channel_id:string ->
+  (unit, error) result Lwt.t
+val delete : call:call -> canvas_id:string -> (unit, error) result Lwt.t
 (* Slack_reply_delivery *)
-type deps = {
-  call : Slack_canvas.call;
-  upload : Slack_file_upload.transport;
-  post : target:Slack_reply_types.target -> text:string ->
-    (string, Slack_reply_types.error) result Lwt.t;
-  edit : target:Slack_reply_types.target -> ts:string -> text:string ->
-    (unit, Slack_reply_types.error) result Lwt.t;
-  delete : target:Slack_reply_types.target -> ts:string ->
-    (unit, Slack_reply_types.error) result Lwt.t;
+type target = {
+  session_key : string; channel_id : string; thread_ts : string option;
+  requester : string; source_ts : string option;
+  conversation : Slack_reply_context.conversation;
 }
-val deliver : manager:Session.t -> deps:deps ->
-  context:Slack_reply_types.context -> body:string ->
-  (Slack_reply_types.outcome, Slack_reply_types.error) result Lwt.t
-val create_explicit : manager:Session.t -> deps:deps ->
-  context:Slack_reply_types.context -> invocation:Slack_reply_context.invocation ->
-  title:string -> markdown:string ->
-  (Slack_reply_types.artifact, Slack_reply_types.error) result Lwt.t
-val resume : manager:Session.t -> deps:deps -> key:Slack_reply_types.journal_key ->
-  (Slack_reply_types.outcome option, Slack_reply_types.error) result Lwt.t
+type deps = {
+  current_config : unit -> Runtime_config.t;
+  authorize : target -> (unit, Slack_canvas.error) result Lwt.t;
+  call : target -> Slack_canvas.call;
+  upload : target -> summary:string -> body:string ->
+    (unit, Slack_canvas.error) result Lwt.t;
+  post_text : target -> string -> (unit, Slack_canvas.error) result Lwt.t;
+}
+type artifact = { canvas_id : string; permalink : string; shared_message_ts : string }
+type outcome = Canvas_sent of artifact | File_sent | Text_sent | Suppressed
+val make_deps : manager:Session.t -> deps
+val publish_canvas : deps:deps -> target:target -> title:string ->
+  markdown:string -> carrier:string -> (artifact, Slack_canvas.error) result Lwt.t
+val deliver : deps:deps -> target:target -> body:string ->
+  (outcome, Slack_canvas.error) result Lwt.t
 ```
 
-Store internal methods persist active request/context/epoch before model/tool entry, operation ID, provider invocation ID + replay sequence + original tool arguments before tool execution, then immutable receipt/error before returning to the model, permalink, ticket/stage, policy and safe errors using CAS. `ensure`, `lookup` and request/operation claims all use the same typed verified journal key (team/app/session/request/Final ordinal); ensure rejects mismatched key/target. Recovery enumerates these full keys by verified installation/session; changed installation never reuses another installation's rows. No text/digest-only lookup is allowed.
+`make_deps` supplies checked API calls and the file wrapper using shared `allocate/post/complete`, current config and original target. `call` binds channel/parent, enforces method/parameter selectors and policy per request, not only at construction. New API requests reuse P3's no-capture `Slack_standing_order_slack.api_transport` socket adapter (not its standing-order-scoped `make`), retaining Slack_transport fixture injection. I065's raw-upload authorization checks current allowlist/private policy/snapshot and strict audited egress against the actual sensitive upload URI. Legacy and native authorization stays intact, including existing membership checks; there is no new enumeration for grant recipients. Metadata refresh distinguishes DM/MPDM/private; missing canvas eligibility never grants permission. `upload` uses original bytes, `.md` filename, summary comment and exact parent; shared errors map to safe classes. No integration API is imported by core. The new delivery → P3 socket-adapter dependency has no return edge.
 
-A request's explicit and automatic final share **one durable operation ID and create fence**. Allocate it before the first explicit invocation or automatic create, not from regenerated title/body. `claim_canvas` is atomic/one-way and epoch-checked; false never authorizes another create. Tool replays consume the persisted invocation sequence and original arguments/receipt/error; altered arguments cannot allocate another operation. Repeated/additional explicit calls for this final reuse compatible success or return already-attempted errors. Any explicit attempt, including failure/unknown success, forbids another automatic create: reuse a known compatible canvas, otherwise file/text with the final's own immutable body. Different content alone is never a new final ordinal. Freeze separate logical final ordinals before their model executions.
-
-`resume` returns None only when no saved final body exists for that full key; otherwise complete/reuse it or return a retained error. A tool-only active request can resume model execution under its saved identity and receipts with its fence intact. Outcome errors propagate through Session_final_reply.Retained_delivery, never sent markers or generic error-reply handlers. The explicit method shares title/link and grants read, but never silently returns a file receipt. Invalid UTF-8 skips both artifacts and uses exact original bytes in plain delivery, retaining failure if rejected.
-
-The additive version-1 schema uses `slack_reply_requests`, `slack_reply_operations`, `slack_reply_tool_invocations` and `slack_reply_deliveries`; Task 1 owns `session_reply_epochs`. It must satisfy Task 1's core Session_reply_lifecycle tombstone contract. Explicit tool bodies/receipts stay in invocation/operation records; do not call final-row ensure with a tool document. Only a completed final initializes that immutable body. Capture epoch before generation, check it on every write/HTTP stage, purge retained content/arguments/receipts atomically on clear while retaining operation fences and owned cleanup IDs. Missing journal tables are valid for minimal/older DBs; SQL failures propagate instead of acknowledging a successful clear. No network operation belongs in the core helper.
+`publish_canvas` does one create → permalink → non-empty carrier plus labelled link → read grant and owned cleanup on failure. `carrier` is the escaped opening paragraph (automatic) or escaped title (tool); this helper appends the trusted link. `deliver` selects policy/file/text and calls that helper only for eligible channel overflow. All state is call-local; bounded later-stage retries reuse ID. A denied security check stops every fallback.
 
 **Test-first steps**
 
-- [ ] Register the suite. Write `canvas success posts summary link once`: exact order create → files.info → post → access-set; one visible carrier, read access, no full text posted. `grant failure is not success`: file fallback, original bytes, summary comment, carrier cleanup; failed delete triggers safe edit. `failed canvas cleanup is scoped` asserts only this row's known new canvas is deleted, retained body survives, failed deletion leaves a cleanup flag and never blocks fallback.
-- [ ] Write `canvas failure uploads markdown`, `both artifacts fail posts full text`, `file and off modes skip canvas`, `unsupported markdown goes to exact file`, `blank or suppressed reply sends nothing`. Assert exact file body/plain body and no raw API error text.
-- [ ] Write `lost create response never creates twice`: crash at each fence/response/persist boundary, reopen DB, retry with changed input text and attempt number; one create total and persisted original answer used. Also `concurrent workers share one canvas`, `known canvas resumes grant`, `explicit duplicate reuses receipt`, `identical explicit writeup reuses final link`, `different final after explicit attempt uses exact file`. Add `lost explicit response blocks automatic create` (explicit timeout then automatic same write-up: one create total, exact file fallback) and `tool replay changed arguments keeps fence` (restart after tool-only attempt; replay consumes original invocation/arguments/receipt, changed generated arguments cause zero new creates).
-- [ ] Write `journal lookup is installation scoped`: identical legacy session/request/slot under two teams and two apps never reuse another body/receipt; unresolved/changed installation cannot select either accidentally. `21 member mpdm uploads exact file without canvas` asserts zero create/access calls, exact original file bytes/parent/comment. `policy denial makes no outward writes` asserts zero create/upload/post/grant, with retained body.
-- [ ] Write `membership change before grant never shares stale recipients`: mutate DM/MPDM membership after carrier post, before grant; zero access-set calls for the stale list, fallback only after fresh destination authorization. `invalid utf8 preserves original without artifacts`: malformed byte sequence, zero canvas/upload calls, byte-identical plain send; rejected send stays pending with original bytes.
-- [ ] Write `ambiguous upload completion is not completed twice` (known file shares reconcile; no new ticket when uncertainty forces full text), `carrier failure retains delivery`, `truncated text is not sent`, `policy revocation stops fallback` (no upload/post after revocation), `cancel does not start fallback`, `journal unavailable never creates canvas`, `reset retains fence but removes answer`. Use temporary DBs and fake faults, no real sleeps.
-- [ ] Run red, implement additive schema/transactions and coordinator; keep HTTP outside transactions. Persist body and stage intent before writes. Retain stage state on errors and expose only sanitized failure codes.
-- [ ] Run green. Review that private/access/egress errors do not trigger a less-restricted fallback, and commit explicit files.
+- [ ] Write `canvas success posts summary plus link`: exact API order, standalone create without channel, permalink from `files.info`, grant `read` to one channel, same root/thread and no broadcast/unfurl. Require grant before success.
+- [ ] Write `share then grant failure cleans and falls back`: test failure at create/permalink/post/grant; known canvas deletion, carrier edit (or delete) before exact file fallback. Cleanup failure still delivers the answer. File failure invokes exact full-text sender; all-send failure never reports success.
+- [ ] Write `one delivery creates at most one canvas when a later step fails`; `later step retry reuses known canvas`: injected 429/transient lookup/grant failures reuse ID; unknown create outcome never retries create. Completion is never repeated on an ambiguous ticket outcome.
+- [ ] Write `a DM long answer is attached as a file`: parameterize IM/MPIM, root/thread, canvas/file modes. Zero canvas calls/new recipient enumeration for grants (existing authorization remains); one exact `.md`, summary comment and original destination. `off and short stay text` covers equality and DM off. `blank final sends nothing` covers B845.
+- [ ] Write `canvas rejected markdown falls back unchanged`: Slack rejects HTML/deep-heading/table content after one attempted create; file bytes exactly original. `policy revocation stops fallback` tests refreshed credentials/allowlist/private policy/egress after each await; cancellation causes no late upload/post.
+- [ ] Write `reload after entry keeps chosen presentation` and `delivery logs redact secrets`: injected sentinels for token/upload URL/answer/title/summary/raw errors never appear in logs/audit/HAR. Run red, implement, then green/quick/format gates.
 
-**Verification:**
+**Verification**
 
 ```bash
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_reply_delivery
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_canvas
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_file_upload
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_reply_delivery
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh quick
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh fmt-check
 ```
 
-**Commit:** `feat(slack): journal long-reply delivery and lossless fallback`
+**Commit:** `feat(slack): deliver long channel answers as canvases and DMs as files`
 
-## Task 4: wire final paths, buffered streaming and durable replay
+## Task 4: extract transport and wire actual final call sites
 
 **Files**
 
-- Create: `src/slack_message_transport.ml`, `test/test_slack_reply_paths.ml` (suite `slack_reply_paths`).
-- Modify: `src/slack.ml`, `src/slack_thread_execution.ml`, `src/slack_thread_runs.ml` only where needed to preserve finish ordering, `src/slack_thread_route.ml`, `src/daemon_inbound_replay.ml`, `src/daemon.ml` (startup ordering), `src/daemon_startup.ml`, `src/daemon_resume.ml`, `src/daemon_util.ml` (background completion finals), `src/connector_dispatch.ml` (idle and queued followup contracts), `src/session_agents.ml` (separate completed final), `src/session_types.ml`, `src/session_core.ml`, `src/session_turn.ml`, `src/session_queue.ml`, `src/session_autonomous.ml`, `src/session_management.ml`, `src/memory_core.ml` (actual clear implementation), `src/dune`, `test/dune`, `test/test_main.ml`.
-- Modify every affected queued_message constructor, turn/enqueue caller and Connector_dispatch.dispatch_env constructor explicitly, including `src/discord.ml`, `src/telegram.ml` and other callers found by compiler/search: non-Slack final callbacks use their existing sender, notices unchanged.
-- Test: existing `test/test_slack_empty_reply.ml`, `test/test_slack_relay_guard.ml`, `test/test_slack_threads.ml`; locate replay's current suite in `test/test_main.ml` and add regression there if fixture reuse makes it smaller.
+- Create `src/slack_message_transport.ml`, `src/slack_final_reply.ml`, `test/test_slack_reply_paths.ml` (suite `slack_reply_paths`).
+- Modify `src/slack.ml`, `src/slack_thread_execution.ml`, `src/daemon_inbound_replay.ml` (native final send only), `src/connector_dispatch.ml`, `src/session_types.ml`, `src/session_core.ml`, `src/session_turn.ml` (queue final dispatch only), `src/session_agents.ml`, `src/dune`, `test/dune`, `test/test_main.ml`.
+- Update explicit `Connector_dispatch.dispatch_env` constructors in `src/discord.ml`, `src/telegram.ml` and compiler-identified fixtures with `send_final=None`, preserving their behavior. Existing `test/test_slack.ml` remains a regression suite.
 
-**Interfaces — consumes final callbacks and durable request identity; produces one chosen delivery before sent/queue deletion**
+**Interfaces**
 
 ```ocaml
-(* Slack_message_transport: extracted top-of-handle_message wrappers *)
+(* Session_types: field mutable queued_final_sender : queued_final_sender option *)
+type queued_final_sender = key:string -> message:queued_message ->
+  fallback:(string -> unit Lwt.t) -> string -> unit Lwt.t
+(* Session_core; export through existing Session facade *)
+val set_queued_final_sender : Session_types.t ->
+  Session_types.queued_final_sender option -> unit
+val send_queued_final : Session_types.t -> key:string ->
+  message:Session_types.queued_message -> fallback:(string -> unit Lwt.t) ->
+  string -> unit Lwt.t
+(* Slack_final_reply: integrations *)
+val install : Session.t -> unit
+val send : manager:Session.t -> target:Slack_reply_delivery.target ->
+  string -> unit Lwt.t
+val send_queued : manager:Session.t -> key:string ->
+  message:Session_types.queued_message -> fallback:(string -> unit Lwt.t) ->
+  string -> unit Lwt.t
+(* Slack_message_transport: extract existing wrappers; no import of Slack *)
 type t = {
   post : text:string -> unit Lwt.t;
   post_with_id : text:string -> string Lwt.t;
   edit : ts:string -> text:string -> unit Lwt.t;
   delete : ts:string -> unit Lwt.t;
+  reaction : method_:string -> timestamp:string -> emoji_name:string -> unit Lwt.t;
 }
 val make : manager:Session.t -> route:Slack_thread_route.t option ->
   channel_id:string -> thread_ts:string option ->
-  legacy_send:(bot_token:string -> channel_id:string -> text:string -> unit Lwt.t) -> t
-
-(* Slack_reply_delivery additions *)
-val install : Session.t -> unit
-val send_final : manager:Session.t -> context:Slack_reply_types.context ->
-  fallback:(string -> unit Lwt.t) -> string -> unit Lwt.t
-type recovery = No_active_request | Needs_model of Slack_reply_types.journal_key
-  | Recovered | Retained of Slack_reply_types.error
-val recover_session : manager:Session.t ->
-  installation:Slack_reply_types.installation -> session_key:string -> recovery Lwt.t
-val recover_installation : manager:Session.t ->
-  installation:Slack_reply_types.installation -> unit Lwt.t
-val resume_before_model : manager:Session.t ->
-  key:Slack_reply_types.journal_key -> recovery Lwt.t
-
-(* Connector_dispatch: notices/acks stay on send_reply; only completed finals use send_final. *)
-(* dispatch_env adds final_context : Slack_reply_types.context option;
-   send_final : Slack_reply_types.context -> string -> unit Lwt.t *)
-(* dispatch_followup adds ?delivery_context and ~send_final; queued_followup preserves context. *)
-(* Session_agents.agent_invoke_turn/delegate_turn/fork_and_run add
-   ?delivery_context and ~send_final, retain ~send_reply and ?debug_notify. *)
-(* Session.turn/turn_stream/turn_verified_stream/turn_synthetic add
-   ?delivery_context : Slack_reply_types.context; enqueue retains it unchanged. *)
+  legacy_post:(bot_token:string -> channel_id:string -> text:string -> unit Lwt.t) -> t
 ```
 
-`install` assigns the neutral callback; it never wraps the progress registry. `send_final` returns only on confirmed success/suppression; safe errors raise Retained_delivery. Coordinator post/edit adapters must decode Slack `ok`, errors and truncation warnings: current unit-returning helpers cannot prove successful delivery. Explicitly catch retained-delivery failures before generic catches in Slack.handle_message (including before_drain), Connector_dispatch, Session_agents, autonomous, Daemon_util and Daemon_resume. Finish status/cleanup, but no generic error post, sent marker or model rerun. Preserve the body and schedule bounded backoff journal retries, also recovered at startup; policy denial/cancellation forbids retries' outward writes.
+Extract status-notifier construction with transport wrappers as needed, preserving existing send injection and blank checks. For legacy posts with an explicit parent, retain the existing threaded API; `legacy_post` preserves the unthreaded injection seam. Other legacy operations use existing `Slack_api` helpers/current credentials. Native operations retain `Slack_thread_api` checks.
 
-**Durable context codec and propagation (owned here):** add `delivery_context : Slack_reply_types.context option` to Session_types.queued_message and all constructors. Encode `delivery_version=1` and a `delivery_context` object with connector, canonical session, channel, explicit nullable thread_ts, requester, stable request_id and ordinal; leave `origin_version=1`/execution_origin/synthetic_owner checks intact. Extend replay_payload/decoder for both native and legacy routes, and persist upgraded rows before running them. Context is provenance for routing, not authorization. Resolve verified team/app at request activation and store it with the active request, independent of the queue.
+`dispatch_env` gains `send_final : (string -> unit Lwt.t) option`. Exact additive signatures (all default `send_final` to `send_reply`):
 
-At ingress create context from original Slack ts/channel/parent, not from the latest send closure. Supply it through all turn/stream/synthetic/enqueue APIs and Connector_dispatch followup queue/append paths. Append-to-existing-followup preserves that queued request's ID/parent; it cannot borrow the appending turn's context. For old rows use trusted message_id, otherwise `queue:<queue_id>`; native root comes from verified route, missing legacy parent defaults to historical root None. Missing synthetic ID is durably allocated/upgraded once (queue ID for old queued work); new synthetic IDs are persisted before scheduling. Unknown/malformed delivery versions are retained with no guessed target/tool authority. Never serialize tokens or treat a serialized installation as proof of identity. Capture epoch before model entry and reject writes from a cancelled epoch.
+```ocaml
+(* Connector_dispatch *)
+val dispatch_followup : session_mgr:Session.t -> key:string ->
+  connector_name:string -> channel_id:string -> user_id:string ->
+  ?channel_name:string -> ?channel_type:string -> ?sender_name:string ->
+  ?message_id:string -> is_admin:bool -> send_reply:(string -> unit Lwt.t) ->
+  ?send_final:(string -> unit Lwt.t) -> Slash_commands.followup_action -> unit Lwt.t
+(* Session_agents; Session_types.t avoids importing the Session facade *)
+val agent_invoke_turn : Session_types.t -> ?parent_key:string ->
+  ?debug_notify:(string -> unit Lwt.t) -> agent_name:string -> prompt:string ->
+  send_reply:(string -> unit Lwt.t) -> ?send_final:(string -> unit Lwt.t) -> unit -> unit
+val delegate_turn : Session_types.t -> ?parent_key:string ->
+  ?debug_notify:(string -> unit Lwt.t) -> ?agent_name:string -> prompt:string ->
+  send_reply:(string -> unit Lwt.t) -> ?send_final:(string -> unit Lwt.t) -> unit -> unit
+val fork_and_run : Session_types.t -> parent_key:string ->
+  ?debug_notify:(string -> unit Lwt.t) -> ?agent_name:string -> prompt:string ->
+  send_reply:(string -> unit Lwt.t) -> ?send_final:(string -> unit Lwt.t) -> unit -> unit
+```
 
-**Startup and live recovery:** install lifecycle schema/delivery after DB/config setup; in Daemon.ml invoke recover_installation for each verified installation **before starting connector intake, run_pending_session_resume_stage and run_durable_replay_stage**. Under per-session locks reauthorize and inspect active records, including confirmed-but-not-marked finals; reconcile sent state without model execution. Recover_session is also the first guard in Daemon_resume.resume_agent_session, ahead of its notice/direct Agent.turn; pending-session enumeration defers any retained journal request even without an inbound row and regardless of its age filter. Recheck immediately before direct model entry to cover races. No_active_request allows existing resume; Needs_model restores the original identity/epoch and tool ledger; Recovered returns without a model; Retained blocks model entry and leaves retry state. Replayed/queued turns use resume_before_model with the same complete key. Discovery comes from the journal, never reconstruction of a request ID from a session key. Confirmed outcomes plus active-request/sent state remain until reconciliation, not queue deletion.
-
-**Final call sites:** followup's idle before_drain and result branches call the final sender before mark_response_sent; queued followups retain context for Session drain. Session_agents' only final call is the completed Agent.turn response in each of invoke/delegate/fork; document notices, missing-template/draining/errors and debug output use ordinary send_reply. Background completion uses persisted `background:<task-id>:completion` context and completion_owner before turn_synthetic; its completed final calls the durable sender before marking sent and before continuation dispatch. A queued suppression transfers ownership to drain without marking. Autonomous/resume final producers likewise allocate their logical request/ordinal before model entry. Generic notifiers remain unchanged.
-
-**Clear/reset:** call Session_reply_lifecycle.clear_session synchronously at the start of Memory_core.clear_session; Session_management.reset uses this in both phases, with cancellation/epoch invalidation before waiting for in-flight work. Tombstoning is network-free, core-owned SQL; absent journal tables are supported. Failure propagates as clear/reset failure and blocks affected old deliveries. Each callback/save checks epoch; already-sent network calls can only record owned cleanup/fence when they return. Test the public Memory.clear_session and Session.reset, not only a store helper.
+`install` sets the core queued-final callback during existing `Slack_thread_execution.install`. `send_queued` handles verified native Slack routes and actual queued requester/owner; it also handles legacy Slack items with `deferred_followup=true`, deriving channel/requester from that item and retaining historical root targeting (`thread_ts=None`). Other items invoke fallback. Call it at Session_turn's post-execution final notify site, after existing suppression checks. No use of progress notifier text as a final classifier. `send` maps failed delivery to the existing safe transport failure path and returns only after success/suppression. Required finals mark sent after successful dispatch; preserve existing retain/error semantics.
 
 **Test-first steps**
 
-- [ ] Register `slack_reply_paths`. Write `native long final never streams body`: fake provider emits >2500 characters in multiple deltas; start/maintenance/stop contain status only, no append of answer, one summary/link post. Exercise native stream unavailable and long maintenance rotation too.
-- [ ] Write `posted root thread dm and mpdm preserve target`: exact channel/parent matrix, metadata-driven sharing, no reply_broadcast, file fallback same destination. `drain uses queued request identity`: queue A/B with different humans; final B never uses A's IDs/authority. Test response_sent and before_drain produce only one delivery.
-- [ ] Write `idle and queued followup use overflow`: exercise Connector_dispatch.dispatch_followup in idle and busy modes, long answers, legacy threaded and native destinations; both idle final branches and queued drain produce one artifact with original request/parent, acknowledgements/progress produce none. `agent document notice cannot claim final slot` runs each Session_agents entry point with a threshold below the document-load notice length and then a long completed answer: no artifact/final journal row for notice, complete final delivered once; validation/debug/error receipts also stay ordinary.
-- [ ] Write `live journal without inbound row resumes before model`: immediate live Slack reply, assert no inbound_queue row exists, then restart at (a) all sends failed and (b) successful canvas/grant before sent marker. Startup and direct Daemon_resume entry both discover original context/body; zero extra model/create calls, pending state in (a), reconciled sent in (b). Retry (a) using saved body when fake transport recovers. Exercise retained failure through Slack.handle_message to prove no generic error post/mark-sent.
-- [ ] Write `background completion final uses overflow delivery` and `background completion failure retries saved answer`: invoke the real Daemon_util.inject_background_task_completion with task ID, route and owner; immediate/queued cases share stable identity and original parent, one canvas, mark only after success. Inject all-stage failure then retry/restart: no sent marker, no extra model/create calls, original answer recovered.
-- [ ] Write `replay resumes stored final before model`: generate/create once, crash before queue-delete, reopen DB/replay; zero second model invocation and zero second create. Also replay without original message ID uses stable queue ID; changed attempt count does not change key. `synthetic continuation id survives retry` covers autonomous/agent-command final slots. `queued delivery context survives codec restart` round-trips two legacy parents plus root null and a persisted synthetic ID, reopens DB and drains through another active closure; original IDs/parents survive exactly. Legacy versions receive the stated defaults; malformed versions never gain authority.
-- [ ] Write `relay and notices bypass overflow`: long standing-order post, tool progress, thinking, pause receipt and card cause no artifact; long actual final does. `reload during generation changes delivery` and `reload after claim keeps chosen artifact` assert mode/threshold timing and refreshed authorization. `clear prevents pending answer resurrection` invokes both Memory.clear_session and Session.reset, including reset while a fake create response is in flight: content/arguments/receipts erased, fence retained, no later grant/upload/post or stale body write. Include absent-table and SQLite clear-failure cases; a failed clear is never reported successful. A transmitted create may return only an owned cleanup ID.
-- [ ] Run red. Extract transport wrappers and rewire only actual finals: live before_drain/result, completed Session_agents Agent.turn responses (split send_final from send_reply/debug_notify), Connector_dispatch idle followup before_drain/result, queue-final emission in Session, autonomous on_response, native/legacy replay before_drain, Daemon_util background completion and Daemon_resume completed final sends. Keep `Slack_thread_execution.notify` and registered progress string callbacks unchanged. Use Slack_reply_context.with_context scope around model execution for Task 5 prompt metadata.
-- [ ] Implement the explicit startup ordering and Daemon_resume guards above, plus journal retries independent of inbound_queue. Preserve native preparation/authorization even when reusing a delivered result; suppress duplicates without bypassing current policy. Verify live records and confirmed-but-unmarked outcomes are discovered before any model resume.
-- [ ] Ensure `slack.ml` shrinks below 1121 lines. Inventory every final callback and every generic notify use; retain exclusions. Run green, full/optimized validation for runtime reshaping, then commit explicit files.
+- [ ] Write `native long final never streams body`: fake multi-delta answer >2500; start/maintenance/stop contain status only, no answer append, one final canvas carrier. Repeat with unavailable native stream, rotation and `off`.
+- [ ] Write `before drain and result deliver once`: public Slack handler, both result branches and sent marker; original root/thread preserved for posted/native/private/DM/MPDM targets, no broadcast. Capture target before huddle context clears, reauthorize at send.
+- [ ] Write `native queued and replay finals use sender`: different queued requester from active turn, existing native route/owner checks, exact root and one presentation per invocation; replay routes through final sender. This is routing coverage, not a duplicate-prevention assertion across replay/restart.
+- [ ] Write `followup idle and queued finals`: both idle branches plus busy native and legacy follow-ups deliver long answers; native root and historical legacy root are preserved. Queue/append acknowledgements/progress produce zero artifacts. `agent document notices stay ordinary` covers invoke/delegate/fork notices/errors/debug versus completed answers. `live autonomous final uses sender` covers both Slack on_response callbacks.
+- [ ] Write `relay and notices bypass overflow`: long P3 relay, thinking, progress, pause receipt and card all bypass final delivery. Run existing `slack_empty_reply` and `slack_relay_guard` suites. `non native queued final preserves fallback` uses a non-follow-up item and proves the listed gap retains historical behavior.
+- [ ] Run red, extract transport, wire the listed sites only. Initialize optional callback to None; non-Slack callers keep prior sender. Review every modified interface: Session_types contains only existing queued types and callback, never Slack integration types; Session_core does not import Slack_final_reply; extracted transport does not import Slack.
+- [ ] Run green, quick/full/optimized/minimal/format gates. Verify `slack.ml` shrank below 1121 lines; new modules <1000. Record direct background/resume and non-native queue gaps in docs; do not expand this task to shared recovery or notification changes.
 
-**Verification:**
+**Verification**
 
 ```bash
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_reply_paths
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_empty_reply
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_relay_guard
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh quick
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh raw 'dune exec -j 2 test/test_main.exe -- test'
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh raw 'dune build -j 2 --profile release-speed --build-dir _build_opt_speed src/main.exe'
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh fmt-check
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh all
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh opt
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh minimal
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh fmt-check
 ```
 
-**Commit:** `feat(slack): route final answers through durable canvas delivery`
+**Commit:** `feat(slack): route final replies through local overflow delivery`
 
-## Task 5: explicit tool, contextual guidance and templates
+## Task 5: guarded canvas tool, per-request guidance, templates and operator docs
 
 **Files**
 
-- Create: `src/slack_canvas_tool.ml`, `test/test_slack_canvas_tool.ml` (suite `slack_canvas_tool`).
-- Modify: `src/tools_builtin.ml` (core placeholder/schema), `src/daemon_startup.ml`, `src/daemon_util.ml` only for additional tool reload rebinding (background finals are already owned by Task 4), `src/slack_huddle_context.ml` (DM-compatible validated resolution), `src/room_tool_availability.ml`, `src/agent_profile.ml`, `src/prompt_builder.ml`, `src/agent_2_tools.ml` (tool invocation provenance), `src/slack_reply_context.ml` (scoped invocation metadata), `src/agent_1_context.ml`, `src/agent_turn_setup.ml`, `src/session_turn.ml` for verified metadata propagation, `src/dune`, `test/dune`, `test/test_main.ml`.
-- Modify: `docs/builtin-agent-prompts/researcher.md`, `docs/builtin-agent-prompts/documenter.md`, generated `src/agent_template_builtins_research.ml` and any other generated group actually changed by regeneration. Test: `test/test_prompt_builder.ml` and B844's existing availability suite.
+- Create `src/slack_canvas_tool.ml`, `test/test_slack_canvas_tool.ml` (suite `slack_canvas_tool`).
+- Modify `src/tools_builtin.ml`, `src/daemon_startup.ml` (registry replacement), `src/room_tool_availability.ml`, `src/agent_profile.ml`, `src/prompt_builder.ml`, `src/slack.ml`, `src/slack_thread_execution.ml` (neutral context only), `src/dune`, `test/dune`, `test/test_main.ml`, `test/test_prompt_builder.ml`.
+- Modify `docs/builtin-agent-prompts/researcher.md`, `docs/builtin-agent-prompts/documenter.md`; regenerate `src/agent_template_builtins_research.ml` and explicitly inspect/list any other generated file changed by `gen-agents`.
+- Modify `docs/src/content/docs/channels.mdx`, `docs/setup-guide.md`, `docs/src/content/docs/configuration.mdx`, `docs/public/llms-full.txt`.
 
-**Interfaces — consumes current Slack authority and journal; produces schema-compatible tool and per-request prompt section**
+**Interfaces**
 
 ```ocaml
-(* Tools_builtin: core placeholder, exact schema/description from spec *)
+(* Tools_builtin: core placeholder with spec's schema/description *)
 val slack_canvas_create : unit -> Tool.t
-(* Slack_canvas_tool: full implementation replaces placeholder *)
+(* Slack_canvas_tool: integration implementation, replaces placeholder *)
 val make : current_config:(unit -> Runtime_config.t) -> Tool.t
 val register : current_config:(unit -> Runtime_config.t) -> Tool_registry.t -> unit
-(* Prompt_builder: reads neutral turn context, no integration import *)
-val slack_reply_guidance : connector:string option ->
+(* Prompt_builder: pure helper, reads neutral metadata, no Session import *)
+val slack_reply_guidance : context:Slack_reply_context.t option ->
   config:Runtime_config.t -> tool_available:bool -> string option
-(* Room_tool_availability addition, composed with existing checks *)
-val slack_canvas_available : connector:string option -> bool
+(* Room_tool_availability: composes existing template/authz filtering *)
+val slack_canvas_available : context:Slack_reply_context.t option -> bool
 ```
 
-The pure `slack_reply_guidance` helper feeds `build` using `Slack_reply_context.current_context ()`; this avoids changing every `build` caller and keeps guidance tied to verified execution, including rebuild after compaction. `Agent_profile` uses the same neutral connector metadata to hide the tool outside Slack; the invocation guard still uses Slack_huddle_context plus access snapshot. Add placeholder to core registration; full startup replaces via `Tool_registry.replace` (not duplicate register). Respect tools_enabled and template filters; current config access must survive reload. Task 1's low-level context is presentation metadata, never authority. Check the completed module graph: Slack_reply_context → Slack_reply_types/Lwt only; prompt/Agent_profile → Slack_reply_context; Session_final_reply → Session_types → Agent remains separate. The minimal gate must compile this completed graph after all prompt changes.
+Tool invocation uses existing `Slack_huddle_context.resolve ~tool_name` and snapshot policy, validates arguments/title at runtime, checks typed conversation metadata and calls Task 3 `publish_canvas` only in channels. It returns the exact DM or outside-Slack error without writes; explicit failure returns an actionable error after cleanup, not file success. No new tool argument selects token/channel/parent. `file`/`off` do not disable explicit channel use. Use `Tool_registry.replace` at full startup and a current-config accessor, respecting existing tools_enabled/filtering. No changes to tool invocation machinery.
 
-`Agent_2_tools.execute_tools` already sees `Provider.tool_call.id` but the current `Tool.invoke_context` does not expose it (`src/agent_2_tools.ml:204,366–384,460–516`; `src/tool.ml:3–18`). Before parallel invocation, assign cumulative request-local sequence positions in provider call order and scope each actual invoke with `Slack_reply_context.with_invocation {provider_call_id=tc.id; sequence}`. Initialize/restore the sequence cursor at the persisted model replay boundary, not from Lwt completion order or regenerated IDs. The canvas integration consumes that metadata plus the active key, writes original effective arguments before its first remote operation, and returns the recorded immutable result/error for a replayed position even when the provider generates a new ID or arguments. An invocation that crashed without a receipt resumes from known stages or returns a safe unknown-outcome error with the fence still consumed. No integration import enters Agent_2_tools; no new tool argument lets the model choose identity. Add `tool invocation metadata survives parallel and replay ordering` to the tool suite, asserting deterministic positions, original arguments/receipts and zero second create after changed regenerated calls. Missing metadata fails with an actionable error before any network call.
+Scope `Slack_reply_context.with_context` around verified Slack execution using its connector and typed conversation metadata, including each native queued item rather than the preceding turn. Do not infer DM kind from ID prefixes. The existing `Agent_1_context.build_messages` already rebuilds Prompt_builder per request; Prompt_builder reads only this neutral context. `Session.update_config` already refreshes active agents' config. When verified room metadata is unavailable use Unknown and avoid promising channel canvas behavior. Build guidance unconditionally with respect to `dynamic_enabled`, from current request config and actual filtered tool set, including after compaction. No Prompt_builder → Session_types/Agent/Slack_huddle_context edge. Session-less/non-Slack context gets no advice. This metadata cannot authorize the tool.
 
 **Test-first steps**
 
-- [ ] Register `slack_canvas_tool`; write `outside slack gives actionable error` (exact repair guidance, zero network), `arguments cannot select destination` (unknown fields/token/channel rejected), `valid slack tool shares read only` (title/link carrier, read grant, returned JSON only after success), `repeated call reuses artifact` (same durable invocation/operation, original persisted arguments, one create even if replayed arguments differ), `failed explicit canvas returns error not fake link`.
-- [ ] Write `canvas title validation rejects blank invalid and oversized titles without network`: trim valid title, accept 120 Unicode scalars even if multibyte; reject blank/whitespace, malformed UTF-8 and 121 scalars, zero network/attempt claims for rejected arguments. Schema length is not a replacement for runtime scalar/UTF-8 validation.
-- [ ] Write `dm tool resolves verified recipients` without widening existing standing-order/huddle grants. Authorization refactor must keep their previous restrictions intact. `stale or injected context cannot publish` proves snapshot/context invalidation remains effective.
-- [ ] Add prompt cases `slack canvas guidance includes threshold`, `file and off guidance match behaviour`, `non slack omits guidance`, `hidden tool omits advice`, `static prompt still includes delivery guidance`, `compaction and reload refresh guidance`. Use neutral context scoped around each build; prevent Slack guidance leaking between tests/turns.
-- [ ] Add `minimal tool is disabled` at the core placeholder; assert exact schema/description contract and B844 filtering. Run red; implement and replace at startup. Apply the spec's exact description/prompt strings, with mode interpolation only.
-- [ ] Review every built-in prompt's allow/disallow lists. Grant only researcher/documenter by default; preserve existing restrictions. Generate built-ins through gate, inspect explicit changed paths, verify generated output and minimal build, then commit.
+- [ ] Write `outside slack gives actionable error`, `dm tool gives file guidance`, `arguments cannot select destination`: exact errors/strict schema, no writes. `stale snapshot cannot publish` tests cached invocation and injection invalidation. `channel tool shares read only` checks title/link carrier, same channel/parent and success JSON only after grant.
+- [ ] Write `canvas title validates Unicode and length`: trimmed non-empty title; 120 scalars accepted, 121/invalid UTF-8/blank rejected without writes. `failed tool cleans and returns error` never returns fake link/file success. One invocation never repeats create.
+- [ ] Add prompt cases `guidance rebuild follows current config`, `DM guidance promises files`, `hidden tool omits advice`, `static and compacted prompts retain guidance`, `non Slack has no guidance`, `parallel context does not leak`. Assert exact threshold/mode, current config after reload/compaction and no tool advice when filtered.
+- [ ] Add `minimal tool is disabled`: identical schema/description and exact placeholder error. Run red; implement full registry replacement, filtering and prompt helper. Review every built-in allow/disallow list; grant researcher/documenter only by default. Generate/inspect built-ins and check regeneration.
+- [ ] Update operator docs: defaults/modes/validation/live reload, strict code-point threshold, capped opening paragraph, channel-only tool/canvas, DM/MPDM files, standalone/share-before-read behavior, fallback limits, accepted crash/replay duplicates and known final-producer gaps. Explain scopes/reinstall, separate Slack API and upload-host egress, no public sharing, redacted logs and no guaranteed unfurl layout.
+- [ ] Record coordinator-only post-deploy checks: root/thread/private channel read-only canvas; DM/MPDM file in originating conversation; summary/link rendering, brief no-access interval, file/full-text fallback. Implementers never perform live checks.
+- [ ] Run acceptance commands sequentially. Confirm all new suites are listed, P3 regressions green, generated agents clean, core/minimal graph acyclic, size limits met and explicit diff contains no unrelated/generated drift. Stage exact changed files and commit.
 
-**Verification:**
+**Verification**
 
 ```bash
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh raw 'dune exec -j 2 test/test_main.exe -- list'
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_canvas_tool
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite prompt_builder
+/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_reply_paths
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh gen-agents
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh gen-agents-check
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh quick
@@ -416,58 +373,8 @@ The pure `slack_reply_guidance` helper feeds `build` using `Slack_reply_context.
 /home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh minimal
 ```
 
-**Commit:** `feat(slack): expose canvas tool and contextual reply guidance`
+**Commit:** `feat(slack): add channel canvas tool guidance and documentation`
 
-## Task 6: operator documentation and final acceptance
+## Design closeout
 
-**Files**
-
-- Modify: `docs/src/content/docs/channels.mdx`, `docs/setup-guide.md`, `docs/src/content/docs/configuration.mdx`, `docs/public/llms-full.txt`.
-- Test: extend `test/test_slack_reply_paths.ml`, `test/test_slack_canvas_tool.ml` only if acceptance exposes missing behavioural coverage; no new suite, and no implementation-mirroring documentation tests.
-
-**Interfaces — consumes final public configuration/tool contract; produces operator instructions**
-
-No new OCaml API. Document these existing produced signatures and their operational contract:
-
-```ocaml
-Slack_config_types.long_reply_of_json : Yojson.Safe.t -> Slack_config_types.long_reply
-Slack_reply_delivery.deliver : manager:Session.t -> deps:Slack_reply_delivery.deps ->
-  context:Slack_reply_types.context -> body:string ->
-  (Slack_reply_types.outcome, Slack_reply_types.error) result Lwt.t
-Slack_canvas_tool.make : current_config:(unit -> Runtime_config.t) -> Tool.t
-```
-
-**Test-first/acceptance steps**
-
-- [ ] Before docs, run every new suite from Tasks 1–5, including named mention/broadcast/config-loader/title cases, membership race, malformed UTF-8, installation isolation, explicit-to-automatic fence faults, idle/queued followup, agent notice, live-no-queue recovery, background completion and public clear/reset race tests. Run Task 4's `native long final never streams body`, `replay resumes stored final before model`, `relay and notices bypass overflow`, and Task 5's `outside slack gives actionable error` suites. Add a failing case first if the final behaviour differs from the approved spec; fix it in the owning task's module and report the deviation.
-- [ ] Document defaults/modes, threshold count, opening-block rule, runtime config-set examples, file fallback, off-vs-explicit-tool distinction, private/DM/MPDM scope and limits, static prompt guidance, retained failure/journal behaviour and no-public-sharing policy. Use the same public API citations as the spec.
-- [ ] Setup: list `canvases:write`, `files:write`, **`files:read`**, existing `chat:write`, `users:read` for installation/identity checks, and conversation read scopes; explain reinstall after OAuth scope additions. `canvases:read` is not required by this create/permalink flow. Document Slack API POST/GET and upload-host egress separately, no broad wildcard credential forwarding. Explain free-team fallback and that native canvas unfurl layout is not guaranteed.
-- [ ] Record a coordinator-only live acceptance checklist: long root/thread/private/DM/MPDM, read-only recipients, summary/link rendering, share-before-grant behaviour, then file fallback. State that Max/coordinator does this after deployment; never execute it with tokens during implementation. Carry both pending-Max defaults into the handoff.
-- [ ] Run all acceptance commands below sequentially. Confirm every new suite appears in the test list, generated agents are clean, minimal links without integrations, new files <1000 lines and `slack.ml` <1121. Check explicit diff for extraction/generated drift and secrets. If all checks pass, commit only the four docs (and explicitly identified regression files if changed); report exact commands/results and deliberate limits. No deployment/push/merge/rebase.
-
-**Verification:**
-
-```bash
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh raw 'dune exec -j 2 test/test_main.exe -- list'
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_long_reply
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite config_loader
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite config_set
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_canvas
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_file_upload
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_reply_delivery
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite prompt_builder
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_reply_paths
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh suite slack_canvas_tool
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh quick
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh fmt-check
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh minimal
-/home/xertrov/src/clawq/.superpowers/sdd/huddle-orders/bin/gate-canvas.sh gen-agents-check
-```
-
-**Commit:** `docs(slack): document canvas replies scopes and fallback`
-
-## Design review closeout
-
-All twelve Important findings are incorporated in the owning tasks and the spec's review responses. No finding is rejected. The implementation must preserve the revised contracts as a whole; in particular, tool and automatic creation may not use independent digest/final fences, and pending-session resume may not precede journal recovery. This design revision does not execute the implementation gates or change source code.
-
-Questions requiring Max's judgment remain the spec's two explicit defaults: DM/MPDM grants surviving departure, and accepting share-before-read publication subject to coordinator verification. API verification belongs to the coordinator; failed grant verification falls back without additional direct messages or broadened permissions.
+R1–R8 replace the prior design's broader guarantees. The shared upload interface and P3 call sites were checked read-only against P3 code; each new interface above has an explicit dependency direction. Direct background/resume and non-native queued finals other than follow-ups remain documented gaps under R2. R3/R4 settle the former Max questions; no question only Max can answer remains. This DESIGN step runs document checks only; the implementation gates above are future verification, not claimed results.
