@@ -85,6 +85,7 @@ let test_slack_is_allowed_wildcard_channel () =
       socket_mode = false;
       default_model = None;
       event_log = Slack_config_types.default_event_log;
+      long_reply = Slack_config_types.default_long_reply;
       reply_mode = Slack_config_types.Mention;
       standing_orders = Slack_config_types.default_standing_orders;
     }
@@ -107,6 +108,7 @@ let test_slack_is_allowed_specific_channel_match () =
       socket_mode = false;
       default_model = None;
       event_log = Slack_config_types.default_event_log;
+      long_reply = Slack_config_types.default_long_reply;
       reply_mode = Slack_config_types.Mention;
       standing_orders = Slack_config_types.default_standing_orders;
     }
@@ -129,6 +131,7 @@ let test_slack_is_allowed_specific_channel_no_match () =
       socket_mode = false;
       default_model = None;
       event_log = Slack_config_types.default_event_log;
+      long_reply = Slack_config_types.default_long_reply;
       reply_mode = Slack_config_types.Mention;
       standing_orders = Slack_config_types.default_standing_orders;
     }
@@ -151,6 +154,7 @@ let test_slack_is_allowed_user_filter () =
       socket_mode = false;
       default_model = None;
       event_log = Slack_config_types.default_event_log;
+      long_reply = Slack_config_types.default_long_reply;
       reply_mode = Slack_config_types.Mention;
       standing_orders = Slack_config_types.default_standing_orders;
     }
@@ -513,6 +517,7 @@ let test_slack_is_allowed_both_wildcard () =
       socket_mode = false;
       default_model = None;
       event_log = Slack_config_types.default_event_log;
+      long_reply = Slack_config_types.default_long_reply;
       reply_mode = Slack_config_types.Mention;
       standing_orders = Slack_config_types.default_standing_orders;
     }
@@ -535,6 +540,7 @@ let test_slack_is_allowed_neither_match () =
       socket_mode = false;
       default_model = None;
       event_log = Slack_config_types.default_event_log;
+      long_reply = Slack_config_types.default_long_reply;
       reply_mode = Slack_config_types.Mention;
       standing_orders = Slack_config_types.default_standing_orders;
     }

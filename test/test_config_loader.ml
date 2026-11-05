@@ -1946,8 +1946,79 @@ let test_instruction_records_roundtrip () =
        (fun s -> Test_helpers.string_contains s "text must not be empty")
        issues)
 
+let long_reply_config fields =
+  Config_loader.parse_config ~resolve_secrets:false
+    (`Assoc
+       [
+         ( "channels",
+           `Assoc
+             [ ("slack", `Assoc (("bot_token", `String "test") :: fields)) ] );
+       ])
+
+let test_long_reply_defaults () =
+  let check fields mode threshold =
+    let cfg = long_reply_config fields in
+    let lr = (Option.get cfg.channels.slack).long_reply in
+    Alcotest.(check bool) "mode" true (lr.mode = mode);
+    Alcotest.(check int) "threshold" threshold lr.threshold;
+    let roundtrip =
+      Config_loader.parse_config ~resolve_secrets:false
+        (Runtime_config.to_json cfg)
+    in
+    Alcotest.(check bool)
+      "serialized roundtrip" true
+      (lr = (Option.get roundtrip.channels.slack).long_reply)
+  in
+  check [] Slack_config_types.Canvas 2500;
+  check [ ("long_reply", `Assoc []) ] Slack_config_types.Canvas 2500;
+  check
+    [ ("long_reply", `Assoc [ ("mode", `String "file") ]) ]
+    Slack_config_types.File 2500;
+  check
+    [ ("long_reply", `Assoc [ ("threshold", `Int 1) ]) ]
+    Slack_config_types.Canvas 1;
+  check
+    [
+      ( "long_reply",
+        `Assoc [ ("mode", `String "off"); ("threshold", `Int 40000) ] );
+    ]
+    Slack_config_types.Off 40000
+
+let test_long_reply_warns () =
+  let sentinel = "UNTRUSTED_LONG_REPLY_SENTINEL" in
+  let cfg, logs =
+    Lwt_main.run
+      (Test_slack_standing_order_support.with_log_capture (fun () ->
+           Lwt.return
+             (long_reply_config
+                [
+                  ( "long_reply",
+                    `Assoc
+                      [ ("mode", `String sentinel); ("threshold", `Int 17) ] );
+                ])))
+  in
+  let lr = (Option.get cfg.channels.slack).long_reply in
+  Alcotest.(check bool)
+    "unknown defaults to canvas" true
+    (lr.mode = Slack_config_types.Canvas);
+  Alcotest.(check int) "valid sibling retained" 17 lr.threshold;
+  Alcotest.(check bool)
+    "warning has key" true
+    (List.exists
+       (fun (level, msg) ->
+         level = Logs.Warning
+         && String_util.contains msg "channels.slack.long_reply.mode")
+       logs);
+  Alcotest.(check bool)
+    "warning omits untrusted value" false
+    (List.exists (fun (_, msg) -> String_util.contains msg sentinel) logs)
+
 let suite =
   [
+    Alcotest.test_case "long reply defaults fields independently" `Quick
+      test_long_reply_defaults;
+    Alcotest.test_case "unknown mode warns and defaults" `Quick
+      test_long_reply_warns;
     Alcotest.test_case "load warns on invalid port" `Quick
       test_load_warns_on_invalid_port;
     Alcotest.test_case "load warns on invalid temperature" `Quick

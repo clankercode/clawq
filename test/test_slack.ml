@@ -54,6 +54,7 @@ let make_config ?(bot_token = "xoxb-test") ?(signing_secret = "test_secret")
     socket_mode;
     default_model = None;
     event_log = Slack_config_types.default_event_log;
+    long_reply = Slack_config_types.default_long_reply;
     reply_mode = Slack_config_types.Mention;
     standing_orders;
   }

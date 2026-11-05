@@ -243,3 +243,96 @@ let reply_mode_of_json = function
             "Config: 'channels.slack.reply_mode': expected mention or all; \
              using mention");
       Mention
+
+(** Final-answer presentation policy. Values are read from current config at
+    delivery entry, rather than cached in a connector. *)
+type long_reply_mode = Canvas | File | Off
+
+type long_reply = { mode : long_reply_mode; threshold : int }
+
+let default_long_reply = { mode = Canvas; threshold = 2500 }
+
+let long_reply_mode_to_string = function
+  | Canvas -> "canvas"
+  | File -> "file"
+  | Off -> "off"
+
+let long_reply_mode_of_json = function
+  | `String "canvas" -> Some Canvas
+  | `String "file" -> Some File
+  | `String "off" -> Some Off
+  | _ -> None
+
+let long_reply_threshold_of_json = function
+  | `Int n when n >= 1 && n <= 40000 -> Some n
+  | _ -> None
+
+let long_reply_error leaf =
+  let key = "channels.slack.long_reply" in
+  let key, requirement, example =
+    match leaf with
+    | "mode" -> (key ^ ".mode", "must be canvas, file or off", "mode canvas")
+    | "threshold" ->
+        ( key ^ ".threshold",
+          "must be an integer from 1 to 40000",
+          "threshold 2500" )
+    | _ ->
+        ( key,
+          "must be an object containing only mode and threshold",
+          "threshold 2500" )
+  in
+  Error
+    (Printf.sprintf
+       "Error: %s %s. Example: clawq config set channels.slack.long_reply.%s"
+       key requirement example)
+
+let validate_long_reply = function
+  | `Assoc fields ->
+      let rec check = function
+        | [] -> Ok ()
+        | ("mode", v) :: rest ->
+            if Option.is_some (long_reply_mode_of_json v) then check rest
+            else long_reply_error "mode"
+        | ("threshold", v) :: rest ->
+            if Option.is_some (long_reply_threshold_of_json v) then check rest
+            else long_reply_error "threshold"
+        | _ -> long_reply_error ""
+      in
+      check fields
+  | _ -> long_reply_error ""
+
+let warn_long_reply field reason =
+  Logs.warn (fun m ->
+      m "Config: 'channels.slack.long_reply%s': %s" field reason)
+
+let long_reply_of_json = function
+  | `Null -> default_long_reply
+  | `Assoc fields ->
+      let field key parse fallback =
+        match List.assoc_opt key fields with
+        | None -> fallback
+        | Some v -> (
+            match parse v with
+            | Some value -> value
+            | None ->
+                warn_long_reply ("." ^ key) "invalid value; using default";
+                fallback)
+      in
+      if List.exists (fun (k, _) -> k <> "mode" && k <> "threshold") fields then
+        warn_long_reply "" "unknown fields ignored";
+      {
+        mode = field "mode" long_reply_mode_of_json default_long_reply.mode;
+        threshold =
+          field "threshold" long_reply_threshold_of_json
+            default_long_reply.threshold;
+      }
+  | _ ->
+      warn_long_reply "" "expected an object; using defaults";
+      default_long_reply
+
+let long_reply_to_json p : Yojson.Safe.t =
+  `Assoc
+    [
+      ("mode", `String (long_reply_mode_to_string p.mode));
+      ("threshold", `Int p.threshold);
+    ]

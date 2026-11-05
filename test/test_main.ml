@@ -275,6 +275,7 @@ let all_suites =
     ("landlock", Test_landlock.suite);
     ("rate_limiter", Test_rate_limiter.suite);
     ("slack", Test_slack.suite);
+    ("slack_long_reply", Test_slack_long_reply.suite);
     ("slack_huddles", Test_slack_huddles.suite);
     ("slack_huddle_fix1", Test_slack_huddle_fix1.suite);
     ("slack_threads", Test_slack_threads.suite);

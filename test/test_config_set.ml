@@ -499,6 +499,7 @@ let test_channel_default_model_lookup () =
                 socket_mode = false;
                 default_model = None;
                 event_log = Slack_config_types.default_event_log;
+                long_reply = Slack_config_types.default_long_reply;
                 reply_mode = Slack_config_types.Mention;
                 standing_orders = Slack_config_types.default_standing_orders;
               };
@@ -641,8 +642,136 @@ let test_strip_date_suffix () =
     "short string unchanged" "abc"
     (Model_utils.strip_date_suffix "abc")
 
+let test_long_reply_validation () =
+  let obj k v = `Assoc [ (k, v) ] in
+  let key = "channels.slack.long_reply" in
+  let wrappers =
+    [
+      (key, Fun.id);
+      ("channels.slack", obj "long_reply");
+      ("channels", fun v -> obj "slack" (obj "long_reply" v));
+    ]
+  in
+  let bad =
+    [
+      `Null;
+      `Float 2.;
+      `Bool true;
+      `Assoc [ ("threshold", `Int 0) ];
+      obj "threshold" (`Int 40001);
+      obj "threshold" `Null;
+      obj "threshold" (`Float 1.);
+      obj "threshold" (`Bool true);
+      obj "mode" `Null;
+      obj "mode" (`Bool false);
+      obj "mode" (`String "unknown");
+      obj "UNTRUSTED_KEY" (`String "UNTRUSTED_VALUE");
+    ]
+  in
+  List.iter
+    (fun (path, wrap) ->
+      List.iter
+        (fun value ->
+          match Config_set.validate_set_value path (wrap value) with
+          | Ok () -> Alcotest.fail ("accepted invalid long_reply via " ^ path)
+          | Error msg ->
+              Alcotest.(check bool)
+                "key and example" true
+                (String_util.contains msg key
+                && String_util.contains msg "Example:");
+              Alcotest.(check bool)
+                "no raw input" false
+                (String_util.contains msg "UNTRUSTED"))
+        bad;
+      List.iter
+        (fun value ->
+          Alcotest.(check bool)
+            "valid object" true
+            (Result.is_ok (Config_set.validate_set_value path (wrap value))))
+        [
+          `Assoc [];
+          obj "threshold" (`Int 1);
+          obj "threshold" (`Int 40000);
+          obj "mode" (`String "canvas");
+          obj "mode" (`String "file");
+          obj "mode" (`String "off");
+        ])
+    wrappers;
+  List.iter
+    (fun (leaf, valid, invalid) ->
+      let path = key ^ "." ^ leaf in
+      Alcotest.(check bool)
+        "schema leaf" true
+        (Config_set.validate_set_path
+           (Config_set.split_path path)
+           Config_set.config_schema);
+      List.iter
+        (fun v ->
+          Alcotest.(check bool)
+            "valid leaf" true
+            (Result.is_ok (Config_set.validate_set_value path v)))
+        valid;
+      List.iter
+        (fun v ->
+          Alcotest.(check bool)
+            "invalid leaf" true
+            (Result.is_error (Config_set.validate_set_value path v)))
+        invalid)
+    [
+      ( "mode",
+        [ `String "canvas"; `String "file"; `String "off" ],
+        [ `Null; `Bool true; `Int 1; `String "unknown" ] );
+      ( "threshold",
+        [ `Int 1; `Int 40000 ],
+        [ `Int 0; `Int 40001; `Null; `Float 1.; `Bool true ] );
+    ];
+  List.iter
+    (fun value ->
+      Alcotest.(check bool)
+        "public object validator" true
+        (Result.is_error (Slack_config_types.validate_long_reply value)))
+    bad
+
+let test_long_reply_set_show () =
+  Test_helpers.with_temp_home (fun _ ->
+      List.iter
+        (fun (key, value) ->
+          match Config_set.set_json_value key value with
+          | Ok () -> ()
+          | Error e -> Alcotest.fail e)
+        [
+          ("channels.slack.long_reply.mode", `String "file");
+          ("channels.slack.long_reply.threshold", `Int 40000);
+        ];
+      Alcotest.(check string)
+        "get threshold" "40000"
+        (Config_set.get_value "channels.slack.long_reply.threshold");
+      List.iter
+        (fun output ->
+          Alcotest.(check bool)
+            "config surface" true
+            (String_util.contains output "40000"))
+        [
+          Config_show.show (Some "channels.slack.long_reply");
+          Config_tree.render_current ~section:"channels.slack.long_reply" ();
+          Config_search.search "long_reply";
+        ];
+      let before = Config_set.load_json (Config_set.config_path ()) in
+      Alcotest.(check bool)
+        "bad leaf refused" true
+        (Result.is_error
+           (Config_set.set_json_value "channels.slack.long_reply.threshold"
+              (`Int 0)));
+      Alcotest.(check bool)
+        "no invalid write" true
+        (before = Config_set.load_json (Config_set.config_path ())))
+
 let suite =
   [
+    Alcotest.test_case "long reply validates leaves object and parents" `Quick
+      test_long_reply_validation;
+    Alcotest.test_case "long reply set show search tree" `Quick
+      test_long_reply_set_show;
     Alcotest.test_case "infer value types" `Quick test_infer_value;
     Alcotest.test_case "json set simple" `Quick test_json_set_simple;
     Alcotest.test_case "json set nested" `Quick test_json_set_nested;
