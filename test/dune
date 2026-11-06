@@ -360,6 +360,7 @@
   test_slack_standing_order_render
   test_slack_standing_order_fixtures
   test_slack_standing_order_pause
+  test_slack_standing_order_capability_regressions
   test_slack_standing_order_tools
   test_slack_standing_order_cards
   test_slack_standing_order_change

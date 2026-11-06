@@ -262,7 +262,7 @@ let run ~manager ?now ~team_id ~app_id ~channel_id ~user_id ~target ~source () =
                     (Refused (Grant.Member_indeterminate "access_snapshot"))
               | Ok snapshot -> (
                   let call =
-                    SO.make ~capability_fence:true
+                    SO.make ~capability_fence:false
                       ~priority:Slack_read_limiter.Pause ~team_id ~app_id ~db
                       ~current_config ~snapshot ~channel_id
                       ~audit:

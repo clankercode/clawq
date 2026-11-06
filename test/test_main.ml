@@ -331,6 +331,8 @@ let all_suites =
     ("slack_standing_order_target", Test_slack_standing_order_target.suite);
     ("slack_standing_order_render", Test_slack_standing_order_render.suite);
     ("slack_standing_order_pause", Test_slack_standing_order_pause.suite);
+    ( "slack_standing_order_capability_regressions",
+      Test_slack_standing_order_capability_regressions.suite );
     ("slack_standing_order_tools", Test_slack_standing_order_tools.suite);
     ("slack_standing_order_cards", Test_slack_standing_order_cards.suite);
     ("slack_standing_order_change", Test_slack_standing_order_change.suite);

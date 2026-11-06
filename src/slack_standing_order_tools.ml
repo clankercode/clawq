@@ -433,8 +433,9 @@ let create ~current_config p json =
           | Ok ((sc : Runtime_config.slack_config), snapshot) -> (
               let allowed = sc.standing_orders.allowed_targets in
               let call =
-                SO.make ~team_id:p.route.team ~app_id:p.route.app ~db:p.db
-                  ~current_config ~snapshot ~channel_id:p.route.channel
+                SO.make ~capability_fence:true ~team_id:p.route.team
+                  ~app_id:p.route.app ~db:p.db ~current_config ~snapshot
+                  ~channel_id:p.route.channel
                   ~audit:
                     (SO.audit_label ~order_id:(Some order_id) ~unit_label:"plan")
                   ()
@@ -532,8 +533,9 @@ let resume ~current_config p (o : T.order) =
                (Render.reason_text f.Grant.reason))
       | Ok (_, snapshot) -> (
           let call =
-            SO.make ~team_id:p.route.team ~app_id:p.route.app ~db:p.db
-              ~current_config ~snapshot ~channel_id:p.route.channel
+            SO.make ~capability_fence:true ~team_id:p.route.team
+              ~app_id:p.route.app ~db:p.db ~current_config ~snapshot
+              ~channel_id:p.route.channel
               ~audit:
                 (SO.audit_label ~order_id:(Some o.id) ~unit_label:"resume_card")
               ()
