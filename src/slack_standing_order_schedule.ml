@@ -369,3 +369,16 @@ let take_ready ~db ~fire_id ~lease ~now =
   with
   | Ok taken -> taken
   | Error e -> failwith e
+
+(* Maintenance can inspect a settled candidate again at the ordinary cadence;
+   it cannot clear transport retry or steal a live resolution owner. *)
+let reopen_for_inspection ~db ~key ~now =
+  ensure_schema db;
+  Sql.exec db
+    ("UPDATE slack_order_root_schedule SET \
+      settled=0,dirty_revision=dirty_revision+1 WHERE " ^ where
+   ^ " AND settled=1 AND retry_at<=? AND next_probe_at<=? AND (owner IS NULL \
+      OR lease_until<=?)" ^ active_key)
+    (params key
+    @ [ Sqlite3.Data.FLOAT now; Sqlite3.Data.FLOAT now; Sqlite3.Data.FLOAT now ]
+    )

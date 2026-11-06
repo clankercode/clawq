@@ -262,33 +262,8 @@ let with_lease ~ctx ~db ?renew_wait ~fire_id work =
           Store.release db ~fire_id ~lease:!latest ~now:(ctx.now ());
           Lwt.return_unit)
 
-let with_resolution_lease ~ctx ~db initial work =
-  let current = ref initial and lost = ref false in
-  let lease = { initial with Schedule.until = Float.max_float } in
-  let accepting () =
-    ctx.Ctx.accepting () && (not !lost)
-    && Schedule.owns_resolution ~db ~lease ~now:(ctx.now ())
-  in
-  let rec renew () =
-    let* () = ctx.wait ~seconds:30. in
-    match Schedule.renew_resolution ~db ~lease:!current ~now:(ctx.now ()) with
-    | Some next ->
-        current := next;
-        renew ()
-    | None ->
-        lost := true;
-        Lwt.return_unit
-  in
-  let heartbeat =
-    Lwt.catch renew (function
-      | Lwt.Canceled -> Lwt.return_unit
-      | _ ->
-          lost := true;
-          Lwt.return_unit)
-  in
-  Lwt.finalize
-    (fun () -> work { ctx with Ctx.accepting } lease)
-    (fun () -> cancel heartbeat)
+let with_resolution_lease =
+  Slack_standing_order_resolution_lease.with_resolution_lease
 
 let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
     (order : T.order) =
@@ -409,9 +384,7 @@ let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
                               current_order ~db ~manager ~now:(ctx.now ()) v
                                 order )
                           with
-                          | Ok (root, room), Some _
-                            when P.get "has_ended" (P.get "room" root)
-                                 <> `Bool true ->
+                          | Ok (root, room), Some _ when not room.has_ended ->
                               Slack_standing_order_recovery_store.record_root db
                                 ~order ~root_ts ~room_id:room.room_id
                                 ~date_start:
@@ -485,11 +458,16 @@ let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
                                             (if ctx.accepting () then
                                                match fire_grant with
                                                | Ok _ -> ()
-                                               | Error failure ->
-                                                   ignore
-                                                     (refuse ~ctx ~db
-                                                        ~lease:fire_lease after
-                                                        failure));
+                                               | Error failure -> (
+                                                   failed failure;
+                                                   match
+                                                     refuse ~ctx ~db
+                                                       ~lease:fire_lease after
+                                                       failure
+                                                   with
+                                                   | Ok () -> ()
+                                                   | Error code -> failwith code
+                                                   ));
                                             Lwt.return_unit)
                                 | Ok None -> Lwt.return_unit
                                 | Error _ -> Lwt.fail_with "fire_insert_failed"
@@ -600,6 +578,11 @@ let fetch ~ctx ~db ~manager ?http ?http_response ~lease
                           | Error (P.Api { method_; error }) ->
                               refuse ~ctx ~db ~lease r
                                 (P.grant_failure ~method_ error)
+                          | Error (P.Incomplete { method_; code }) ->
+                              retry ~ctx ~db ~lease r ~no_notes:false
+                                ~reason:
+                                  ("incomplete:" ^ method_ ^ ":"
+                                  ^ Slack_standing_order_pages.code_name code)
                           | Error P.Not_ready ->
                               retry ~ctx ~db ~lease r ~no_notes:true
                                 ~reason:"notes_not_ready"
@@ -690,8 +673,9 @@ let fetch ~ctx ~db ~manager ?http ?http_response ~lease
                                         else Error P.Unavailable
                                 in
                                 let* verified =
-                                  P.verify_with_source ~before_content
-                                    ~call:v.call ~order ~room_id:r.fire.room_id
+                                  P.verify_with_source_mode ~strict_pages:true
+                                    ~before_content ~call:v.call ~order
+                                    ~room_id:r.fire.room_id
                                     ~date_start:r.fire.date_start ~root_ts
                                 in
                                 if not (ctx.accepting ()) then
@@ -865,3 +849,27 @@ let fetch ~ctx ~db ~manager ?http ?http_response ~lease
   Lwt.catch run (function
     | Lwt.Canceled -> Lwt.fail Lwt.Canceled
     | _ -> Lwt.return (Error "fetch_internal"))
+
+module Resolution = Slack_standing_order_resolution
+
+type incomplete_code = Resolution.incomplete_code
+type verified_root = Resolution.verified_root
+type verified_end = Resolution.verified_end
+type candidate_id = Resolution.candidate_id
+type fixed_reason = Resolution.fixed_reason
+
+type resolution = Resolution.resolution =
+  | Live of verified_root
+  | Not_ready of verified_end
+  | Candidate of candidate_id
+  | Ineligible of fixed_reason
+  | Missing_exact_root
+  | Unavailable of fixed_reason
+  | No_notes of verified_end
+
+type resolution_failure = Resolution.resolution_failure =
+  | Authority of Grant.failure
+  | Incomplete of { method_ : string; code : incomplete_code }
+  | Lost_fence
+
+let resolve_with_grant = Resolution.resolve_with_grant

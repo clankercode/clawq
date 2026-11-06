@@ -335,6 +335,9 @@
   test_slack_standing_order_worker_suppression
   test_slack_standing_order_worker
   test_slack_standing_order_recovery_store
+  test_slack_standing_order_reconcile_scan
+  test_slack_standing_order_scan_support
+  test_slack_standing_order_scan_replay
   test_slack_standing_order_receipt_import
   test_slack_standing_order_schedule
   test_slack_standing_order_resolution

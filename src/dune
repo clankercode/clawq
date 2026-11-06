@@ -552,6 +552,11 @@
   slack_standing_order_report
   slack_standing_order_schedule
   slack_standing_order_fetch
+  slack_standing_order_resolution
+  slack_standing_order_resolution_lease
+  slack_standing_order_scan_store
+  slack_standing_order_reconcile_scan
+  slack_standing_order_pages
   slack_standing_order_exec
   slack_standing_order_types
   slack_standing_order_sql
@@ -559,6 +564,7 @@
   slack_standing_order_rollout_schema
   slack_standing_order_rollout_store
   slack_standing_order_recovery_store
+  slack_standing_order_recovery_view
   slack_standing_order_receipt_import
   slack_standing_order_store_base
   slack_standing_order_card_store
@@ -579,6 +585,7 @@
   slack_standing_order_target
   slack_standing_order_render
   slack_standing_order_pause
+  slack_standing_order_pause_store
   slack_standing_order_tools
   slack_standing_order_change
   slack_standing_order_cards

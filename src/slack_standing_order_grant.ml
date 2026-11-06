@@ -25,6 +25,7 @@ type stage =
   | Replace of { replaces : string; replaced_epoch : int }
   | Resume
   | Resolve
+  | Reconcile of { reconcile_id : string }
   | Fire of { fire_epoch : int; fire_id : string }
   | Track of { fire_id : string }
 
@@ -144,6 +145,24 @@ type validated = {
   team_url : string;
   call : SO.call;
 }
+
+(* Opaque calls retain their per-pass read validation, exactly as if Scan had
+   received [validated] directly. This is not used by Fire or write validation. *)
+module Reconcile_contexts = Ephemeron.K1.Make (struct
+  type t = SO.call
+
+  let equal = ( == )
+  let hash _ = 0
+end)
+
+let reconcile_contexts = Reconcile_contexts.create 8
+
+let remember_reconcile ~stage result =
+  (match (stage, result) with
+  | Reconcile { reconcile_id }, Ok v ->
+      Reconcile_contexts.replace reconcile_contexts v.call (reconcile_id, v)
+  | _ -> ());
+  result
 
 (* ── Step 1: the zero-HTTP gate ─────────────────────────────────────────── *)
 
@@ -286,7 +305,7 @@ let stage_rows db ~now ~stage (s : subject) =
       (* Dispatch evidence survives terminal states and pause/cancel epochs. *)
       if Option.is_some f.dispatched_at then only o
       else Error (Indeterminate "fire")
-  | Resolve ->
+  | Resolve | Reconcile _ ->
       let*? o = own_row db s in
       let*? () = require_state o [ T.Active ] in
       if not (unexpired o ~now) then Error Order_expired
@@ -619,7 +638,12 @@ let evaluate ~db ~current_config ?http ?http_response ?limiter ?priority ?limit
     let fire_id =
       match stage with
       | Fire { fire_id; _ } | Track { fire_id } -> Some fire_id
-      | Plan _ | Confirm | Replace _ | Resume | Resolve -> None
+      | Plan _ | Confirm | Replace _ | Resume | Resolve | Reconcile _ -> None
+    in
+    let unit_label =
+      match stage with
+      | Reconcile { reconcile_id } -> "reconcile:" ^ reconcile_id
+      | _ -> unit_label
     in
     let order_ref = Some { Access_snapshot.order_id = s.order_id; fire_id } in
     match gate ~db ~config:cfg ~channel_id:s.channel_id ~order_ref with
@@ -686,7 +710,8 @@ let evaluate ~db ~current_config ?http ?http_response ?limiter ?priority ?limit
                    bot_id;
                    team_url;
                    call;
-                 }))
+                 })
+            |> remember_reconcile ~stage)
   in
   Lwt.catch run (function
     | Lwt.Canceled -> Lwt.fail Lwt.Canceled
@@ -758,3 +783,15 @@ let check_member ~(call : SO.call) ~(config : Runtime_config.t) ~team_id
         | _ -> refuse (Member_indeterminate "conversations.members")
       in
       page "" 1
+
+(* Recover only this call's already completed Reconcile read validation.
+   New passes must evaluate afresh; current config and the final local stage
+   are checked here as well as by the scan's owner/gap fence. *)
+let reconcile_validation ~db ~current_config ~call ~now ~reconcile_id s =
+  match Reconcile_contexts.find_opt reconcile_contexts call with
+  | Some (id, v) when id = reconcile_id && v.config == current_config () ->
+      Result.map_error failure
+        (Result.map
+           (fun _ -> v)
+           (stage_rows db ~now ~stage:(Reconcile { reconcile_id }) s))
+  | _ -> Error (failure Config_changed)

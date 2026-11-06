@@ -583,7 +583,8 @@ let relay_allowed db ~fire_id ~now =
           | _ -> false)
       | _ -> false)
 
-let record_root db ~(order : T.order) ~root_ts ~room_id ~date_start ~fire_id =
+let record_root ?(recovery = false) db ~(order : T.order) ~root_ts ~room_id
+    ~date_start ~fire_id =
   (* Persist BEFORE touching the replaceable observation ledger. Absence of
      verified coverage always makes this a held recovery candidate. *)
   let existing =
@@ -596,7 +597,8 @@ let record_root db ~(order : T.order) ~root_ts ~room_id ~date_start ~fire_id =
   if existing <> [] && existing <> [ room_id ] then
     failwith "conflicting durable huddle identity";
   let origin =
-    if ready db order.id && covered db order.id order.epoch then "live"
+    if (not recovery) && ready db order.id && covered db order.id order.epoch
+    then "live"
     else "recovery"
   in
   Sql.exec db
@@ -667,102 +669,10 @@ let recover_startup db ~now =
   | Ok () -> ()
   | Error e -> failwith e
 
-let suppression_count db ~order_id =
-  try
-    Sql.int_query db
-      "SELECT count(*) FROM slack_standing_order_suppression WHERE order_id=?"
-      [ Sql.text order_id ]
-  with exn when Sql.is_db_error exn -> 0
-
-let external_statuses db ~order_id =
-  if not (Rollout.table_exists db "slack_standing_order_suppression") then []
-  else
-    Sql.query db
-      "SELECT e.metadata,e.automatic_fire FROM \
-       slack_standing_order_suppression s JOIN \
-       slack_standing_order_external_deliveries e ON \
-       e.receipt_digest=s.receipt_digest WHERE s.order_id=? ORDER BY s.root_ts"
-      [ Sql.text order_id ]
-      (fun row ->
-        let json = Yojson.Safe.from_string (Sql_util.text_column row 0) in
-        let fields =
-          List.map
-            (fun k -> (k, Yojson.Safe.Util.member k json))
-            [
-              "root_ts";
-              "room_id";
-              "date_start";
-              "relay_ts";
-              "own_file_ids";
-              "source_canvas_id";
-              "source_transcript_id";
-              "evidence_digest";
-              "reviewer";
-            ]
-        in
-        `Assoc
-          (fields
-          @ [
-              ( "automatic_fire",
-                Option.fold ~none:`Null
-                  ~some:(fun s -> `String s)
-                  (Sql_util.opt_text_column row 1) );
-            ]))
-
-let status_json db ~order_id =
-  let status = rollout_readiness db ~order_id in
-  let held =
-    try
-      Sql.int_query db
-        "SELECT count(*) FROM slack_standing_order_recovery_candidates c JOIN \
-         slack_standing_orders o ON o.id=c.order_id LEFT JOIN \
-         slack_standing_order_recovery_batches b ON b.id=c.batch_id WHERE \
-         c.order_id=? AND c.epoch=o.epoch AND c.origin='recovery' AND \
-         (b.status IS NULL OR b.status NOT IN ('released','cancelled')) AND \
-         NOT EXISTS(SELECT 1 FROM slack_standing_order_suppression s WHERE \
-         s.order_id=c.order_id AND (s.root_ts=c.root_ts OR \
-         (s.room_id=c.room_id AND s.date_start=c.date_start)))"
-        [ Sql.text order_id ]
-    with exn when Sql.is_db_error exn -> 0
-  in
-  let proof =
-    try
-      let uuid, state, seq, identity, _, manifest = Rollout.validate_proof db in
-      `Assoc
-        [
-          ("version", `Int 1);
-          ("installation", `String uuid);
-          ("state", `String state);
-          ("evidence_seq", `Int seq);
-          ( "identity",
-            Option.fold ~none:`Null
-              ~some:(fun s -> Yojson.Safe.from_string s)
-              identity );
-          ( "inventory_digest",
-            Option.fold ~none:`Null ~some:(fun s -> `String s) manifest );
-        ]
-    with _ -> `Null
-  in
-  let external_deliveries =
-    try `List (external_statuses db ~order_id) with _ -> `Null
-  in
-  `Assoc
-    [
-      ("readiness", `String (readiness_name status));
-      ("proof", proof);
-      ("already_delivered", `Int (suppression_count db ~order_id));
-      ("held_candidates", `Int held);
-      ("external_deliveries", external_deliveries);
-    ]
-
-let report_statuses db ~order_id =
-  if not (Rollout.table_exists db "slack_standing_order_reports") then []
-  else
-    Sql.query db
-      "SELECT cause_key,status FROM slack_standing_order_reports WHERE \
-       order_id=? ORDER BY cause_key,period_key"
-      [ Sql.text order_id ]
-      (fun s -> (Sql_util.text_column s 0, Sql_util.text_column s 1))
+let suppression_count = Slack_standing_order_recovery_view.suppression_count
+let external_statuses = Slack_standing_order_recovery_view.external_statuses
+let status_json = Slack_standing_order_recovery_view.status_json
+let report_statuses = Slack_standing_order_recovery_view.report_statuses
 
 (* Store-only batch operations. Posting/adoption and orchestration belong to
    the catch-up task; these CAS operations never send a notice. *)
@@ -940,3 +850,19 @@ let list_fires_readonly db ~order_id ~limit =
     Store.query_fires db
       "WHERE order_id=? ORDER BY created_at DESC,rowid DESC LIMIT ?"
       Sql.[ text order_id; int (max 0 limit) ]
+
+(* Pause's fixed post-commit operations retain the original pass owner. This
+   narrowly tolerates that pass's pause epoch; resume or any other transition
+   invalidates it. It is never used for discovery, coverage or relay admission. *)
+let replay_fenced db ~(order : T.order) ~owner ~now =
+  attempt_bool (fun () ->
+      current_gap db (pass_token db order.id) ~connected:true
+      && Sql.int_query db
+           "SELECT count(*) FROM slack_standing_order_recovery_passes p JOIN \
+            slack_standing_orders o ON o.id=p.order_id WHERE p.order_id=? AND \
+            p.owner=? AND p.generation=? AND p.until>? AND p.epoch=? AND \
+            o.team_id=p.team AND o.api_app_id=p.app AND o.channel_id=p.channel \
+            AND ((o.state='active' AND o.epoch=p.epoch) OR (o.state IN \
+            ('paused','suspended') AND o.epoch=p.epoch+1))"
+           (owner_params order.id owner now @ [ Sql.int order.epoch ])
+         = 1)

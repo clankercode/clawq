@@ -112,6 +112,25 @@ type error =
 type call =
   string -> (string * Yojson.Safe.t) list -> (Yojson.Safe.t, error) result Lwt.t
 
+(* Identity metadata only, never a grant/permission cache. This lets scan
+   adapters preserve the exact persisted snapshot of an opaque supplied call. *)
+type call_scope = {
+  snapshot : Access_snapshot.t;
+  channel_id : string;
+  audit : string;
+  limiter : Slack_read_limiter.t option;
+}
+
+module Call_scopes = Ephemeron.K1.Make (struct
+  type t = call
+
+  let equal = ( == )
+  let hash _ = 0
+end)
+
+let call_scopes = Call_scopes.create 16
+let describe_call call = Call_scopes.find_opt call_scopes call
+
 (* Method -> verb, one entry per call site; the egress table in the docs is
    derived from this list. *)
 let methods =
@@ -410,6 +429,23 @@ let channel_params_allowed ~channel_id method_ params =
       | _ -> true)
     params
 
+(* A scan narrows an already persisted call without constructing another
+   transport. The guard runs after every shared limiter/pacer wait. *)
+type call_policy = {
+  check : unit -> (unit, error) result;
+  priority : Slack_read_limiter.priority;
+}
+
+let call_policy = Lwt.new_key ()
+
+let with_policy ~check ~priority work =
+  let parent = Lwt.get call_policy in
+  let check () =
+    Result.bind (check ()) (fun () ->
+        match parent with None -> Ok () | Some p -> p.check ())
+  in
+  Lwt.with_value call_policy (Some { check; priority }) work
+
 let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit ?http
     ?http_response ?limiter ?team_id ?app_id
     ?(priority = Slack_read_limiter.Live) ?(limit = fun () -> Lwt.return_unit)
@@ -426,7 +462,7 @@ let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit ?http
     choose_limiter ?limiter ~fixture:(http != default_http_response) ()
   in
   let installation = installation ~db ~snapshot ?team_id ?app_id () in
-  fun method_ params ->
+  let call method_ params =
     let permitted =
       match scope with
       | Standing_order -> methods
@@ -445,7 +481,11 @@ let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit ?http
               match limiter with
               | None -> Lwt.return_unit
               | Some limiter ->
-                  Slack_read_limiter.before_call limiter ~key ~priority
+                  Slack_read_limiter.before_call limiter ~key
+                    ~priority:
+                      (match Lwt.get call_policy with
+                      | Some p -> p.priority
+                      | None -> priority)
                     ?channel:
                       (if produces_message method_ then Some channel_id
                        else None)
@@ -457,7 +497,12 @@ let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit ?http
             with
             | Error _ as denied -> Lwt.return denied
             | Ok token -> (
-                match before_send () with
+                match
+                  Result.bind (before_send ()) (fun () ->
+                      match Lwt.get call_policy with
+                      | None -> Ok ()
+                      | Some p -> p.check ())
+                with
                 | Error error -> Lwt.return (Error error)
                 | Ok () ->
                     let* response = http ~verb ~token ~method_ ~params in
@@ -475,6 +520,9 @@ let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit ?http
             | _ ->
                 Logs.debug (fun m -> m "standing-order Slack transport failed");
                 Lwt.return (Error Transport))
+  in
+  Call_scopes.replace call_scopes call { snapshot; channel_id; audit; limiter };
+  call
 
 let make = make_scoped ~scope:Standing_order
 let make_peer_lookup = make_scoped ~scope:Peer_lookup

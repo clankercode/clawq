@@ -313,6 +313,8 @@ let all_suites =
     ("slack_standing_order_worker", Test_slack_standing_order_worker.suite);
     ( "slack_standing_order_receipt_import",
       Test_slack_standing_order_receipt_import.suite );
+    ( "slack_standing_order_reconcile_scan",
+      Test_slack_standing_order_reconcile_scan.suite );
     ( "slack_standing_order_recovery_store",
       Test_slack_standing_order_recovery_store.suite );
     ("slack_standing_order_schedule", Test_slack_standing_order_schedule.suite);

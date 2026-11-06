@@ -25,6 +25,10 @@ type verified = {
 
 type reason =
   | Not_ready
+  | Incomplete of {
+      method_ : string;
+      code : Slack_standing_order_pages.incomplete_code;
+    }
   | Unavailable
   | Rejected of string
   | Api of { method_ : string; error : SO.error }
@@ -89,7 +93,15 @@ let thread_of_room ~root_ts room =
   in
   choose [ "canvas_thread_ts"; "thread_root_ts" ]
 
-let ready_pages ~call ~channel ~thread_ts =
+let ready_pages_mode ~strict_pages ~call ~channel ~thread_ts =
+  let module Pages = Slack_standing_order_pages in
+  let incomplete code =
+    Lwt.return
+      (Error
+         (if strict_pages then
+            Incomplete { method_ = "conversations.replies"; code }
+          else Not_ready))
+  in
   let rec read remaining seen cursor acc =
     let params =
       [
@@ -101,20 +113,36 @@ let ready_pages ~call ~channel ~thread_ts =
     in
     let* page = request call "conversations.replies" params in
     let*? page = page in
-    match get "messages" page with
-    | `List messages when List.length messages <= 200 -> (
-        let acc = List.rev_append messages acc in
-        let cursor = get "response_metadata" page |> get "next_cursor" in
-        match (get "has_more" page, cursor) with
-        | `Bool false, (`Null | `String "") | `Null, `String "" ->
-            Lwt.return (Ok (List.rev acc))
-        | (`Null | `Bool true | `Bool false), `String next
-          when next <> "" && remaining > 1 && not (List.mem next seen) ->
-            read (remaining - 1) (next :: seen) next acc
-        | _ -> Lwt.return (Error Not_ready))
-    | _ -> Lwt.return (Error Not_ready)
+    match
+      if strict_pages then Pages.messages page
+      else
+        match get "messages" page with
+        | `List xs when List.length xs <= 200 -> Ok xs
+        | _ -> Error Pages.Malformed
+    with
+    | Error code -> incomplete code
+    | Ok messages -> (
+        if
+          strict_pages
+          && not
+               (List.for_all
+                  (fun message ->
+                    same_channel channel message
+                    && (field "ts" message = thread_ts
+                       || field "thread_ts" message = thread_ts))
+                  messages)
+        then incomplete Pages.Malformed
+        else
+          match Pages.next ~seen ~remaining page with
+          | Error code -> incomplete code
+          | Ok "" -> Lwt.return (Ok (List.rev (List.rev_append messages acc)))
+          | Ok next ->
+              read (remaining - 1) (next :: seen) next
+                (List.rev_append messages acc))
   in
-  read 5 [] "" []
+  read (if strict_pages then 20 else 5) [] "" []
+
+let ready_pages = ready_pages_mode ~strict_pages:false
 
 let canvas_candidates ~channel ~thread_ts ~root_files messages =
   List.concat_map
@@ -235,8 +263,8 @@ let fetch_transcript ~call ~channel ~date_start canvas =
             Lwt.return (Ok (Some { file_id; lines; markdown }, false)))
   | _ -> Lwt.return (Ok (None, true))
 
-let verify_with_source ~before_content ~call ~(order : T.order) ~room_id
-    ~date_start ~root_ts =
+let verify_with_source_mode ~strict_pages ~before_content ~call
+    ~(order : T.order) ~room_id ~date_start ~root_ts =
   let channel = order.channel_id in
   let* history =
     request call "conversations.history"
@@ -260,7 +288,13 @@ let verify_with_source ~before_content ~call ~(order : T.order) ~room_id
         || (not (valid_id "R" room_id))
         || field "id" room <> room_id
         || field "call_family" room <> "huddle"
-        || get "has_ended" room <> `Bool true
+        || (not
+              (get "has_ended" room = `Bool true
+              || strict_pages
+                 && get "has_ended" room = `Null
+                 && Option.fold ~none:false
+                      ~some:(fun n -> n > 0)
+                      (seconds (get "date_end" room))))
         || start = None
         || start <> seconds (`String date_start)
       then Lwt.return (Error (Rejected "root_mismatch"))
@@ -269,7 +303,9 @@ let verify_with_source ~before_content ~call ~(order : T.order) ~room_id
         | None -> Lwt.return (Error (Rejected "root_mismatch"))
         | Some thread_ts -> (
             let date_start = Option.get start in
-            let* messages = ready_pages ~call ~channel ~thread_ts in
+            let* messages =
+              ready_pages_mode ~strict_pages ~call ~channel ~thread_ts
+            in
             let*? messages = messages in
             let root_files =
               file_ids root
@@ -356,6 +392,8 @@ let verify_with_source ~before_content ~call ~(order : T.order) ~room_id
                   | _ -> Lwt.return (Error Not_ready))
             | _ -> Lwt.return (Error (Rejected "canvas_provenance"))))
   | _ -> Lwt.return (Error (Rejected "root_mismatch"))
+
+let verify_with_source = verify_with_source_mode ~strict_pages:false
 
 let verify ~call ~order ~room_id ~date_start ~root_ts =
   verify_with_source
