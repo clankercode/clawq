@@ -312,6 +312,8 @@ let all_suites =
     ("slack_standing_order_exec", Test_slack_standing_order_exec.suite);
     ("slack_standing_order_worker", Test_slack_standing_order_worker.suite);
     ("slack_standing_order_schedule", Test_slack_standing_order_schedule.suite);
+    ( "slack_standing_order_resolution",
+      Test_slack_standing_order_resolution.suite );
     ("slack_standing_order_final_fix", Test_slack_standing_order_final_fix.suite);
     ("slack_standing_order_config", Test_slack_standing_order_config.suite);
     ("slack_standing_order_store", Test_slack_standing_order_store.suite);

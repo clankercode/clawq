@@ -48,6 +48,10 @@ let test_dirty_race () =
       check "old owner cannot finish successor" false (finish db l Q.Live S.now);
       check "new owner settles" true (finish db newer Q.Settled S.now);
       Q.dirty_channel ~db ~channel:o.channel_id;
+      register db o "changed after permanent settlement";
+      Q.note_ready ~db ~team:o.team_id ~app:o.api_app_id ~channel:o.channel_id
+        ~thread_ts:root ~canvas_file_id:"FCANVAS" ~ready_ts:"1700000060.000100"
+        ~now:S.now;
       check "settled roots leave resolution queue" false
         (due db o (S.now +. 9999.)))
 
@@ -77,6 +81,14 @@ let test_expiry () =
       let now = S.now +. 120. in
       let next = Option.get (claim db o "same-owner" now) in
       check "expiry token fences same owner" false (finish db l Q.Live now);
+      check "expired hard failure changes neither schedule nor order" false
+        (Q.fail_resolution ~db ~lease:l
+           ~failure:(G.failure G.Credentials_invalid)
+           ~now);
+      check "hard failure cannot release successor" true
+        (Q.owns_resolution ~db ~lease:next ~now);
+      Alcotest.check S.state_t "old actor cannot suspend" T.Active
+        (Option.get (Store.find db o.id)).state;
       check "successor completes" true (finish db next Q.Live now))
 
 let hint db ?(app = "A123") ?(canvas = "FCANVAS") ?(ready = "1700000060.000100")
@@ -179,8 +191,67 @@ let test_renewal () =
       check "current token finishes" true
         (finish db renewed Q.Live (S.now +. 121.)))
 
+let test_disabled_backoff () =
+  with_db (fun db o ->
+      register db o "live";
+      let lease = Option.get (claim db o "executor" S.now) in
+      check "disable releases without settling" true
+        (Q.fail_resolution ~db ~lease
+           ~failure:(G.failure G.Feature_disabled)
+           ~now:S.now);
+      Q.dirty_channel ~db ~channel:o.channel_id;
+      check "reenable may immediately validate" true (due db o S.now);
+      let lease = Option.get (claim db o "executor" S.now) in
+      check "real failure records retry" true
+        (Q.fail_resolution ~db ~lease
+           ~failure:(G.failure (G.Indeterminate "transport"))
+           ~now:S.now);
+      Q.dirty_channel ~db ~channel:o.channel_id;
+      check "config cannot clear independent retry" false
+        (due db o (S.now +. 119.));
+      let lease = Option.get (claim db o "executor" (S.now +. 120.)) in
+      check "disable after backoff releases" true
+        (Q.fail_resolution ~db ~lease
+           ~failure:(G.failure G.Feature_disabled)
+           ~now:(S.now +. 120.));
+      let lease = Option.get (claim db o "executor" (S.now +. 120.)) in
+      check "later transport failure records next retry" true
+        (Q.fail_resolution ~db ~lease
+           ~failure:(G.failure (G.Indeterminate "transport"))
+           ~now:(S.now +. 120.));
+      check "disable did not reset retry count" false (due db o (S.now +. 419.));
+      check "independent second retry at 420" true (due db o (S.now +. 420.)))
+
+let test_hard_rollback () =
+  with_db (fun db o ->
+      register db o "live";
+      let lease = Option.get (claim db o "executor" S.now) in
+      Sql.exec db
+        "CREATE TRIGGER refuse_suspend BEFORE UPDATE OF state ON \
+         slack_standing_orders WHEN NEW.state='suspended' BEGIN SELECT \
+         RAISE(ABORT,'injected suspend failure'); END"
+        [];
+      let failed =
+        try
+          ignore
+            (Q.fail_resolution ~db ~lease
+               ~failure:(G.failure G.Credentials_invalid)
+               ~now:S.now);
+          false
+        with Failure _ -> true
+      in
+      check "suspension storage failure propagates" true failed;
+      check "resolution failure rolled back with suspension" true
+        (Q.owns_resolution ~db ~lease ~now:S.now);
+      Alcotest.check S.state_t "order still active" T.Active
+        (Option.get (Store.find db o.id)).state)
+
 let suite =
   [
+    S.case "temporary disable preserves eligibility and independent retries"
+      test_disabled_backoff;
+    S.case "hard suspension failure rolls back resolution failure"
+      test_hard_rollback;
     S.case "resolution renewal spans slow reads without surrendering owner"
       test_renewal;
     S.case "independent handles share revision lease and epoch fence"

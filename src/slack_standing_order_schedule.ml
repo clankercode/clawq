@@ -218,19 +218,47 @@ let finish_resolution ~db ~(lease : resolution_lease) ~outcome ~now =
 let fail_resolution ~db ~(lease : resolution_lease) ~(failure : Grant.failure)
     ~now =
   ensure_schema db;
-  Sql.exec db
-    ("UPDATE slack_order_root_schedule SET retry_at=? + CASE retry_count WHEN \
-      0 THEN 120 WHEN 1 THEN 300 WHEN 2 THEN 600 ELSE 1200 \
-      END,retry_count=MIN(3,retry_count+1),retry_class=?,settled=?,owner=NULL,lease_until=NULL \
-      WHERE " ^ owned_where)
-    ([ Sqlite3.Data.FLOAT now ]
-    @ Sql.
-        [
-          text (Grant.reason_code failure.reason);
-          bool (failure.cls <> Grant.Transient);
-        ]
-    @ owned lease now);
-  Sqlite3.changes db = 1
+  match
+    Sql.in_tx db ~on_error:Fun.id (fun () ->
+        (match failure.reason with
+        | Grant.Feature_disabled ->
+            (* Temporary operator posture is neither completion nor a failed
+               remote attempt. Preserve independent retries and dirty work. *)
+            Sql.exec db
+              ("UPDATE slack_order_root_schedule SET \
+                owner=NULL,lease_until=NULL WHERE " ^ owned_where)
+              (owned lease now)
+        | _ ->
+            Sql.exec db
+              ("UPDATE slack_order_root_schedule SET retry_at=? + CASE \
+                retry_count WHEN 0 THEN 120 WHEN 1 THEN 300 WHEN 2 THEN 600 \
+                ELSE 1200 \
+                END,retry_count=MIN(3,retry_count+1),retry_class=?,settled=?,owner=NULL,lease_until=NULL \
+                WHERE " ^ owned_where)
+              ([ Sqlite3.Data.FLOAT now ]
+              @ Sql.
+                  [
+                    text (Grant.reason_code failure.reason);
+                    bool (failure.cls <> Grant.Transient);
+                  ]
+              @ owned lease now));
+        if Sqlite3.changes db <> 1 then Ok false
+        else if failure.cls <> Grant.Hard then Ok true
+        else
+          (* The owner CAS and lifecycle sweep commit together. Checking
+             ownership after releasing the claim would race a successor. *)
+          match
+            Store.suspend_if_epoch_in_tx db ~order_id:lease.key.order_id
+              ~epoch:lease.key.epoch
+              ~reason:(Grant.reason_code failure.reason)
+              ~now
+          with
+          | Ok true -> Ok true
+          | Ok false -> Error "resolution suspension lost its order epoch"
+          | Error _ as error -> error)
+  with
+  | Ok applied -> applied
+  | Error error -> failwith error
 
 (* The compatibility names now explicitly require the full installation/epoch
    key and ownership token. Successful inspection is never an attempted call. *)

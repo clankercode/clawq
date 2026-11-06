@@ -77,17 +77,22 @@ let retry_state db ~fire_id =
 
 let backoff n = match n with 0 -> 120. | 1 -> 300. | 2 -> 600. | _ -> 1200.
 
-let evaluate ~ctx ~db ~manager ?http ?http_response ~stage (order : T.order) =
-  let limit ~channel_id =
-    if not (ctx.Ctx.accepting ()) then Lwt.fail Lwt.Canceled
-    else
-      let* () = ctx.limit ~channel_id in
-      if ctx.accepting () then Lwt.return_unit else Lwt.fail Lwt.Canceled
+let transport_limit ~ctx ~channel_id () =
+  if not (ctx.Ctx.accepting ()) then Lwt.fail Lwt.Canceled
+  else
+    let* () = ctx.limit ~channel_id in
+    if ctx.accepting () then Lwt.return_unit else Lwt.fail Lwt.Canceled
+
+let evaluate ~ctx ~db ~manager ?http ?http_response ?before_send ~stage
+    (order : T.order) =
+  let before_send () =
+    if not (ctx.Ctx.accepting ()) then Error SO.Dispatch_refused
+    else Option.fold ~none:(Ok ()) ~some:(fun check -> check ()) before_send
   in
   Grant.evaluate ?limiter:ctx.Ctx.limiter ~db
     ~current_config:(fun () -> Session.get_config manager)
-    ?http ?http_response
-    ~limit:(fun () -> limit ~channel_id:order.T.channel_id)
+    ?http ?http_response ~before_send
+    ~limit:(transport_limit ~ctx ~channel_id:order.T.channel_id)
     ~now:(ctx.now ()) ~stage ~unit_label:"fire"
     (Grant.subject_of_order order)
 
@@ -298,18 +303,31 @@ let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
   (* Share only this pass's read validation across due roots. Fire and every
      write still validate independently; a config publication discards this. *)
   let validation = ref None in
-  let validate () =
-    match !validation with
-    | Some (Ok v as result) when Session.get_config manager == v.Grant.config ->
-        Lwt.return result
-    | Some (Error _ as result) -> Lwt.return result
-    | _ ->
-        let* result =
-          evaluate ~ctx ~db ~manager ?http ?http_response ~stage:Grant.Resolve
-            order
+  let validate ~ctx ~before_send =
+    let* result =
+      match !validation with
+      | Some v when Session.get_config manager == v.Grant.config ->
+          Lwt.return (Ok v)
+      | _ ->
+          evaluate ~ctx ~db ~manager ?http ?http_response ~before_send
+            ~stage:Grant.Resolve order
+    in
+    match result with
+    | Error _ -> Lwt.return result
+    | Ok v ->
+        validation := Some v;
+        (* Reuse read facts, never the previous root owner's transport. *)
+        let call =
+          SO.make ~capability_fence:true ~db
+            ~current_config:(fun () -> Session.get_config manager)
+            ~snapshot:v.snapshot ~channel_id:order.channel_id
+            ~audit:(SO.audit_label ~order_id:(Some order.id) ~unit_label:"fire")
+            ?http ?http_response ?limiter:ctx.Ctx.limiter ~team_id:order.team_id
+            ~app_id:order.api_app_id
+            ~limit:(transport_limit ~ctx ~channel_id:order.channel_id)
+            ~before_send ()
         in
-        validation := Some result;
-        Lwt.return result
+        Lwt.return (Ok { v with Grant.call })
   in
   Lwt_list.iter_s
     (fun root_ts ->
@@ -323,26 +341,44 @@ let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
         with
         | None -> Lwt.return_unit
         | Some initial ->
+            let worker_accepting = ctx.Ctx.accepting in
             with_resolution_lease ~ctx ~db initial (fun ctx lease ->
                 let finish outcome =
                   ignore
                     (Schedule.finish_resolution ~db ~lease ~outcome
                        ~now:(ctx.now ()))
                 in
+                let config = Session.get_config manager in
                 let failed failure =
-                  ignore
-                    (Schedule.fail_resolution ~db ~lease ~failure
-                       ~now:(ctx.now ()));
-                  if failure.Grant.cls = Grant.Hard then
+                  if ctx.accepting () then
+                    let failure =
+                      if Session.get_config manager != config then
+                        Grant.failure Grant.Config_changed
+                      else failure
+                    in
                     ignore
-                      (Store.suspend_if_epoch db ~order_id:order.id
-                         ~epoch:order.epoch
-                         ~reason:(Grant.reason_code failure.reason)
+                      (Schedule.fail_resolution ~db ~lease ~failure
                          ~now:(ctx.now ()))
+                in
+                let before_send () =
+                  if
+                    ctx.accepting ()
+                    && Session.get_config manager == config
+                    && Option.fold ~none:false
+                         ~some:(fun (o : T.order) ->
+                           o.state = T.Active && o.epoch = order.epoch
+                           && o.team_id = order.team_id
+                           && o.api_app_id = order.api_app_id
+                           && o.channel_id = order.channel_id
+                           && Grant.unexpired o ~now:(ctx.now ())
+                           && Store.activation_announced db ~order_id:o.id)
+                         (Store.find db order.id)
+                  then Ok ()
+                  else Error SO.Dispatch_refused
                 in
                 Lwt.catch
                   (fun () ->
-                    let* grant = validate () in
+                    let* grant = validate ~ctx ~before_send in
                     match grant with
                     | Error failure ->
                         failed failure;
@@ -455,10 +491,15 @@ let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
                                 (Grant.failure
                                    (Grant.Indeterminate "root_unverified"));
                               Lwt.return_unit))
-                  (fun exn ->
-                    failed
-                      (Grant.failure (Grant.Indeterminate "resolution_failed"));
-                    Lwt.fail exn)))
+                  (function
+                    | Lwt.Canceled
+                      when worker_accepting () && not (ctx.accepting ()) ->
+                        Lwt.return_unit
+                    | exn ->
+                        failed
+                          (Grant.failure
+                             (Grant.Indeterminate "resolution_failed"));
+                        Lwt.fail exn)))
     roots
 
 let transcript_conflict db ~fire_id id =

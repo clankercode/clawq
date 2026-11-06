@@ -600,6 +600,62 @@ let test_local_deny () =
              cleanup c;
              Lwt.return_unit)))
 
+let test_feature_reenable () =
+  with_env (fun e ->
+      let c = clock () in
+      e.root :=
+        set "room"
+          (set "has_ended" (`Bool false)
+             (set "date_end" `Null (get "room" !(e.root))))
+          !(e.root);
+      (* Leave notes pending after the verified end, avoiding relay writes. *)
+      e.replies := F.page [ !(e.root) ];
+      Lwt_main.run
+        (Lwt.finalize
+           (fun () ->
+             E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager
+               ~http:e.mock.http ();
+             seen e;
+             E.wake ();
+             let* () = flush 40 in
+             Alcotest.(check int)
+               "initial live reads" 6
+               (List.length !(e.mock.calls));
+             Session.update_config e.manager (S.config ~enabled:false ());
+             let* () = advance c 5. in
+             e.root :=
+               set "room"
+                 (set "has_ended" (`Bool true)
+                    (set "date_end" (`Int 1700000030) (get "room" !(e.root))))
+                 !(e.root);
+             seen e;
+             observe_ready e ();
+             let* () = advance c 600. in
+             Alcotest.(check int)
+               "disabled end and ready cause zero HTTP" 6
+               (List.length !(e.mock.calls));
+             Alcotest.(check int)
+               "disabled creates no fire" 0
+               (List.length (fires e));
+             Session.update_config e.manager (S.config ());
+             let* () = advance c 5. in
+             Alcotest.(check int)
+               "reenabled worker creates eligible fire" 1
+               (List.length (fires e));
+             check "reenable performs fresh Grant and exact-root reads" true
+               (count e "auth.test" >= 2 && count e "conversations.history" >= 2);
+             let order = Option.get (Store.find e.db e.order.id) in
+             Alcotest.check S.state_t "temporary disable keeps order active"
+               T.Active order.state;
+             Alcotest.(check int)
+               "temporary disable keeps epoch" e.order.epoch order.epoch;
+             no_upload e;
+             Lwt.return_unit)
+           (fun () ->
+             let* () = E.stop () in
+             cleanup c;
+             Lwt.return_unit)))
+
 let test_ready_content ?(cooldown = 0.) () =
   with_env (fun e ->
       let c = clock () in
@@ -724,6 +780,8 @@ let test_ready_content ?(cooldown = 0.) () =
 
 let suite =
   [
+    S.case "feature reenable resumes real worker after live end and ready"
+      test_feature_reenable;
     S.case "ready hint wakes real worker across SQL due and retry guard"
       test_ready_wake;
     S.case "unchanged live root has twelve actual reads through 300 seconds"
