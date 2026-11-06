@@ -441,7 +441,8 @@ let stop () =
       | _ -> ());
       Lwt.return_unit
 
-let start ~ctx ~db ~manager ?http ?upload_http () =
+let start ~ctx ~db ~manager ?http ?upload_http
+    ?(list_orders = fun () -> Store.list db ~include_cancelled:true ()) () =
   match !worker with
   | Some _ -> ()
   | None ->
@@ -484,7 +485,7 @@ let start ~ctx ~db ~manager ?http ?upload_http () =
                 if accepting () then Lwt.return_unit else Lwt.fail Lwt.Canceled);
         }
       in
-      let orders () = Store.list db ~include_cancelled:true () in
+      let orders = list_orders in
       let rows () =
         List.concat_map
           (fun (o : T.order) ->
@@ -559,23 +560,34 @@ let start ~ctx ~db ~manager ?http ?upload_http () =
               let job =
                 Lwt.finalize
                   (fun () ->
-                    let* () = Lwt.pause () in
-                    let roots_for_order (order : T.order) =
-                      Hashtbl.to_seq origins |> List.of_seq
-                      |> List.filter_map (fun ((team, app, ch, ts), eligible) ->
-                          if
-                            eligible && team = order.team_id
-                            && app = order.api_app_id && ch = order.channel_id
-                          then Some ts
-                          else None)
-                    in
-                    pass ~ctx:local ~db ~manager ?http ?upload_http
-                      ~renew_wait:ctx.wait ~roots_for_order ~held ~read_only
-                      ~orders:
-                        (List.filter
-                           (fun (o : T.order) -> o.channel_id = channel)
-                           all)
-                      ())
+                    Lwt.catch
+                      (fun () ->
+                        let* () = Lwt.pause () in
+                        let roots_for_order (order : T.order) =
+                          Hashtbl.to_seq origins |> List.of_seq
+                          |> List.filter_map
+                               (fun ((team, app, ch, ts), eligible) ->
+                                 if
+                                   eligible && team = order.team_id
+                                   && app = order.api_app_id
+                                   && ch = order.channel_id
+                                 then Some ts
+                                 else None)
+                        in
+                        pass ~ctx:local ~db ~manager ?http ?upload_http
+                          ~renew_wait:ctx.wait ~roots_for_order ~held ~read_only
+                          ~orders:
+                            (List.filter
+                               (fun (o : T.order) -> o.channel_id = channel)
+                               all)
+                          ())
+                      (function
+                        | Lwt.Canceled -> Lwt.return_unit
+                        | exn ->
+                            Logs.warn (fun m ->
+                                m "standing-order worker channel %s failed: %s"
+                                  channel (Printexc.to_string exn));
+                            Lwt.return_unit))
                   (fun () ->
                     Hashtbl.remove w.jobs channel;
                     Lwt.return_unit)
@@ -585,26 +597,39 @@ let start ~ctx ~db ~manager ?http ?upload_http () =
           channels
       in
       let rec loop () =
-        let timer = wait ~seconds:5. and event = Lwt_condition.wait signal in
-        let* () =
-          Lwt.finalize
-            (fun () -> Lwt.pick [ timer; event ])
+        let* continue =
+          Lwt.catch
             (fun () ->
-              let* () = cancel timer in
-              cancel event)
+              let timer = wait ~seconds:5.
+              and event = Lwt_condition.wait signal in
+              let* () =
+                Lwt.finalize
+                  (fun () -> Lwt.pick [ timer; event ])
+                  (fun () ->
+                    let* () = cancel timer in
+                    cancel event)
+              in
+              if w.running then tick ();
+              Lwt.return w.running)
+            (function
+              | Lwt.Canceled -> Lwt.return_false
+              | exn ->
+                  Logs.warn (fun m ->
+                      m "standing-order worker tick failed: %s"
+                        (Printexc.to_string exn));
+                  Lwt.return w.running)
         in
-        if not w.running then Lwt.return_unit
-        else (
-          tick ();
-          loop ())
+        if continue then loop () else Lwt.return_unit
       in
       worker := Some w;
       Slack_huddle_observer.wake := wake;
       (Slack_huddle_observer.posture_changed := fun ~channel:_ -> wake ());
+      Logs.info (fun m -> m "standing-order worker started");
       w.loop <-
         Lwt.catch loop (function
           | Lwt.Canceled -> Lwt.return_unit
-          | _ ->
+          | exn ->
               Logs.warn (fun m ->
-                  m "standing-order worker stopped unexpectedly");
+                  m "standing-order worker stopped unexpectedly: %s"
+                    (Printexc.to_string exn));
               Lwt.return_unit)
