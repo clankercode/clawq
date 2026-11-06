@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-11-06T03:10:05Z"
+depends_on: []
+estimate_hours: 1
+id: B851
+priority: high
+status: pending
+tags: []
+title: Slack final reply shows raw Markdown **bold** instead of Slack mrkdwn
+updated_at: "2026-11-06T03:10:05Z"
+---
+Same test thread (06 Nov 14:07): the final answer posted via chat.postMessage contains literal '**complete, evidence-based summary of all testing**', which Slack renders with stray asterisks. Final text sent as a plain message must be converted to Slack mrkdwn (or sent as markdown_text / a markdown block). Check the I065 final-delivery path and any converter it bypasses.
