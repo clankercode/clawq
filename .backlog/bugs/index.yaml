@@ -1805,3 +1805,4 @@ bugs:
     - file: B850-inject-connector-history-is-of.todo
     - file: B851-slack-final-reply-shows-raw-ma.todo
     - file: B852-standing-order-fire-ignores-sl.todo
+    - file: B853-standing-order-worker-re-runs.todo
