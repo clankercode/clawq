@@ -20,6 +20,7 @@ let make_runtime_config base_url =
         show_tool_calls = true;
         show_thinking = false;
         tool_status_mode = "individual";
+        autonomous_continuation_enabled = false;
       };
   }
 
@@ -84,6 +85,22 @@ let with_fake_streaming_provider f =
     ~finally:(fun () -> Lwt.wakeup_later stopper ())
     (fun () -> f (Printf.sprintf "http://127.0.0.1:%d" port))
 
+let check_no_pending_continuation manager ~key =
+  let pending =
+    Lwt_main.run
+      (let open Lwt.Syntax in
+       let* pending =
+         Session.with_continuation_state manager ~key (fun state ->
+             Lwt.return (Option.is_some state.cancel))
+       in
+       let* () = Session.cancel_autonomous_continuation manager ~key in
+       let* () = Lwt.pause () in
+       Lwt.return pending)
+  in
+  Alcotest.(check bool)
+    ("no pending autonomous continuation for " ^ key)
+    false pending
+
 let test_slack_handle_event_emits_tool_call_notifications () =
   with_fake_streaming_provider (fun base_url ->
       let slack_config : Runtime_config.slack_config =
@@ -133,7 +150,8 @@ let test_slack_handle_event_emits_tool_call_notifications () =
           "\xF0\x9F\x94\xA7 *test_tool* \xE2\x9C\x93 \xE2\x86\x92 _ran hi_";
           "final answer";
         ]
-        (List.rev !sent))
+        (List.rev !sent);
+      check_no_pending_continuation session_manager ~key:"slack:C123:U456")
 
 let test_discord_handle_message_emits_tool_call_notifications () =
   with_fake_streaming_provider (fun base_url ->
@@ -176,7 +194,8 @@ let test_discord_handle_message_emits_tool_call_notifications () =
           "\xF0\x9F\x94\xA7 *test_tool* \xE2\x9C\x93 \xE2\x86\x92 _ran hi_";
           "final answer";
         ]
-        (List.rev !sent))
+        (List.rev !sent);
+      check_no_pending_continuation session_mgr ~key:"discord:ch1:u1")
 
 let suite =
   [
