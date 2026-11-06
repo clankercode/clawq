@@ -1800,3 +1800,4 @@ bugs:
     - file: B845-slack-empty-final-reply-posts.todo
     - file: B846-tests-leak-temp-dirs-and-symli.todo
     - file: B847-queued-follow-up-is-stranded-u.todo
+    - file: B848-standing-order-executor-worker.todo
