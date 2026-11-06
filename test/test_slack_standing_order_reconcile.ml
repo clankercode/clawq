@@ -858,3 +858,5 @@ let suite =
             ~reconnect:(fun () -> Lwt.return_unit)
             e);
     ]
+
+let suite = suite @ Test_slack_standing_order_reconcile_recovery.suite

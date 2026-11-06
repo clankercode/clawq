@@ -542,17 +542,32 @@ let verify_gap db ~token ~owner ~through ~now =
         when fenced db ~order_id ~owner ~now
              && pass_token db order_id = token
              && ready db order_id
-             && phase db order_id = Some "complete"
-             && Admission.clear db ~team:token.team_id ~app:token.app_id
-                  ~channel:token.channel_id ~through () -> (
+             && phase db order_id = Some "complete" -> (
           match load_coverage db ~order_id with
           | Some c when c.latest = through ->
-              Sql.exec db
-                "UPDATE slack_standing_order_recovery_passes SET \
-                 verified_generation=gap_generation,verified_epoch=epoch,last_success=? \
-                 WHERE order_id=?"
-                Sql.[ f (float_of_string through); text order_id ];
-              true
+              if
+                Sql.int_query db
+                  "SELECT count(*) FROM slack_standing_order_recovery_passes \
+                   WHERE order_id=? AND mode='gap'"
+                  [ Sql.text order_id ]
+                = 1
+              then
+                Admission.replay_abandoned db ~team:token.team_id
+                  ~app:token.app_id ~channel:token.channel_id
+                  ~generation:token.gap_generation ~oldest:c.oldest
+                  ~latest:c.latest;
+              if
+                not
+                  (Admission.clear db ~team:token.team_id ~app:token.app_id
+                     ~channel:token.channel_id ~through ())
+              then false
+              else (
+                Sql.exec db
+                  "UPDATE slack_standing_order_recovery_passes SET \
+                   verified_generation=gap_generation,verified_epoch=epoch,last_success=? \
+                   WHERE order_id=?"
+                  Sql.[ f (float_of_string through); text order_id ];
+                true)
           | _ -> false)
       | _ -> false)
 

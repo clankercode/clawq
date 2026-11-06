@@ -150,7 +150,7 @@ let applied c ~body =
             in
             if exists then close c ~cause:"pause_unresolved" ~disconnect:false
             else A.applied c.db ~team ~app ~channel ~identity
-          else A.applied c.db ~team ~app ~channel ~identity)
+          else ())
         (delivery_identity json event));
   if
     List.exists
@@ -159,6 +159,15 @@ let applied c ~body =
         && not (R.covered c.db o.id o.epoch))
       (Slack_standing_order_store.list c.db ())
   then !enqueue ()
+
+let begin_handler c ~body =
+  let ticket = ref None in
+  installed c body (fun json event team app channel ->
+      Option.iter
+        (fun (identity, _) ->
+          ticket := A.start_handler c.db ~team ~app ~channel ~identity)
+        (delivery_identity json event));
+  fun ~success -> A.finish_handler c.db !ticket ~success
 
 let own c cell fn =
   let previous = !cell and active = ref (Some (c, fn)) in
@@ -252,6 +261,29 @@ let configure ~db ~manager ~ctx =
         (fun () ->
           if !Slack_socket.on_gap == gap_callback then
             Slack_socket.on_gap := previous_gap)
+        :: !(c.restore);
+      let old_begin = !Slack_thread_ingress.on_ingress_begin in
+      let begin_ ~body =
+        let finish =
+          match !active with
+          | None -> fun ~success:_ -> ()
+          | Some c -> begin_handler c ~body
+        in
+        let previous =
+          try old_begin ~body
+          with exn ->
+            finish ~success:false;
+            raise exn
+        in
+        fun ~success ->
+          finish ~success;
+          previous ~success
+      in
+      Slack_thread_ingress.on_ingress_begin := begin_;
+      c.restore :=
+        (fun () ->
+          if !Slack_thread_ingress.on_ingress_begin == begin_ then
+            Slack_thread_ingress.on_ingress_begin := old_begin)
         :: !(c.restore);
       let old_admit = !Slack_thread_ingress.on_ingress_admit
       and old_applied = !Slack_thread_ingress.on_ingress_applied

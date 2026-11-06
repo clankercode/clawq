@@ -100,18 +100,52 @@ let record_gap db (order : T.order) previous now =
         ~resume_unit:""
   | Some last ->
       Option.iter
-        (fun (first, last) ->
-          let window = Scan.timestamp first ^ "-" ^ Scan.timestamp last in
-          let cause = Slack_standing_order_report.Reconcile_gap window in
-          Sql.exec db
-            "INSERT OR IGNORE INTO \
-             slack_standing_order_reports(order_id,cause_key,period_key,status) \
-             VALUES(?,?,'once','pending')"
-            Sql.
-              [
-                text order.id;
-                text (Slack_standing_order_report.cause_key cause);
-              ])
+        (fun (interval_start, interval_end) ->
+          (* Intent commits separately from report insertion. A restart must
+             invalidate scan authority without losing the original interval.
+             A later window adds only its uncovered tail, never a replacement. *)
+          A.transaction db (fun () ->
+              let watermark = Scan.timestamp interval_start in
+              let prior =
+                Sql.query db
+                  "SELECT last FROM slack_order_gap_report_intents WHERE \
+                   order_id=? AND watermark=? ORDER BY CAST(last AS REAL) DESC \
+                   LIMIT 1"
+                  Sql.[ text order.id; text watermark ]
+                  (fun s -> Sql_util.text_column s 0)
+                |> Sql.first
+              in
+              let segment_start = Option.value prior ~default:watermark in
+              if float_of_string segment_start < interval_end then
+                Sql.exec db
+                  "INSERT OR IGNORE INTO slack_order_gap_report_intents \
+                   VALUES(?,?,?,?)"
+                  Sql.
+                    [
+                      text order.id;
+                      text watermark;
+                      text segment_start;
+                      text (Scan.timestamp interval_end);
+                    ]);
+          Sql.query db
+            "SELECT first,last FROM slack_order_gap_report_intents WHERE \
+             order_id=? ORDER BY CAST(first AS REAL)"
+            [ Sql.text order.id ]
+            (fun s -> (Sql_util.text_column s 0, Sql_util.text_column s 1))
+          |> List.iter (fun (segment_start, segment_end) ->
+              let cause =
+                Slack_standing_order_report.Reconcile_gap
+                  (segment_start ^ "-" ^ segment_end)
+              in
+              Sql.exec db
+                "INSERT OR IGNORE INTO \
+                 slack_standing_order_reports(order_id,cause_key,period_key,status) \
+                 VALUES(?,?,'once','pending')"
+                Sql.
+                  [
+                    text order.id;
+                    text (Slack_standing_order_report.cause_key cause);
+                  ]))
         (uncovered ~last_success:last ~now)
 
 let pass_with ~ctx ?http ?http_response ~db ~manager (original : T.order) =
@@ -399,8 +433,7 @@ let pass_with ~ctx ?http ?http_response ~db ~manager (original : T.order) =
                               if (not complete) || not (valid ()) then
                                 Lwt.return_unit
                               else (
-                                (* Persist the report key while incomplete fixed bounds
-                                   still survive a failed write/restart. *)
+                                (* Durable report intent is independent of scan cursors. *)
                                 record_gap db order previous
                                   (float_of_string
                                      (Option.get

@@ -1,6 +1,7 @@
 let on_connected : (unit -> unit) ref = ref (fun () -> ())
 let on_gap : (cause:string -> unit) ref = ref (fun ~cause:_ -> ())
 let on_ingress_admit = Slack_thread_ingress.on_ingress_admit
+let on_ingress_begin = Slack_thread_ingress.on_ingress_begin
 
 let get_wss_url ~app_token =
   let open Lwt.Syntax in
@@ -265,37 +266,49 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
               stop ("Slack disconnect: " ^ reason);
               Lwt.return_unit
           | Some env ->
-              if
+              let delivery =
                 env.payload_type = "events_api"
                 || env.payload_type = "interactive"
-              then !on_ingress_admit ~body:(extract_event_body env.payload);
-              let* () =
-                with_deadline ~sleep ~seconds:3.0 ~label:"ack timeout"
-                  (fun () ->
-                    ws.send_text
-                      (Yojson.Safe.to_string
-                         (`Assoc [ ("envelope_id", `String env.envelope_id) ])))
               in
-              if
-                env.payload_type = "events_api"
-                || env.payload_type = "interactive"
-              then begin
-                let event_id =
-                  try
-                    Yojson.Safe.Util.(
-                      env.payload |> member "event_id" |> to_string)
-                  with _ -> ""
-                in
-                let key =
-                  if event_id = "" then "envelope:" ^ env.envelope_id
-                  else "event:" ^ event_id
-                in
-                if
-                  (not (Channel_util.Lru_dedup.mem dedup key))
-                  && not (Hashtbl.mem in_flight key)
-                then dispatch key (extract_event_body env.payload)
-              end;
-              Lwt.return_unit)
+              let body = extract_event_body env.payload in
+              if delivery then !on_ingress_admit ~body;
+              (* A new config/gap generation does not cancel this ACK wait.
+                 Keep it owned until synchronous handoff or cancellation. The
+                 common handler takes its own ticket before this one ends. *)
+              let finish =
+                if delivery then !on_ingress_begin ~body
+                else fun ~success:_ -> ()
+              in
+              Lwt.finalize
+                (fun () ->
+                  let* () =
+                    with_deadline ~sleep ~seconds:3.0 ~label:"ack timeout"
+                      (fun () ->
+                        ws.send_text
+                          (Yojson.Safe.to_string
+                             (`Assoc
+                                [ ("envelope_id", `String env.envelope_id) ])))
+                  in
+                  if delivery then begin
+                    let event_id =
+                      try
+                        Yojson.Safe.Util.(
+                          env.payload |> member "event_id" |> to_string)
+                      with _ -> ""
+                    in
+                    let key =
+                      if event_id = "" then "envelope:" ^ env.envelope_id
+                      else "event:" ^ event_id
+                    in
+                    if
+                      (not (Channel_util.Lru_dedup.mem dedup key))
+                      && not (Hashtbl.mem in_flight key)
+                    then dispatch key body
+                  end;
+                  Lwt.return_unit)
+                (fun () ->
+                  finish ~success:false;
+                  Lwt.return_unit))
         (function
           | Lwt.Canceled -> Lwt.fail Lwt.Canceled
           | exn ->

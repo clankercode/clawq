@@ -1,3 +1,7 @@
+(* Each callback/handler invocation closes only its own durable work ticket. *)
+let on_ingress_begin : (body:string -> success:bool -> unit) ref =
+  ref (fun ~body:_ ~success:_ -> ())
+
 let on_ingress_admit : (body:string -> unit) ref = ref (fun ~body:_ -> ())
 let on_ingress_applied : (body:string -> unit) ref = ref (fun ~body:_ -> ())
 let on_ingress_failure : (cause:string -> unit) ref = ref (fun ~cause:_ -> ())
@@ -344,12 +348,21 @@ let handle_event ~handle_message ~config ~session_manager ?send_message_fn
   Lwt.catch
     (fun () ->
       !on_ingress_admit ~body;
-      let* result =
-        handle_event_inner ~handle_message ~config ~session_manager
-          ?send_message_fn ?run_update_command ?event_limiter body
-      in
-      !on_ingress_applied ~body;
-      Lwt.return result)
+      let finish = !on_ingress_begin ~body in
+      Lwt.try_bind
+        (fun () ->
+          let* result =
+            handle_event_inner ~handle_message ~config ~session_manager
+              ?send_message_fn ?run_update_command ?event_limiter body
+          in
+          !on_ingress_applied ~body;
+          Lwt.return result)
+        (fun result ->
+          finish ~success:true;
+          Lwt.return result)
+        (fun exn ->
+          finish ~success:false;
+          Lwt.fail exn))
     (fun exn ->
       !on_ingress_failure ~cause:"handler_failure";
       Lwt.fail exn)
