@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-11-06T06:28:23Z"
+depends_on: []
+estimate_hours: 1
+id: B852
+priority: high
+status: pending
+tags: []
+title: Standing-order fire ignores Slackbot notes-ready while in backoff, so relays post ~5 min late
+updated_at: "2026-11-06T06:28:23Z"
+---
+Observed 06 Nov 16:30 #core-sync huddle (fire sof_9dc5a10d...): fire detected 17:16:59 at huddle end; first fetch 17:18 -> notes_not_ready, retry backoff 120 s; second attempt ~17:19:3x just before Slackbot notes-ready (17:19:50) -> backoff 300 s; ledger recorded notes_ready_ts 17:20:06 and the observer called wake(), but exec tick skips fires whose next_attempt_at is in the future (src/slack_standing_order_exec.ml ~222), so the fetch waited until 17:24:43. Relay posted 17:25:34, 5m44s after notes-ready. Spec 2026-11-04 design §5.2 says the relay posts within a minute of notes-ready; §6 'Fire on notes-ready, not on huddle end'; observer effects 'wake the executor'. Fix: when the ledger records notes-ready (or a canvas id) for a fire's root, clear that fire's next_attempt_at (fetch-stage only, notes_not_ready reason) so the wake actually fetches. Test: fire in notes_not_ready backoff + notes-ready event -> fetch on next tick, not after backoff.
