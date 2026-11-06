@@ -1,5 +1,6 @@
 open Lwt.Syntax
 include Slack_standing_order_fetch
+module R = Slack_standing_order_recovery_store
 module Dispatch = Slack_standing_order_dispatch
 module Pickup = Slack_standing_order_pickup
 module Report = Slack_standing_order_report
@@ -214,6 +215,12 @@ let account ~db ~(order : T.order) ~now =
 
 let process_fire ~ctx ~db ~manager ?http ?http_response ?upload_http ?renew_wait
     ~allow_new ?(poll = true) (fire : T.fire) =
+  let allow_new =
+    allow_new
+    && not
+         (R.suppressed db ~order_id:fire.order_id ~root_ts:""
+            ~room_id:fire.room_id ~date_start:fire.date_start)
+  in
   with_lease ~ctx ~db ?renew_wait ~fire_id:fire.id (fun ctx lease ->
       let current () = Dispatch.current db fire.id in
       if poll && ctx.Ctx.accepting () then
@@ -233,6 +240,12 @@ let process_fire ~ctx ~db ~manager ?http ?http_response ?upload_http ?renew_wait
             Option.fold ~none:false
               ~some:(fun due -> due > ctx.now ())
               r.next_attempt_at
+          then Lwt.return_unit
+          else if
+            Store.sources_mutable r
+            && R.suppressed db ~order_id:r.fire.order_id
+                 ~root_ts:(Option.value ~default:"" r.root_ts)
+                 ~room_id:r.fire.room_id ~date_start:r.fire.date_start
           then Lwt.return_unit
           else if Store.sources_mutable r then
             let* fetched =
@@ -464,9 +477,11 @@ let stop () =
 let start ~ctx ~db ~manager ?http ?http_response ?upload_http
     ?(fallback_sleep = Lwt_unix.sleep)
     ?(list_orders = fun () -> Store.list db ~include_cancelled:true ()) () =
+  Store.ensure_schema db;
   match !worker with
   | Some _ -> ()
   | None ->
+      R.recover_startup db ~now:(ctx.Ctx.now ());
       let signal = Lwt_condition.create () in
       let drain, drain_wake = Lwt.wait () in
       let w =
@@ -526,6 +541,11 @@ let start ~ctx ~db ~manager ?http ?http_response ?upload_http
       in
       List.iter
         (fun (o, r) ->
+          (match (r.L.root_ts, r.room_id, r.date_start) with
+          | Some root_ts, Some room_id, Some start ->
+              R.record_root db ~order:o ~root_ts ~room_id
+                ~date_start:(string_of_int start) ~fire_id:None
+          | _ -> ());
           List.iter (fun key -> Hashtbl.replace origins key false) (keys o r))
         (rows ());
       let persisted =
@@ -534,7 +554,13 @@ let start ~ctx ~db ~manager ?http ?http_response ?upload_http
             Store.list_fires db ~order_id:o.id ~limit:max_int)
           (orders ())
       in
-      let read_only = List.map (fun (f : T.fire) -> f.id) persisted in
+      let read_only () =
+        List.filter_map
+          (fun (f : T.fire) ->
+            if R.relay_allowed db ~fire_id:f.id ~now:(ctx.now ()) then None
+            else Some f.id)
+          persisted
+      in
       let held =
         persisted
         |> List.filter (fun (f : T.fire) ->
@@ -604,7 +630,14 @@ let start ~ctx ~db ~manager ?http ?http_response ?upload_http
                         in
                         pass ~ctx:local ~db ~manager ?http ?http_response
                           ?upload_http ~renew_wait:ctx.wait ~roots_for_order
-                          ~held ~read_only
+                          ~held:
+                            (List.filter
+                               (fun id ->
+                                 not
+                                   (R.relay_allowed db ~fire_id:id
+                                      ~now:(ctx.now ())))
+                               held)
+                          ~read_only:(read_only ())
                           ~orders:
                             (List.filter
                                (fun (o : T.order) -> o.channel_id = channel)

@@ -1,0 +1,4 @@
+(executable
+ (name import_huddle_relay_receipts)
+ (modules import_huddle_relay_receipts)
+ (libraries clawq_runtime_core clawq_runtime_integrations sqlite3 yojson))

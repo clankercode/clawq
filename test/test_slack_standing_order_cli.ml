@@ -97,7 +97,11 @@ let test_show_and_fires _dir =
   List.iter
     (fun sub ->
       check_string (sub ^ ": unknown id")
-        "No standing order with id so_missing."
+        ("No standing order with id so_missing."
+        ^
+        if List.mem sub [ "show"; "fires" ] then
+          " Recovery readiness: inventory_pending"
+        else "")
         (run db [ "orders"; sub; "so_missing" ]))
     [ "show"; "fires"; "pause"; "resume"; "cancel" ]
 

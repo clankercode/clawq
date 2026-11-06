@@ -1,14 +1,16 @@
 (** Standing-order persistence (spec §6.1): orders, the fire write-ahead ledger
     and bound cards.
 
-    Every public function runs [ensure_schema] first. REAL columns hold unix
-    seconds from the one standing-order clock ([clock]); TEXT audit columns are
-    wall-clock [Time_util.sql_datetime_utc]. Rows whose [state] or [action_json]
-    don't decode are skipped by every reader (fail-closed, logged by id only). A
-    read that fails raises (see [Slack_standing_order_sql.query]); it never
-    reads as no rows. *)
+    Mutating entrypoints run [ensure_schema] first; read-only management uses
+    strict raw readers so inspection cannot initialize proof. REAL columns hold
+    unix seconds from the one standing-order clock ([clock]); TEXT audit columns
+    are wall-clock [Time_util.sql_datetime_utc]. Rows whose [state] or
+    [action_json] don't decode are skipped by every reader (fail-closed, logged
+    by id only). A read that fails raises (see
+    [Slack_standing_order_sql.query]); it never reads as no rows. *)
 
 module T = Slack_standing_order_types
+module Rollout = Slack_standing_order_rollout_store
 include Slack_standing_order_sql
 
 let clock : (unit -> float) ref = ref Unix.gettimeofday
@@ -134,9 +136,8 @@ let ensure_schema_tables db =
          []
      with exn when is_db_error exn ->
        if not (has_complete_evidence ()) then raise exn);
-  (* Retry independently of column installation: initialization may have failed
-     after ALTER committed. Only add evidence while the legacy reason still
-     identifies the dispatched attempt that received the rejection. *)
+  (* Backfill in the bootstrap transaction. Only add evidence while the legacy
+     reason still identifies the dispatched attempt that received rejection. *)
   exec db
     "UPDATE slack_standing_order_dispatches SET \
      complete_rejected_before_share=1 WHERE complete_rejected_before_share=0 \
@@ -167,8 +168,15 @@ let migrate_fire_attempts db =
     []
 
 let ensure_schema db =
-  ensure_schema_tables db;
-  migrate_fire_attempts db
+  if Rollout.table_exists db "slack_standing_order_feature_version" then (
+    Rollout.require_initialized db;
+    (* Preserve the existing retained-attempt compatibility projection. Read-only
+       management uses raw readers and never enters this mutating entrypoint. *)
+    migrate_fire_attempts db)
+  else
+    Rollout.bootstrap db ~install:(fun () ->
+        ensure_schema_tables db;
+        migrate_fire_attempts db)
 
 (* Announcement consent is per order, including across resume epochs. Only a
    persisted Pause button bound to this installation/channel counts. A failed
@@ -357,33 +365,35 @@ let update_order db ~(before : T.order) (after : T.order) =
 let find_raw db id = first (query_orders db "WHERE id = ?" [ text id ])
 
 let find db id =
-  ensure_schema db;
-  find_raw db id
+  if Rollout.table_exists db "slack_standing_orders" then find_raw db id
+  else None
 
 let find_by_display db ~team_id ~channel_id display_no =
-  ensure_schema db;
-  first
-    (query_orders db "WHERE team_id = ? AND channel_id = ? AND display_no = ?"
-       [ text team_id; text channel_id; int display_no ])
+  if not (Rollout.table_exists db "slack_standing_orders") then None
+  else
+    first
+      (query_orders db "WHERE team_id = ? AND channel_id = ? AND display_no = ?"
+         [ text team_id; text channel_id; int display_no ])
 
 let list db ?team_id ?channel_id ?(include_cancelled = false) () =
-  ensure_schema db;
-  let filters =
-    List.filter_map Fun.id
-      [
-        Option.map (fun t -> ("team_id = ?", [ text t ])) team_id;
-        Option.map (fun c -> ("channel_id = ?", [ text c ])) channel_id;
-        (if include_cancelled then None else Some ("state <> 'cancelled'", []));
-      ]
-  in
-  let where =
-    match filters with
-    | [] -> ""
-    | _ -> "WHERE " ^ String.concat " AND " (List.map fst filters)
-  in
-  query_orders db
-    (where ^ " ORDER BY team_id, channel_id, display_no")
-    (List.concat_map snd filters)
+  if not (Rollout.table_exists db "slack_standing_orders") then []
+  else
+    let filters =
+      List.filter_map Fun.id
+        [
+          Option.map (fun t -> ("team_id = ?", [ text t ])) team_id;
+          Option.map (fun c -> ("channel_id = ?", [ text c ])) channel_id;
+          (if include_cancelled then None else Some ("state <> 'cancelled'", []));
+        ]
+    in
+    let where =
+      match filters with
+      | [] -> ""
+      | _ -> "WHERE " ^ String.concat " AND " (List.map fst filters)
+    in
+    query_orders db
+      (where ^ " ORDER BY team_id, channel_id, display_no")
+      (List.concat_map snd filters)
 
 (* Any row in any state, undecodable rows included: whether a Plan evaluation
    ever admitted this channel (Decision 20). *)
@@ -438,8 +448,9 @@ let next_display_no db ~team_id ~channel_id =
      team_id = ? AND channel_id = ?"
     [ text team_id; text channel_id ]
 
-let insert_pending db ~id ~team_id ?enterprise_id ~api_app_id ~channel_id
-    ~grantor_user_id ?principal_id ~action ~management_thread_ts ~now () =
+let insert_pending db ?verified_identity ~id ~team_id ?enterprise_id ~api_app_id
+    ~channel_id ~grantor_user_id ?principal_id ~action ~management_thread_ts
+    ~now () =
   ensure_schema db;
   in_tx db
     ~on_error:(fun e -> Insert_failed e)
@@ -479,6 +490,7 @@ let insert_pending db ~id ~team_id ?enterprise_id ~api_app_id ~channel_id
           card_version = T.current_card_version;
         }
       in
+      Rollout.bind_pending_in_tx db ~order ?verified_identity ();
       match insert_order db order with
       | Sqlite3.Rc.DONE -> (
           (* An order that can't be read back would hold the live slot
@@ -511,7 +523,7 @@ let pending_open (o : T.order) ~now =
 let activate_in_tx db ~order_id ~active_since ~confirmed_by ~bot_user_id ~bot_id
     ~now =
   guard (fun () ->
-      ensure_schema db;
+      Rollout.require_initialized db;
       let ( let* ) = Result.bind in
       let* () = check_install ~active_since ~bot_user_id ~bot_id in
       let* (before : T.order) =
@@ -540,7 +552,9 @@ let activate_in_tx db ~order_id ~active_since ~confirmed_by ~bot_user_id ~bot_id
         }
       in
       match update_order db ~before after with
-      | `Updated -> Ok after
+      | `Updated ->
+          Rollout.bind_activation_in_tx db after;
+          Ok after
       | `Stale -> Error "standing order changed concurrently"
       | `Conflict -> Error "standing order conflicts with a live order")
 
@@ -579,6 +593,10 @@ let no_live_claim =
    ones keep their state but may never be re-posted. *)
 let sweep_fires db ~order_id ~now =
   let at = stamp () in
+  exec db
+    "UPDATE slack_standing_order_recovery_batches SET status='cancelled' WHERE \
+     order_id=? AND status<>'cancelled'"
+    [ text order_id ];
   let pre = fire_states_sql T.pre_dispatch_states in
   exec db
     (Printf.sprintf
@@ -714,7 +732,9 @@ let resume db ~order_id ~expected_epoch ~active_since ~bot_user_id ~bot_id
                 }
               in
               match update_order db ~before after with
-              | `Updated -> Ok after
+              | `Updated ->
+                  Rollout.bind_activation_in_tx db after;
+                  Ok after
               | `Stale -> Error Stale_epoch
               | `Conflict -> (
                   match

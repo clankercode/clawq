@@ -13,6 +13,7 @@ module Store = Slack_standing_order_store
 module Grant = Slack_standing_order_grant
 module Render = Slack_standing_order_render
 module Pause = Slack_standing_order_pause
+module R = Slack_standing_order_recovery_store
 
 let actor = "cli"
 let default_fire_limit = 20
@@ -73,7 +74,10 @@ let dash = Option.value ~default:"-"
 let target_label (o : T.order) = (T.action_target o.action).label
 
 let last_fire db (o : T.order) =
-  match Store.list_fires db ~order_id:o.id ~limit:1 with
+  match
+    Slack_standing_order_recovery_store.list_fires_readonly db ~order_id:o.id
+      ~limit:1
+  with
   | (f : T.fire) :: _ ->
       Printf.sprintf "%s in %s (%s)"
         (T.fire_state_to_string f.state)
@@ -130,6 +134,12 @@ let cmd_show db (o : T.order) =
          [
            Printf.sprintf "Standing order %s (%s)" (T.display_name o) o.id;
            field "State" (T.state_to_string o.state);
+           field "Recovery readiness"
+             (R.readiness_name (R.rollout_readiness db ~order_id:o.id));
+           field "Already delivered (external)"
+             (string_of_int (R.suppression_count db ~order_id:o.id));
+           field "Recovery metadata"
+             (Yojson.Safe.to_string (R.status_json db ~order_id:o.id));
            field "Team" o.team_id;
          ];
          Option.fold ~none:[]
@@ -172,11 +182,23 @@ let cmd_show db (o : T.order) =
          ];
          List.map
            (fun (cause, status) -> field "Report" (cause ^ " " ^ status))
-           (Slack_standing_order_report.statuses ~db ~order_id:o.id);
+           (R.report_statuses db ~order_id:o.id);
        ])
 
 let cmd_fires db (o : T.order) ~limit =
-  match Store.list_fires db ~order_id:o.id ~limit with
+  let recovery =
+    "Recovery readiness: "
+    ^ R.readiness_name (R.rollout_readiness db ~order_id:o.id)
+    ^ "\nExternal deliveries (already_delivered): "
+    ^ Yojson.Safe.to_string (`List (R.external_statuses db ~order_id:o.id))
+    ^ "\n"
+  in
+  recovery
+  ^
+  match
+    Slack_standing_order_recovery_store.list_fires_readonly db ~order_id:o.id
+      ~limit
+  with
   | [] ->
       Printf.sprintf "No fires recorded for %s (%s)." (T.display_name o) o.id
   | fires ->
@@ -330,15 +352,26 @@ let cmd_mutate db ~config ?http ~now mutation (o : T.order) =
 let not_found id = Printf.sprintf "No standing order with id %s." id
 
 let run ~db ~config ?http ~now request =
-  (* Lazy expiry, as before every other lookup: an expired pending order reads
-     as withdrawn here too. *)
-  (try ignore (Store.expire_pending db ~now : int)
+  (* Lazy expiry belongs to mutations. Inspection must remain read-only. *)
+  (try
+     match request with
+     | Mutate _ -> ignore (Store.expire_pending db ~now : int)
+     | _ -> ()
    with exn ->
      Logs.warn (fun m ->
          m "standing-order CLI: expire_pending failed: %s"
            (Printexc.to_string exn)));
   let with_order id f =
-    match Store.find db id with None -> not_found id | Some o -> f o
+    match Store.find db id with
+    | None -> (
+        not_found id
+        ^
+        match request with
+        | Show _ | Fires _ ->
+            " Recovery readiness: "
+            ^ R.readiness_name (R.rollout_readiness db ~order_id:id)
+        | _ -> "")
+    | Some o -> f o
   in
   match request with
   | List channel_id -> cmd_list db channel_id

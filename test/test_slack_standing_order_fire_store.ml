@@ -780,29 +780,36 @@ let test_complete_evidence () =
         (some (Store.attempt saved 1)).complete_rejected_before_share)
 
 let test_complete_evidence_migration () =
-  with_handles (fun db other ->
-      let _, f = seed db in
-      let lease = claim db f.id "worker" S.now in
-      prepare db f.id lease S.now;
-      check "reserve original" true (ok (reserve db f.id lease S.now false));
-      let before = runtime db f.id in
-      check "legacy rejection reason" true
-        (ok
-           (Store.cas db ~lease ~before
-              ~after:
-                {
-                  before with
-                  fire =
-                    {
-                      before.fire with
-                      state = T.Posting_unknown;
-                      reason = Some "complete_rejected_before_share";
-                    };
-                }
-              ~now:S.now));
+  (* A real pre-feature database: feature bootstrap owns ALTER plus backfill
+     atomically. A versioned database with a missing column is corrupt and
+     must never take this migration path. *)
+  let path = Filename.temp_file "huddle-legacy-attempts" ".db" in
+  let db = Sqlite3.db_open path and other = Sqlite3.db_open path in
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (Sqlite3.db_close other);
+      ignore (Sqlite3.db_close db);
+      Sys.remove path)
+    (fun () ->
+      List.iter (Sql_util.exec_exn db) Slack_standing_order_store_base.schema;
       Store.exec db
-        "ALTER TABLE slack_standing_order_dispatches DROP COLUMN \
-         complete_rejected_before_share"
+        "CREATE TABLE slack_standing_order_dispatches (fire_id TEXT NOT \
+         NULL,attempt_no INTEGER NOT NULL,uploaded_file_ids TEXT NOT NULL \
+         DEFAULT '[]',relay_ts TEXT,upload_started_at REAL,dispatched_at \
+         REAL,pickup_started_at REAL,first_reply_ts TEXT,rate_limited_at \
+         REAL,reaction_seen INTEGER NOT NULL DEFAULT 0,acknowledged_at \
+         REAL,picked_up_at REAL,not_delivered INTEGER NOT NULL DEFAULT \
+         0,PRIMARY KEY(fire_id,attempt_no))"
+        [];
+      Store.exec db
+        "INSERT INTO \
+         slack_standing_order_fires(id,order_id,room_id,date_start,state,epoch,dispatched_at,reason,created_at,updated_at) \
+         VALUES('legacy','so_old','R1','1700000001','posting_unknown',1,1700000005,'complete_rejected_before_share','old','old')"
+        [];
+      Store.exec db
+        "INSERT INTO \
+         slack_standing_order_dispatches(fire_id,attempt_no,dispatched_at) \
+         VALUES('legacy',0,1700000005)"
         [];
       Store.exec db
         "CREATE TRIGGER fail_backfill BEFORE UPDATE ON \
@@ -814,29 +821,25 @@ let test_complete_evidence_migration () =
            Store.ensure_schema db;
            false
          with exn when Store.is_db_error exn -> true);
-      check "column installation committed before backfill" true
+      check "failed bootstrap rolls back ALTER" false
         (List.mem "complete_rejected_before_share"
            (Store.query other
               "PRAGMA table_info(slack_standing_order_dispatches)" [] (fun s ->
                 Sql_util.text_column s 1)));
-      integer "failed backfill leaves evidence unset" 0
-        (Store.int_query other
-           "SELECT complete_rejected_before_share FROM \
-            slack_standing_order_dispatches WHERE fire_id=?"
-           [ Store.text f.id ]);
+      check "no committed feature proof after failure" false
+        (Slack_standing_order_rollout_store.table_exists other
+           "slack_standing_order_feature_version");
       Store.exec db "DROP TRIGGER fail_backfill" [];
       Store.ensure_schema db;
       Store.ensure_schema other;
-      check "retry restores legacy rejection idempotently" true
-        (some (Store.attempt (runtime other f.id) 0))
+      check "retry restores rejection idempotently" true
+        (some (Store.attempt (runtime other "legacy") 0))
           .complete_rejected_before_share;
-      (* A pre-attempt-table fire must import the same evidence, too. *)
       Store.exec db
-        "DELETE FROM slack_standing_order_dispatches WHERE fire_id=?"
-        [ Store.text f.id ];
+        "DELETE FROM slack_standing_order_dispatches WHERE fire_id='legacy'" [];
       Store.ensure_schema db;
-      check "legacy fire import retains rejection" true
-        (some (Store.attempt (runtime db f.id) 0))
+      check "legacy import retains rejection" true
+        (some (Store.attempt (runtime db "legacy") 0))
           .complete_rejected_before_share)
 
 let suite =

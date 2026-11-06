@@ -555,6 +555,10 @@
   slack_standing_order_exec
   slack_standing_order_types
   slack_standing_order_sql
+  slack_standing_order_rollout_schema
+  slack_standing_order_rollout_store
+  slack_standing_order_recovery_store
+  slack_standing_order_receipt_import
   slack_standing_order_store_base
   slack_standing_order_card_store
   slack_standing_order_replace_store

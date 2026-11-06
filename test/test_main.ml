@@ -311,6 +311,10 @@ let all_suites =
     ("slack_standing_order_pickup", Test_slack_standing_order_pickup.suite);
     ("slack_standing_order_exec", Test_slack_standing_order_exec.suite);
     ("slack_standing_order_worker", Test_slack_standing_order_worker.suite);
+    ( "slack_standing_order_receipt_import",
+      Test_slack_standing_order_receipt_import.suite );
+    ( "slack_standing_order_recovery_store",
+      Test_slack_standing_order_recovery_store.suite );
     ("slack_standing_order_schedule", Test_slack_standing_order_schedule.suite);
     ( "slack_standing_order_resolution",
       Test_slack_standing_order_resolution.suite );

@@ -149,6 +149,7 @@ type validated = {
 
 let gate ~db ~(config : Runtime_config.t) ~channel_id ~order_ref =
   let deny reason = Error (failure reason) in
+  Store.ensure_schema db;
   match config.channels.slack with
   | Some sc
     when sc.standing_orders.orders_enabled && config.security.tools_enabled -> (
@@ -296,6 +297,20 @@ let stage_rows db ~now ~stage (s : subject) =
       let*? o = own_row db s in
       let*? f = bound_fire db o fire_id in
       let*? () = require_state o [ T.Active ] in
+      let*? () =
+        let root =
+          Store.query db
+            "SELECT root_ts FROM slack_standing_order_fires WHERE id=?"
+            [ Sqlite3.Data.TEXT fire_id ] (fun s ->
+              Sql_util.opt_text_column s 0)
+        in
+        let root = match root with [ Some ts ] -> ts | _ -> "" in
+        if
+          Slack_standing_order_rollout_store.suppressed db ~order_id:o.id
+            ~root_ts:root ~room_id:f.room_id ~date_start:f.date_start
+        then Error (Indeterminate "already_delivered")
+        else Ok ()
+      in
       if o.epoch <> fire_epoch || f.epoch <> fire_epoch then
         Error Epoch_mismatch
       else if not (unexpired o ~now) then Error Order_expired
@@ -642,6 +657,21 @@ let evaluate ~db ~current_config ?http ?http_response ?limiter ?priority ?limit
                let*? () =
                  if current_config () != cfg then Error Config_changed
                  else Ok ()
+               in
+               let*? () =
+                 match
+                   Slack_standing_order_rollout_store.revalidate_identity db
+                     {
+                       team_id = s.team_id;
+                       app_id = s.api_app_id;
+                       enterprise_id;
+                       own_user_id = bot_user_id;
+                       own_bot_id = bot_id;
+                     }
+                 with
+                 | Ok true -> Ok ()
+                 | Ok false -> Error Identity_changed
+                 | Error _ -> Error (Indeterminate "rollout_identity")
                in
                let*? () = grantor_policy ~db sc s in
                let*? rows = stage_rows db ~now ~stage s in

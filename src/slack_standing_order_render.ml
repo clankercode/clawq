@@ -472,7 +472,8 @@ let order_summary_json (o : T.order) ~last_fire : Yojson.Safe.t =
       ("last_fire", Option.fold ~none:`Null ~some:fire_json last_fire);
     ]
 
-let order_detail_json ?(reports = []) (o : T.order) ~fires : Yojson.Safe.t =
+let order_detail_json ?(recovery = `Null) ?(reports = []) (o : T.order) ~fires :
+    Yojson.Safe.t =
   let (T.Relay_to_app_mention { when_no_transcript; _ }) = o.action in
   `Assoc
     [
@@ -490,6 +491,7 @@ let order_detail_json ?(reports = []) (o : T.order) ~fires : Yojson.Safe.t =
       ("suspended_reason", opt_string o.suspended_reason);
       ("instruction", instruction_json o);
       ("recent_fires", `List (List.map fire_json fires));
+      ("recovery", recovery);
       ( "report_statuses",
         `List
           (List.map

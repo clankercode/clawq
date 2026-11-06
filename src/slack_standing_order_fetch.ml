@@ -409,9 +409,14 @@ let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
                               current_order ~db ~manager ~now:(ctx.now ()) v
                                 order )
                           with
-                          | Ok (root, _), Some _
+                          | Ok (root, room), Some _
                             when P.get "has_ended" (P.get "room" root)
                                  <> `Bool true ->
+                              Slack_standing_order_recovery_store.record_root db
+                                ~order ~root_ts ~room_id:room.room_id
+                                ~date_start:
+                                  (string_of_int (Option.get room.date_start))
+                                ~fire_id:None;
                               finish Schedule.Live;
                               Lwt.return_unit
                           | Ok (root, room), Some fresh
@@ -419,18 +424,34 @@ let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
                                    ~date_start:(Option.get room.date_start)
                                    ~fire_epoch:order.epoch ->
                               let date_start = Option.get room.date_start in
+                              Slack_standing_order_recovery_store.record_root db
+                                ~order:fresh ~root_ts ~room_id:room.room_id
+                                ~date_start:(string_of_int date_start)
+                                ~fire_id:None;
                               L.record_seen ~db ~team:order.team_id
                                 ~channel:order.channel_id ~source:"reconcile"
                                 ~now:(ctx.now ()) ~root_ts
                                 ~file_ids:(P.file_ids root) room;
                               let* () =
                                 match
-                                  Store.insert_fire db ~order:fresh
-                                    ~room_id:room.room_id
-                                    ~date_start:(string_of_int date_start)
-                                    ~root_ts ~now:(ctx.now ()) ()
+                                  if
+                                    Slack_standing_order_rollout_store
+                                    .suppressed db ~order_id:fresh.id ~root_ts
+                                      ~room_id:room.room_id
+                                      ~date_start:(string_of_int date_start)
+                                  then Ok None
+                                  else
+                                    Store.insert_fire db ~order:fresh
+                                      ~room_id:room.room_id
+                                      ~date_start:(string_of_int date_start)
+                                      ~root_ts ~now:(ctx.now ()) ()
                                 with
                                 | Ok (Some fire) ->
+                                    Slack_standing_order_recovery_store
+                                    .record_root db ~order:fresh ~root_ts
+                                      ~room_id:room.room_id
+                                      ~date_start:(string_of_int date_start)
+                                      ~fire_id:(Some fire.id);
                                     checkpoint db ~fire_id:fire.id
                                       ~date_end:room.date_end ~now:(ctx.now ());
                                     with_lease ~ctx ~db ~fire_id:fire.id
