@@ -72,7 +72,7 @@ let test_due () =
              cleanup c;
              Lwt.return_unit)))
 
-let test_tick_failure () =
+let test_tick_failure ?(failure = Failure "injected Store.list failure") () =
   with_env (fun e ->
       ignore
         (S.fire e.db e.order ~room:"R123" ~state:T.Posted
@@ -80,7 +80,6 @@ let test_tick_failure () =
           : T.fire);
       let c = clock () in
       let calls = ref 0 and fail_next = ref false in
-      let failure = Failure "injected Store.list failure" in
       let list_orders () =
         if !fail_next then (
           fail_next := false;
@@ -118,9 +117,95 @@ let test_tick_failure () =
            )
            logs);
       check "worker start is logged" true
-        (List.mem (Logs.Info, "standing-order worker started") logs))
+        (List.mem (Logs.Info, "standing-order worker started") logs);
+      Alcotest.(check int)
+        "stop adds no cancellation warning" 1
+        (List.length
+           (List.filter (fun (level, _) -> level = Logs.Warning) logs)))
 
-let test_job_failure () =
+let test_wait_failure ?(stop_in_backoff = false) ?(reject = false) () =
+  with_env (fun e ->
+      ignore
+        (S.fire e.db e.order ~room:"R123" ~state:T.Posted
+           ~dispatched_at:(Store.now ()) ~relay_ts:"1700000041.000001" ()
+          : T.fire);
+      let c = clock () in
+      let calls = ref 0 and failures = ref 0 and remaining = ref 4 in
+      let failure = Failure "worker wait unavailable" in
+      let ctx =
+        {
+          (context e c) with
+          Ctx.wait =
+            (fun ~seconds ->
+              if !remaining > 0 then (
+                decr remaining;
+                incr failures;
+                if reject then
+                  let* () = Lwt.pause () in
+                  Lwt.fail failure
+                else raise failure)
+              else wait c ~seconds);
+        }
+      in
+      let http ~verb:_ ~token:_ ~method_:_ ~params:_ =
+        incr calls;
+        Lwt.return (503, "{}")
+      in
+      let (), logs =
+        Lwt_main.run
+          (S.with_log_capture (fun () ->
+               Lwt.finalize
+                 (fun () ->
+                   E.start ~ctx ~db:e.db ~manager:e.manager ~http
+                     ~fallback_sleep:(fun seconds -> wait c ~seconds)
+                     ();
+                   Alcotest.(check int)
+                     "failure yields before backoff setup" 1 !failures;
+                   let* () = flush 20 in
+                   Alcotest.(check int)
+                     "failed head wait yields, then tries one backoff" 2
+                     !failures;
+                   let* () = flush 20 in
+                   Alcotest.(check int)
+                     "no retries without time advancing" 2 !failures;
+                   Alcotest.(check int) "no work before backoff" 0 !calls;
+                   if stop_in_backoff then Lwt.return_unit
+                   else (
+                     remaining := 0;
+                     let* () = advance c 4. in
+                     Alcotest.(check int) "fallback waits five seconds" 0 !calls;
+                     let* () = advance c 1. in
+                     Alcotest.(check int)
+                       "later work without a second wait" 1 !calls;
+                     Lwt.return_unit))
+                 (fun () ->
+                   let stopped = E.stop () in
+                   let* () = flush 20 in
+                   check "stop drains without advancing time" false
+                     (Lwt.is_sleeping stopped);
+                   let* () = stopped in
+                   check "worker uninstalled" true (!E.worker = None);
+                   cleanup c;
+                   Lwt.return_unit)))
+      in
+      check "wait warning includes exception" true
+        (List.mem
+           ( Logs.Warning,
+             "standing-order worker tick failed: " ^ Printexc.to_string failure
+           )
+           logs);
+      check "backoff warning includes exception" true
+        (List.mem
+           ( Logs.Warning,
+             "standing-order worker backoff failed: "
+             ^ Printexc.to_string failure )
+           logs);
+      Alcotest.(check int)
+        "stop adds no cancellation warning" 2
+        (List.length
+           (List.filter (fun (level, _) -> level = Logs.Warning) logs)))
+
+let test_job_failure ?(failure = Failure "channel clock unavailable") () =
   with_env (fun e ->
       ignore
         (S.fire e.db e.order ~room:"R123" ~state:T.Posted
@@ -128,7 +213,6 @@ let test_job_failure () =
           : T.fire);
       let c = clock () in
       let calls = ref 0 and fail_clock = ref false and escaped = ref [] in
-      let failure = Failure "channel clock unavailable" in
       let ctx =
         {
           (context e c) with
@@ -306,8 +390,19 @@ let test_pacing () =
 let suite =
   [
     S.case "worker wakes due work at five fake seconds" test_due;
-    S.case "worker survives a failing tick" test_tick_failure;
-    S.case "a raising channel job is logged and retried" test_job_failure;
+    S.case "worker survives a failing tick" (fun () -> test_tick_failure ());
+    S.case "worker survives unexpected cancellation" (fun () ->
+        test_tick_failure ~failure:Lwt.Canceled ());
+    S.case "wait setup failures back off before later work" (fun () ->
+        test_wait_failure ());
+    S.case "wait rejections back off before later work" (fun () ->
+        test_wait_failure ~reject:true ());
+    S.case "stop drains during fallback backoff" (fun () ->
+        test_wait_failure ~stop_in_backoff:true ());
+    S.case "a raising channel job is logged and retried" (fun () ->
+        test_job_failure ());
+    S.case "unexpected channel cancellation is logged and retried" (fun () ->
+        test_job_failure ~failure:Lwt.Canceled ());
     S.case "lease renews at thirty fake seconds" test_renew;
     S.case "expired or lost lease stops dispatch" test_loss;
     S.case "stop cancels idle worker timer" test_stop;

@@ -442,6 +442,7 @@ let stop () =
       Lwt.return_unit
 
 let start ~ctx ~db ~manager ?http ?upload_http
+    ?(fallback_sleep = Lwt_unix.sleep)
     ?(list_orders = fun () -> Store.list db ~include_cancelled:true ()) () =
   match !worker with
   | Some _ -> ()
@@ -582,7 +583,7 @@ let start ~ctx ~db ~manager ?http ?upload_http
                                all)
                           ())
                       (function
-                        | Lwt.Canceled -> Lwt.return_unit
+                        | Lwt.Canceled when not w.running -> Lwt.return_unit
                         | exn ->
                             Logs.warn (fun m ->
                                 m "standing-order worker channel %s failed: %s"
@@ -596,40 +597,68 @@ let start ~ctx ~db ~manager ?http ?upload_http
               Lwt.async (fun () -> job)))
           channels
       in
-      let rec loop () =
-        let* continue =
+      let wait_for_tick () =
+        let timer = wait ~seconds:5. in
+        Lwt.finalize
+          (fun () ->
+            let event = Lwt_condition.wait signal in
+            Lwt.finalize
+              (fun () -> Lwt.pick [ timer; event ])
+              (fun () -> cancel event))
+          (fun () -> cancel timer)
+      in
+      let backoff () =
+        let* () = Lwt.pause () in
+        if not w.running then Lwt.return_unit
+        else
+          Lwt.catch
+            (fun () -> wait ~seconds:5.)
+            (function
+              | Lwt.Canceled when not w.running -> Lwt.return_unit
+              | exn ->
+                  Logs.warn (fun m ->
+                      m "standing-order worker backoff failed: %s"
+                        (Printexc.to_string exn));
+                  cancellable (fallback_sleep 5.))
+      in
+      let rec loop ~wait_first () =
+        let* wait_first =
           Lwt.catch
             (fun () ->
-              let timer = wait ~seconds:5.
-              and event = Lwt_condition.wait signal in
               let* () =
-                Lwt.finalize
-                  (fun () -> Lwt.pick [ timer; event ])
-                  (fun () ->
-                    let* () = cancel timer in
-                    cancel event)
+                if wait_first then wait_for_tick () else Lwt.return_unit
               in
               if w.running then tick ();
-              Lwt.return w.running)
+              Lwt.return_true)
             (function
-              | Lwt.Canceled -> Lwt.return_false
+              | Lwt.Canceled when not w.running -> Lwt.return_false
               | exn ->
                   Logs.warn (fun m ->
                       m "standing-order worker tick failed: %s"
                         (Printexc.to_string exn));
-                  Lwt.return w.running)
+                  let* () = backoff () in
+                  (* Backoff replaces the next head wait, keeping a five-second
+                     retry cadence even when the tick itself failed. *)
+                  Lwt.return_false)
         in
-        if continue then loop () else Lwt.return_unit
+        if w.running then loop ~wait_first () else Lwt.return_unit
       in
       worker := Some w;
       Slack_huddle_observer.wake := wake;
       (Slack_huddle_observer.posture_changed := fun ~channel:_ -> wake ());
       Logs.info (fun m -> m "standing-order worker started");
-      w.loop <-
-        Lwt.catch loop (function
-          | Lwt.Canceled -> Lwt.return_unit
-          | exn ->
-              Logs.warn (fun m ->
-                  m "standing-order worker stopped unexpectedly: %s"
-                    (Printexc.to_string exn));
-              Lwt.return_unit)
+      let rec supervise ~recover () =
+        Lwt.catch
+          (fun () ->
+            let* () = if recover then backoff () else Lwt.return_unit in
+            if w.running then loop ~wait_first:(not recover) ()
+            else Lwt.return_unit)
+          (function
+            | Lwt.Canceled when not w.running -> Lwt.return_unit
+            | exn ->
+                Logs.warn (fun m ->
+                    m "standing-order worker stopped unexpectedly: %s"
+                      (Printexc.to_string exn));
+                supervise ~recover:true ())
+      in
+      w.loop <- supervise ~recover:false ()
