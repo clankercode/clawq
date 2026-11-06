@@ -346,6 +346,9 @@
   test_slack_standing_order_reconcile
   test_slack_standing_order_reconcile_edges
   test_slack_standing_order_reconcile_ingress
+  test_slack_standing_order_reconcile_socket
+  test_slack_standing_order_reconcile_fences
+  test_slack_standing_order_reconcile_acceptance
   test_slack_standing_order_reconcile_support
   test_slack_standing_order_scan_support
   test_slack_standing_order_scan_replay

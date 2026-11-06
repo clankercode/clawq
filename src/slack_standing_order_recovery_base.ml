@@ -228,15 +228,26 @@ let claim db ~order_id ~owner_id ~now =
           | None -> Ok None
           | Some (o : T.order) when o.state <> T.Active -> Ok None
           | Some o ->
+              let previous =
+                Sql.query db
+                  "SELECT generation,epoch,phase FROM \
+                   slack_standing_order_recovery_passes WHERE order_id=?"
+                  [ Sql.text order_id ]
+                  (fun s ->
+                    ( Sql_util.int_column s 0,
+                      Sql_util.int_column s 1,
+                      Sql_util.text_column s 2 ))
+              in
               Sql.exec db
                 "INSERT INTO \
                  slack_standing_order_recovery_passes(order_id,owner,generation,until,epoch,team,app,channel) \
                  VALUES(?,?,1,?,?,?,?,?) ON CONFLICT(order_id) DO UPDATE SET \
                  owner=excluded.owner,generation=generation+1,until=excluded.until,phase=CASE \
-                 WHEN epoch<>excluded.epoch THEN 'idle' WHEN phase='complete' \
-                 THEN phase ELSE 'pause' \
-                 END,history_cursor='',pause_cursor='',epoch=excluded.epoch \
-                 WHERE until<=?"
+                 WHEN epoch<>excluded.epoch THEN 'idle' ELSE phase \
+                 END,history_cursor=CASE WHEN epoch<>excluded.epoch THEN '' \
+                 ELSE history_cursor END,pause_cursor=CASE WHEN \
+                 epoch<>excluded.epoch THEN '' ELSE pause_cursor \
+                 END,epoch=excluded.epoch WHERE until<=?"
                 Sql.
                   [
                     text order_id;
@@ -256,6 +267,17 @@ let claim db ~order_id ~owner_id ~now =
                      slack_standing_order_recovery_passes WHERE order_id=?"
                     [ Sql.text order_id ]
                 in
+                (* Only incomplete work in the same epoch transfers. begin_scan
+                   atomically resets it if the captured gap/bounds change. *)
+                (match previous with
+                | [ (old_generation, epoch, phase) ]
+                  when epoch = o.epoch
+                       && not (List.mem phase [ "idle"; "complete" ]) ->
+                    Sql.exec db
+                      "UPDATE slack_standing_order_thread_work SET \
+                       generation=? WHERE order_id=? AND generation=?"
+                      Sql.[ int generation; text order_id; int old_generation ]
+                | _ -> ());
                 Ok (Some { owner_id; generation; until = now +. 120. }))
     with
     | Ok o -> o

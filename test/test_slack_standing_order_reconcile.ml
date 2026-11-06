@@ -30,78 +30,82 @@ open Test_slack_standing_order_reconcile_support
 open Lwt.Syntax
 
 let idle e =
-  e.roots := [ root ];
-  let started = e.clock.now in
-  let check_phase label previous =
-    let calls = List.filteri (fun i _ -> i >= previous) !(e.calls) in
-    print_histogram label calls;
-    List.iter
-      (fun m ->
+  with_transport e (fun () ->
+      e.roots := [ root ];
+      let started = e.clock.now in
+      let check_phase label previous =
+        let calls = List.filteri (fun i _ -> i >= previous) !(e.calls) in
+        print_histogram label calls;
+        List.iter
+          (fun m ->
+            check
+              (label ^ " one " ^ m)
+              true
+              (List.length (List.filter (fun (_, k, _) -> k = m) calls) <= 1))
+          [
+            "auth.test";
+            "bots.info";
+            "conversations.info";
+            "conversations.members";
+            "users.list";
+          ];
         check
-          (label ^ " one " ^ m)
+          (label ^ " at most two history")
           true
-          (List.length (List.filter (fun (_, k, _) -> k = m) calls) <= 1))
-      [
-        "auth.test";
-        "bots.info";
-        "conversations.info";
-        "conversations.members";
-        "users.list";
-      ];
-    check
-      (label ^ " at most two history")
-      true
-      (List.length
-         (List.filter (fun (_, m, _) -> m = "conversations.history") calls)
-      <= 2);
-    check
-      (label ^ " at most seven real HTTP requests")
-      true
-      (List.length calls <= 7)
-  in
-  let* () = pass e in
-  check_phase "startup-0" 0;
-  check "initial complete coverage" true (covered e);
-  E.start ~ctx:e.ctx ~db:e.f.db ~manager:e.f.base.manager ~http:e.http ();
-  let after_startup = List.length !(e.calls) in
-  let* () = advance e.clock (started +. 300.) in
-  let* () = pass e in
-  check_phase "maintenance-300" after_startup;
-  let after_300 = List.length !(e.calls) in
-  let* () = advance e.clock (started +. 600.) in
-  let* () = pass e in
-  check_phase "maintenance-600" after_300;
-  List.iter
-    (fun m ->
-      check ("three fresh validations at most: " ^ m) true (count e m <= 3))
-    [
-      "auth.test";
-      "bots.info";
-      "conversations.info";
-      "conversations.members";
-      "users.list";
-    ];
-  check "window plus only due exact-root calls" true
-    (count e "conversations.history" <= 6);
-  List.iter
-    (fun m -> eq ("no " ^ m) 0 (count e m))
-    [
-      "conversations.replies";
-      "files.info";
-      "canvases.getContent";
-      "users.info";
-      "files.getUploadURLExternal";
-      "files.completeUploadExternal";
-      "chat.postMessage";
-    ];
-  check "daemon ten-minute actual HTTP ceiling" true
-    (List.length !(e.calls) <= 21);
-  no_other_reads e;
-  eq "no artificial live fire" 0
-    (List.length
-       (Slack_standing_order_store.list_fires e.f.db ~order_id:e.order.id
-          ~limit:10));
-  Lwt.return_unit
+          (List.length
+             (List.filter (fun (_, m, _) -> m = "conversations.history") calls)
+          <= 2);
+        check
+          (label ^ " at most seven real HTTP requests")
+          true
+          (List.length calls <= 7)
+      in
+      C.start ~db:e.f.db ~manager:e.f.base.manager;
+      E.start ~ctx:e.ctx ~db:e.f.db ~manager:e.f.base.manager ~http:e.http
+        ~upload_http:(raw_http e) ();
+      let* () = advance e.clock (started +. 2.) in
+      check_phase "startup-0" 0;
+      check "initial complete coverage" true (covered e);
+      let after_startup = List.length !(e.calls) in
+      let* () = advance e.clock (started +. 302.) in
+      check_phase "maintenance-300" after_startup;
+      let after_300 = List.length !(e.calls) in
+      let* () = advance e.clock (started +. 602.) in
+      check_phase "maintenance-600" after_300;
+      List.iter
+        (fun m ->
+          check ("three fresh validations at most: " ^ m) true (count e m <= 3))
+        [
+          "auth.test";
+          "bots.info";
+          "conversations.info";
+          "conversations.members";
+          "users.list";
+        ];
+      check "window plus only due exact-root calls" true
+        (count e "conversations.history" <= 6);
+      List.iter
+        (fun m -> eq ("no " ^ m) 0 (count e m))
+        [
+          "conversations.replies";
+          "files.info";
+          "canvases.getContent";
+          "users.info";
+          "files.getUploadURLExternal";
+          "files.completeUploadExternal";
+          "chat.postMessage";
+        ];
+      check "daemon ten-minute actual HTTP ceiling" true
+        (List.length !(e.calls) <= 21);
+      no_other_reads e;
+      eq "actual idle raw-upload boundary stays unused" 0
+        (List.length !(e.raw_calls));
+      print_transport_trace e "combined-idle";
+      eq "no artificial live fire" 0
+        (List.length
+           (Slack_standing_order_store.list_fires e.f.db ~order_id:e.order.id
+              ~limit:10));
+      Lwt.return_unit)
 
 let maintenance e =
   let parents =
@@ -231,7 +235,8 @@ let lifecycle e =
       check "latest generation verified after storm" true (covered e);
       Lwt.return_unit)
 
-let live_latency ?(backoff = false) ?(disconnect_complete = false) e =
+let live_latency ?(backoff = false) ?(disconnect_complete = false)
+    ?(publish_complete = false) e =
   F.set_config e.f (fun cfg ->
       {
         cfg with
@@ -338,8 +343,11 @@ let live_latency ?(backoff = false) ?(disconnect_complete = false) e =
            first := Some e.clock.now;
            let ts = Printf.sprintf "%.6f" e.clock.now in
            let* () =
-             if disconnect_complete then (
-               !Slack_socket.on_gap ~cause:"disconnect";
+             if disconnect_complete || publish_complete then (
+               if publish_complete then
+                 Session.update_config e.f.base.manager
+                   (Session.get_config e.f.base.manager)
+               else !Slack_socket.on_gap ~cause:"disconnect";
                wait e.clock ~seconds:1.)
              else Lwt.return_unit
            in
@@ -366,10 +374,9 @@ let live_latency ?(backoff = false) ?(disconnect_complete = false) e =
                        ] );
                  ] )
        | _ -> previous m p);
-  let upload_http _ =
+  let upload_http request =
     incr raw_count;
-    Lwt.return
-      Slack_standing_order_upload.{ status = 200; headers = []; body = "" }
+    raw_http e request
   in
   E.start ~ctx:e.ctx ~db:e.f.db ~manager:e.f.base.manager ~http:e.http
     ~upload_http ();
@@ -413,6 +420,17 @@ let live_latency ?(backoff = false) ?(disconnect_complete = false) e =
           wait_future (n - 1)
       in
       let* () = wait_future 250 in
+      let held =
+        List.hd
+          (Slack_standing_order_store.list_fires e.f.db ~order_id:e.order.id
+             ~limit:10)
+      in
+      check "SQL due excludes actual notes-backoff fire before ready" true
+        (not
+           (List.exists
+              (fun (r : Slack_standing_order_store.fire_runtime) ->
+                r.fire.id = held.id)
+              (Slack_standing_order_store.due e.f.db ~now:e.clock.now)));
       notes_available := true;
       Lwt.return_unit)
   in
@@ -424,13 +442,14 @@ let live_latency ?(backoff = false) ?(disconnect_complete = false) e =
   check "maintenance is still running" true (Lwt.is_sleeping maintenance);
   e.calls := [];
   e.classified := [];
+  e.raw_calls := [];
   let at = e.clock.now in
   observe e
     (ended_root
     |> set "channel" (str "C123")
     |> set "type" (str "message")
     |> set "user" (str "USLACKBOT"));
-  observe e ready;
+  observe e (ready |> set "files" (`List []));
   observe e ready;
   let rec until_share n =
     if !first <> None then Lwt.return_unit
@@ -469,6 +488,26 @@ let live_latency ?(backoff = false) ?(disconnect_complete = false) e =
       !(e.classified)
   in
   let live_count m = List.length (List.filter (( = ) m) live_methods) in
+  check "complete live method allowlist excludes all other writes and retention"
+    true
+    (List.for_all
+       (fun m ->
+         List.mem m
+           [
+             "auth.test";
+             "bots.info";
+             "conversations.info";
+             "conversations.members";
+             "users.list";
+             "conversations.history";
+             "conversations.replies";
+             "files.info";
+             "canvases.getContent";
+             "users.info";
+             "files.getUploadURLExternal";
+             "files.completeUploadExternal";
+           ])
+       live_methods);
   check "live path history ceiling" true
     (live_count "conversations.history" <= 4);
   check "live path reply ceiling" true (live_count "conversations.replies" <= 1);
@@ -487,8 +526,10 @@ let live_latency ?(backoff = false) ?(disconnect_complete = false) e =
     "Task6 live-only requests=%d raw-upload=%d first-share-seconds=%.0f\n%!"
     (List.length live_methods) !raw_count
     (Option.get !first -. at);
+  print_transport_trace e
+    (if backoff then "B852-first-share" else "healthy-first-share");
   let* () =
-    if disconnect_complete then (
+    if disconnect_complete || publish_complete then (
       let* () = advance e.clock (e.clock.now +. 2.) in
       let fire =
         List.hd
@@ -524,48 +565,63 @@ let suite =
     ]
 
 let root_failures e =
-  e.roots := [ root ];
-  let previous = !(e.answer) in
-  (e.answer :=
-     fun m p ->
-       if m = "conversations.history" && P.get "limit" p = `Int 1 then
-         Lwt.return (503, obj [])
-       else previous m p);
-  let start = e.clock.now in
-  let* () = pass e in
-  E.start ~ctx:e.ctx ~db:e.f.db ~manager:e.f.base.manager ~http:e.http ();
-  let* () = advance e.clock (start +. 300.) in
-  let* () = pass e in
-  let* () = advance e.clock (start +. 600.) in
-  let* () = pass e in
-  let roots =
-    List.filter
-      (fun (_, m, p) -> m = "conversations.history" && P.get "limit" p = `Int 1)
-      !(e.calls)
-  in
-  eq "only three scheduled failed exact roots" 3 (List.length roots);
-  check "failed pass never opens coverage" false (covered e);
-  List.iter
-    (fun m ->
-      check ("combined failure method bound " ^ m) true (count e m <= 5))
-    [
-      "auth.test";
-      "bots.info";
-      "conversations.info";
-      "conversations.members";
-      "users.list";
-    ];
-  check "combined failure history ceiling" true
-    (count e "conversations.history" <= 6);
-  check "31 actual HTTP requests maximum" true (List.length !(e.calls) <= 31);
-  no_other_reads e;
-  print_histogram "combined-root-failure-through-600" !(e.calls);
-  check "third failure persists long backoff" true
-    (Sql.int_query e.f.db
-       "SELECT count(*) FROM slack_order_root_schedule WHERE retry_at>=?"
-       [ Sqlite3.Data.FLOAT (start +. 1020.) ]
-    = 1);
-  Lwt.return_unit
+  with_transport e (fun () ->
+      e.roots := [ root ];
+      let previous = !(e.answer) in
+      (e.answer :=
+         fun m p ->
+           if m = "conversations.history" && P.get "limit" p = `Int 1 then
+             Lwt.return (503, obj [])
+           else previous m p);
+      let start = e.clock.now in
+      C.start ~db:e.f.db ~manager:e.f.base.manager;
+      E.start ~ctx:e.ctx ~db:e.f.db ~manager:e.f.base.manager ~http:e.http
+        ~upload_http:(raw_http e) ();
+      let* () = advance e.clock (start +. 602.) in
+      let roots =
+        List.filter
+          (fun (_, m, p) ->
+            m = "conversations.history" && P.get "limit" p = `Int 1)
+          !(e.calls)
+      in
+      eq "only three scheduled failed exact roots" 3 (List.length roots);
+      Printf.eprintf "Task6 combined actual root times=%s\n%!"
+        (String.concat ","
+           (List.map
+              (fun (t, _, _) -> Printf.sprintf "%.0f" (t -. start))
+              roots));
+      let first, _, _ = List.hd roots in
+      Alcotest.(check (list (float 0.001)))
+        "actual root retries at 0/120/420 from first request" [ 0.; 120.; 420. ]
+        (List.map (fun (t, _, _) -> t -. first) roots);
+      check "no root retry at periodic 300" true
+        (List.for_all
+           (fun (t, _, _) -> abs_float (t -. start -. 300.) > 1.)
+           roots);
+      check "failed pass never opens coverage" false (covered e);
+      List.iter
+        (fun m ->
+          check ("combined failure method bound " ^ m) true (count e m <= 5))
+        [
+          "auth.test";
+          "bots.info";
+          "conversations.info";
+          "conversations.members";
+          "users.list";
+        ];
+      check "combined failure history ceiling" true
+        (count e "conversations.history" <= 6);
+      check "31 actual HTTP requests maximum" true (List.length !(e.calls) <= 31);
+      no_other_reads e;
+      print_histogram "combined-root-failure-through-600" !(e.calls);
+      eq "failed-root raw boundary unused" 0 (List.length !(e.raw_calls));
+      print_transport_trace e "combined-failure";
+      check "third failure persists long backoff" true
+        (Sql.int_query e.f.db
+           "SELECT count(*) FROM slack_order_root_schedule WHERE retry_at>=?"
+           [ Sqlite3.Data.FLOAT (start +. 1020.) ]
+        = 1);
+      Lwt.return_unit)
 
 let grant_failure e =
   with_transport e (fun () ->
@@ -575,6 +631,8 @@ let grant_failure e =
            if m = "auth.test" then Lwt.return (503, obj []) else previous m p);
       let start = e.clock.now in
       C.start ~db:e.f.db ~manager:e.f.base.manager;
+      E.start ~ctx:e.ctx ~db:e.f.db ~manager:e.f.base.manager ~http:e.http
+        ~upload_http:(raw_http e) ();
       let* () = advance e.clock (start +. 600.) in
       check "Grant failures only due retries" true (count e "auth.test" <= 3);
       check "initial authority failure never scans" true
@@ -582,150 +640,15 @@ let grant_failure e =
       check "failure keeps admission closed" false (covered e);
       Lwt.return_unit)
 
-let gap_hold_pause ?(offline_pause = true) e =
-  F.set_config e.f (fun cfg ->
-      {
-        cfg with
-        egress =
-          {
-            cfg.egress with
-            default_allowlist =
-              {
-                Runtime_config.host = "files.slack.com";
-                path = Some "/upload/*";
-                method_ = Some "POST";
-                action = Allow;
-                log_policy = No_log;
-              }
-              :: cfg.egress.default_allowlist;
-          };
-      });
-  let ended =
-    root
-    |> set "room"
-         (room
-         |> set "has_ended" (`Bool true)
-         |> set "date_end" (`Int 1700000030))
-  in
-  let ready = P.ready |> set "thread_ts" (str root_ts) in
-  let canvas =
-    P.canvas
-    |> set "huddle_transcript_file_id" `Null
-    |> set "shares"
-         (obj
-            [
-              ( "private",
-                obj [ ("C123", `List [ P.share root_ts; P.share P.ready_ts ]) ]
-              );
-            ])
-  in
-  e.roots := [ ended ];
-  let previous = !(e.answer) in
-  (e.answer :=
-     fun m p ->
-       match m with
-       | "conversations.history" when P.get "limit" p = `Int 1 ->
-           Lwt.return (200, page [ ended ])
-       | "conversations.replies" when Slack_huddles.field "ts" p = root_ts ->
-           Lwt.return (200, page [ ended; ready ])
-       | "files.info" -> Lwt.return (200, S.ok [ ("file", canvas) ])
-       | "canvases.getContent" ->
-           Lwt.return (200, S.ok [ ("content", str "private notes") ])
-       | "files.getUploadURLExternal" ->
-           Lwt.return
-             ( 200,
-               S.ok
-                 [
-                   ("file_id", str "FUPLOAD");
-                   ("upload_url", str "https://files.slack.com/upload/fixture");
-                 ] )
-       | "files.completeUploadExternal" ->
-           Lwt.return
-             ( 200,
-               S.ok
-                 [
-                   ( "files",
-                     `List
-                       [
-                         obj
-                           [
-                             ( "shares",
-                               obj
-                                 [
-                                   ( "private",
-                                     obj
-                                       [
-                                         ( "C123",
-                                           `List
-                                             [
-                                               obj
-                                                 [
-                                                   ( "ts",
-                                                     str
-                                                       (Printf.sprintf "%.6f"
-                                                          e.clock.now) );
-                                                 ];
-                                             ] );
-                                       ] );
-                                 ] );
-                           ];
-                       ] );
-                 ] )
-       | _ -> previous m p);
-  let* () = pass e in
-  let batch = List.hd (C.pending_batches e.f.db e.order) in
-  let release =
-    Option.get (Option.get (R.find_batch e.f.db ~batch_id:batch.id)).release_at
-  in
-  check "real discovery creates held batch" true (release >= e.clock.now +. 600.);
-  with_transport e (fun () ->
-      C.start ~db:e.f.db ~manager:e.f.base.manager;
-      E.start ~ctx:e.ctx ~db:e.f.db ~manager:e.f.base.manager ~http:e.http
-        ~upload_http:(fun _ ->
-          Lwt.return
-            Slack_standing_order_upload.
-              { status = 200; headers = []; body = "" })
-        ();
-      let* () = advance e.clock (release -. 1.) in
-      eq "no early catch-up allocation before confirmed full hold" 0
-        (count e "files.getUploadURLExternal");
-      if not offline_pause then (
-        let* () = advance e.clock (release +. 40.) in
-        eq "complete missed huddle through sole executor after hold" 1
-          (count e "files.completeUploadExternal");
-        Lwt.return_unit)
-      else (
-        !Slack_socket.on_gap ~cause:"disconnect";
-        let pause =
-          obj
-            [
-              ("ts", str (Printf.sprintf "%.6f" e.clock.now));
-              ("user", str "U456");
-              ("text", str "pause SO-1");
-            ]
-        in
-        e.roots := [ pause; ended ];
-        let* () = advance e.clock (release +. 30.) in
-        eq "offline after hold no allocation" 0
-          (count e "files.getUploadURLExternal");
-        check "offline admission remains closed" false (covered e);
-        !Slack_socket.on_gap ~cause:"hello";
-        !Slack_socket.on_connected ();
-        let* () = advance e.clock (e.clock.now +. 10.) in
-        Alcotest.check S.state_t "offline nonallowlisted pause replayed"
-          T.Paused
-          (Option.get (Slack_standing_order_store.find e.f.db e.order.id)).state;
-        eq "no completion after reconnect replay" 0
-          (count e "files.completeUploadExternal");
-        Lwt.return_unit))
+let gap_hold_pause = Test_slack_standing_order_reconcile_socket.gap_case
 
 let suite =
   suite
   @ [
       case "actual root-failure HTTP histogram and shared retry" root_failures;
       case "initial Grant failure prefixes back off" grant_failure;
-      case "gap at hold second 599 stays offline and replays pause"
-        (gap_hold_pause ~offline_pause:true);
+      S.case "gap at hold second 599 stays offline and replays pause" (fun () ->
+          with_env ~socket:true (gap_hold_pause ~offline_pause:true));
     ]
 
 let unresolved_pause e =
@@ -851,10 +774,10 @@ let suite =
 let suite =
   suite
   @ [
-      case
+      S.case
         "actual missed huddle first share follows confirmed full 600-second \
-         hold"
-        (gap_hold_pause ~offline_pause:false);
+         hold" (fun () ->
+          with_env ~socket:true (gap_hold_pause ~offline_pause:false));
     ]
 
 let publication_store_failure e =
@@ -897,4 +820,41 @@ let suite =
   @ [
       case "publication store failure denies and refreshes existing agents"
         publication_store_failure;
+    ]
+
+let suite = suite @ Test_slack_standing_order_reconcile_acceptance.suite
+let suite = suite @ Test_slack_standing_order_reconcile_fences.suite
+
+let suite =
+  suite
+  @ List.map
+      (fun state ->
+        S.case
+          ("ordinary C/E restart recovers "
+          ^ T.fire_state_to_string state
+          ^ " only after hold")
+          (fun () ->
+            with_env ~socket:true
+              (gap_hold_pause ~offline_pause:false ~predispatch:state)))
+      T.[ Detected; Fetching; Uploading ]
+
+let suite =
+  suite
+  @ [
+      case
+        "actual dispatched completion retains receipt across config publication"
+        (live_latency ~publish_complete:true);
+    ]
+
+let suite =
+  suite
+  @ [
+      case
+        "stale actual reconciler-created catch-up click cannot pause resumed \
+         epoch" (fun e ->
+          Test_slack_standing_order_reconcile_socket.gap_hold_pause
+            ~stale_click:true
+            ~disconnect:(fun () -> Lwt.return_unit)
+            ~reconnect:(fun () -> Lwt.return_unit)
+            e);
     ]

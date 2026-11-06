@@ -101,6 +101,15 @@ let pending_roots db (order : T.order) =
   in
   List.sort_uniq String.compare (ledger @ durable)
 
+let discovery_roots db (order : T.order) (coverage : R.coverage) =
+  ensure_schema db;
+  Sql.query db
+    "SELECT unit FROM slack_order_scan_units WHERE order_id=? AND epoch=? AND \
+     oldest=? AND latest=? AND gap=? AND kind='discovery_root'"
+    (params db order coverage "discovery_root" ""
+    |> List.filteri (fun i _ -> i < 5))
+    (fun s -> Sql_util.text_column s 0)
+
 let thread_work db ~order_id ~owner =
   Sql.query db
     "SELECT root_ts,cursor,completed FROM slack_standing_order_thread_work \

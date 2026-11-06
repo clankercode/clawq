@@ -94,6 +94,7 @@ type env = {
   ctx : Ctx.t;
   calls : (float * string * Yojson.Safe.t) list ref;
   classified : (string * string) list ref;
+  raw_calls : float list ref;
   answer : (string -> Yojson.Safe.t -> (int * Yojson.Safe.t) Lwt.t) ref;
   http : SO.http;
   roots : Yojson.Safe.t list ref;
@@ -206,6 +207,7 @@ let with_env ?(socket = false) ?(disk = false) ?(legacy = false) work =
               ctx;
               calls;
               classified;
+              raw_calls = ref [];
               answer;
               http;
               roots;
@@ -218,10 +220,11 @@ let with_env ?(socket = false) ?(disk = false) ?(legacy = false) work =
           SO.configure_limiter old_limiter;
           Option.iter
             (fun path ->
-              ignore (Sqlite3.db_close f.db);
+              (try ignore (Sqlite3.db_close f.db) with Sqlite3.Error _ -> ());
               Sys.remove path)
             disk_path;
-          if legacy && disk_path = None then ignore (Sqlite3.db_close f.db);
+          (if legacy && disk_path = None then
+             try ignore (Sqlite3.db_close f.db) with Sqlite3.Error _ -> ());
           Lwt.return_unit))
 
 let pass e =
@@ -274,7 +277,11 @@ let with_transport e work =
         (fun ~uri ~headers:_ ->
           let params =
             Uri.query (Uri.of_string uri)
-            |> List.map (fun (k, v) -> (k, str (List.hd v)))
+            |> List.map (fun (k, v) ->
+                let value = List.hd v in
+                ( k,
+                  if k = "limit" then `Int (int_of_string value) else str value
+                ))
           in
           e.http ~verb:"GET" ~token:"fixture" ~method_:(meth uri) ~params);
       post =
@@ -301,3 +308,33 @@ let print_histogram phase calls =
             ^ string_of_int
                 (List.length (List.filter (fun (_, k, _) -> k = m) calls)))
           methods))
+
+let raw_http e _ =
+  e.raw_calls := e.clock.now :: !(e.raw_calls);
+  Lwt.return
+    Slack_standing_order_upload.{ status = 200; headers = []; body = "" }
+
+let print_transport_trace e phase =
+  let calls =
+    List.combine !(e.classified) !(e.calls)
+    |> List.map (fun ((lane, _), (at, method_, _)) -> (at, lane, method_))
+    |> fun xs ->
+    xs @ List.map (fun at -> (at, "live", "raw_upload")) !(e.raw_calls)
+    |> List.sort (fun (a, _, _) (b, _, _) -> Float.compare a b)
+  in
+  let trace =
+    `List
+      (List.map
+         (fun (at, lane, method_) ->
+           obj
+             [
+               ("at", `Float at);
+               ("installation", str "T123:A123");
+               ("channel", str "C123");
+               ("phase", str phase);
+               ("lane", str lane);
+               ("method", str method_);
+             ])
+         calls)
+  in
+  Printf.eprintf "Task6 transport-trace=%s\n%!" (Yojson.Safe.to_string trace)

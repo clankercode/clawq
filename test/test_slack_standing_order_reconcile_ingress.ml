@@ -224,27 +224,116 @@ let suite =
     ]
 
 let legacy_discovery () =
-  with_env ~legacy:true (fun e ->
+  with_env ~legacy:true ~disk:true (fun e ->
       let module I = Slack_standing_order_receipt_import in
       let module IF = Test_slack_standing_order_receipt_import in
       let _, installation, _, _ =
         Slack_standing_order_rollout_store.read_anchor e.f.db
       in
       let receipt = IF.receipt e.order installation in
+      F.set_config e.f (fun cfg ->
+          {
+            cfg with
+            egress =
+              {
+                cfg.egress with
+                default_allowlist =
+                  {
+                    Runtime_config.host = "files.slack.com";
+                    path = Some "/upload/*";
+                    method_ = Some "POST";
+                    action = Allow;
+                    log_policy = No_log;
+                  }
+                  :: cfg.egress.default_allowlist;
+              };
+          });
       let delivered =
         root
         |> set "ts" (str receipt.root_ts)
         |> set "room"
              (room
              |> set "id" (str receipt.room_id)
-             |> set "date_start" (`Int (int_of_string receipt.date_start)))
+             |> set "date_start" (`Int (int_of_string receipt.date_start))
+             |> set "date_end" (`Int (int_of_string receipt.date_start + 20))
+             |> set "has_ended" (`Bool true)
+             |> set "thread_root_ts" (str receipt.root_ts)
+             |> set "canvas_thread_ts" (str receipt.root_ts))
       in
+      let delivered_ready = P.ready |> set "thread_ts" (str receipt.root_ts) in
+      let delivered_canvas =
+        P.canvas
+        |> set "huddle_transcript_file_id" `Null
+        |> set "shares"
+             (obj
+                [
+                  ( "private",
+                    obj
+                      [
+                        ( "C123",
+                          `List [ P.share receipt.root_ts; P.share P.ready_ts ]
+                        );
+                      ] );
+                ])
+      in
+      check "imported instance is ended and has an eligible ready attachment"
+        true
+        (P.get "has_ended" (P.get "room" delivered) = `Bool true
+        && P.get "files" delivered_ready = P.files);
       e.roots := [ delivered ];
       let prior = !(e.answer) in
       (e.answer :=
          fun m p ->
            if m = "conversations.history" && P.get "limit" p = `Int 1 then
              Lwt.return (200, page [ delivered ])
+           else if
+             m = "conversations.replies"
+             && Slack_huddles.field "ts" p = receipt.root_ts
+           then Lwt.return (200, page [ delivered; delivered_ready ])
+           else if m = "files.info" then
+             Lwt.return (200, S.ok [ ("file", delivered_canvas) ])
+           else if m = "canvases.getContent" then
+             Lwt.return
+               (200, S.ok [ ("content", str "suppressed instance notes") ])
+           else if m = "files.getUploadURLExternal" then
+             Lwt.return
+               ( 200,
+                 S.ok
+                   [
+                     ("file_id", str "FSUPPRESSED-CONTROL");
+                     ("upload_url", str "https://files.slack.com/upload/fixture");
+                   ] )
+           else if m = "files.completeUploadExternal" then
+             Lwt.return
+               ( 200,
+                 S.ok
+                   [
+                     ( "files",
+                       `List
+                         [
+                           obj
+                             [
+                               ( "shares",
+                                 obj
+                                   [
+                                     ( "private",
+                                       obj
+                                         [
+                                           ( "C123",
+                                             `List
+                                               [
+                                                 obj
+                                                   [
+                                                     ( "ts",
+                                                       str "1700000099.000100"
+                                                     );
+                                                   ];
+                                               ] );
+                                         ] );
+                                   ] );
+                             ];
+                         ] );
+                   ] )
            else prior m p);
       let* () = pass e in
       check "legacy absence cannot admit history discovered roots" false
@@ -269,7 +358,8 @@ let legacy_discovery () =
         |> set "type" (str "message")
         |> set "channel" (str "C123")
         |> set "user" (str "USLACKBOT"));
-      E.start ~ctx:e.ctx ~db:e.f.db ~manager:e.f.base.manager ~http:e.http ();
+      E.start ~ctx:e.ctx ~db:e.f.db ~manager:e.f.base.manager ~http:e.http
+        ~upload_http:(raw_http e) ();
       let* () = advance e.clock (e.clock.now +. 605.) in
       let* () = pass e in
       List.iter
@@ -278,7 +368,102 @@ let legacy_discovery () =
       check "suppression durable across lifecycle restart" true
         (R.suppressed e.f.db ~order_id:e.order.id ~root_ts:receipt.root_ts
            ~room_id:receipt.room_id ~date_start:receipt.date_start);
-      Lwt.return_unit)
+      let* () = C.stop () in
+      let* () = E.stop () in
+      check "fixture handle really closes before reopen" true
+        (Sqlite3.db_close e.f.db);
+      let db = Sqlite3.db_open (Option.get e.disk_path) in
+      let manager =
+        Session.create ~config:(Session.get_config e.f.base.manager) ~db ()
+      in
+      let f = { e.f with db; base = { e.f.base with db; manager } } in
+      let e = { e with f } in
+      Lwt.finalize
+        (fun () ->
+          C.configure ~db ~manager ~ctx:e.ctx;
+          check "reopened inventory readiness is original reviewed identity"
+            true
+            (R.rollout_readiness db ~order_id:e.order.id
+            = R.Ready R.Inventory_verified);
+          let paused =
+            Slack_standing_order_store.deactivate db ~order_id:e.order.id
+              (Slack_standing_order_store.Pause "U123") ~now:e.clock.now
+            |> Result.get_ok
+          in
+          let resumed =
+            Slack_standing_order_store.resume db ~order_id:e.order.id
+              ~expected_epoch:paused.after.epoch
+              ~active_since:(Slack_standing_order_store.ts_of_unix e.clock.now)
+              ~bot_user_id:"UBOT" ~bot_id:"BOWN" ~now:e.clock.now
+            |> Result.get_ok
+          in
+          check "suppression survives actual reopen and resume" true
+            (R.suppressed db ~order_id:resumed.id ~root_ts:receipt.root_ts
+               ~room_id:receipt.room_id ~date_start:receipt.date_start);
+          (* The eligible instance is discovered by the same production C/E path;
+             the imported instance remains in every window and event replay. *)
+          let e = { e with order = resumed } in
+          let before = !(e.answer) in
+          (e.answer :=
+             fun m p ->
+               if m = "conversations.history" && P.get "limit" p = `Int 200 then
+                 Lwt.return (200, page (delivered :: !(e.roots)))
+               else before m p);
+          observe e
+            (delivered
+            |> set "type" (str "message")
+            |> set "channel" (str "C123")
+            |> set "user" (str "USLACKBOT"));
+          let disconnect () =
+            !Slack_socket.on_gap ~cause:"disconnect";
+            Lwt.return_unit
+          in
+          let reconnect () =
+            !Slack_socket.on_gap ~cause:"hello";
+            !Slack_socket.on_connected ();
+            Lwt.return_unit
+          in
+          let since = int_of_float e.clock.now in
+          let* () = advance e.clock (e.clock.now +. 100.) in
+          let ts = Printf.sprintf "%d.000100" (since + 10) in
+          let instance_room =
+            room
+            |> set "date_start" (`Int (since + 10))
+            |> set "thread_root_ts" (str ts)
+            |> set "canvas_thread_ts" (str ts)
+            |> set "transcript_file_id" (str "FCANVASNEW")
+          in
+          let instance_root =
+            root
+            |> set "ts" (str ts)
+            |> set "room" instance_room
+            |> set "files" (`List [ obj [ ("id", str "FCANVASNEW") ] ])
+          in
+          let* () =
+            Test_slack_standing_order_reconcile_socket.gap_hold_pause
+              ~instance:
+                ( instance_root,
+                  instance_room,
+                  ts,
+                  Printf.sprintf "%d.000100" (since + 60) )
+              ~offline_pause:false ~disconnect ~reconnect e
+          in
+          eq "paired eligible legacy instance really shared once" 1
+            (count e "files.completeUploadExternal");
+          eq "only eligible allocation, never imported root" 1
+            (count e "files.getUploadURLExternal");
+          eq "manual import creates no executor debit" 1
+            (Slack_standing_order_store.dispatches_since db ~order_id:resumed.id
+               ~since:0.);
+          check "suppression remains immutable after real execution" true
+            (R.suppressed db ~order_id:resumed.id ~root_ts:receipt.root_ts
+               ~room_id:receipt.room_id ~date_start:receipt.date_start);
+          Lwt.return_unit)
+        (fun () ->
+          let* () = C.stop () in
+          let* () = E.stop () in
+          ignore (Sqlite3.db_close db);
+          Lwt.return_unit))
 
 let pause_during_maintenance e =
   with_transport e (fun () ->

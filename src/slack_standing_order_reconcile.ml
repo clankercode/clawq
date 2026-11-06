@@ -398,19 +398,20 @@ let pass_with ~ctx ?http ?http_response ~db ~manager (original : T.order) =
                               let* complete = scan () in
                               if (not complete) || not (valid ()) then
                                 Lwt.return_unit
-                              else if
-                                not
-                                  (R.finish_scan db ~order_id:order.id ~owner
-                                     ~now:(ctx.now ()))
-                              then Lwt.return_unit
                               else (
-                                (* Store report identity before the success watermark. *)
+                                (* Persist the report key while incomplete fixed bounds
+                                   still survive a failed write/restart. *)
                                 record_gap db order previous
                                   (float_of_string
                                      (Option.get
                                         (R.load_coverage db ~order_id:order.id))
                                        .latest);
                                 if
+                                  not
+                                    (R.finish_scan db ~order_id:order.id ~owner
+                                       ~now:(ctx.now ()))
+                                then Lwt.return_unit
+                                else if
                                   R.verify_gap db ~token:gap ~owner
                                     ~through:
                                       (Option.get
@@ -498,7 +499,17 @@ let start ~db ~manager =
         else Lwt.return_unit
       in
       let rec service () =
-        let* () = c.ctx.wait ~seconds:5. in
+        let now = c.ctx.now () in
+        let next_retry =
+          Sql.query db
+            "SELECT MIN(retry_at) FROM slack_order_reconcile_retry WHERE \
+             retry_at>?"
+            [ Sqlite3.Data.FLOAT now ] (fun s -> Sql.opt_float_column s 0)
+          |> function
+          | [ Some at ] -> max 0. (min 5. (at -. now))
+          | _ -> 5.
+        in
+        let* () = c.ctx.wait ~seconds:next_retry in
         if not w.running then Lwt.return_unit
         else (
           List.iter

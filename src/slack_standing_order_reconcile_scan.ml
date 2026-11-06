@@ -704,8 +704,16 @@ let discover_wrapped ~page_budget ~wrap ~db ~manager ~ctx ~owner
                     | _ -> None)
                 |> List.sort_uniq P.compare_ts
               in
-              let*! () = inspect_all roots in
-              if check () <> Ok () then Lwt.return (Error Lease_lost)
+              if
+                (not
+                   (List.for_all
+                      (fun root ->
+                        S.complete_unit db ~order ~owner ~coverage
+                          ~kind:"discovery_root" ~unit:root ~outcome:"pending"
+                          ~now:(ctx.now ()))
+                      roots))
+                || check () <> Ok ()
+              then Lwt.return (Error Lease_lost)
               else if
                 not
                   (R.save_page db ~order_id:order.id ~owner
@@ -721,12 +729,25 @@ let discover_wrapped ~page_budget ~wrap ~db ~manager ~ctx ~owner
               else history (remaining - 1) (next :: seen) next
           in
           let*! () =
-            history page_budget
-              (if coverage.history_cursor = "" then []
-               else [ coverage.history_cursor ])
-              coverage.history_cursor
+            if S.done_unit db order coverage "history" "enumerated" then ok
+            else
+              let*! () =
+                history page_budget
+                  (if coverage.history_cursor = "" then []
+                   else [ coverage.history_cursor ])
+                  coverage.history_cursor
+              in
+              if
+                S.complete_unit db ~order ~owner ~coverage ~kind:"history"
+                  ~unit:"enumerated" ~outcome:"complete" ~now:(ctx.now ())
+              then ok
+              else Lwt.return (Error Lease_lost)
           in
-          let*! () = inspect_all (S.pending_roots db order) in
+          let*! () =
+            inspect_all
+              (List.sort_uniq P.compare_ts
+                 (S.discovery_roots db order coverage @ S.pending_roots db order))
+          in
           if check () <> Ok () then Lwt.return (Error Lease_lost)
           else if
             R.complete_history db ~order_id:order.id ~owner ~now:(ctx.now ())
