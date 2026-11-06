@@ -433,8 +433,8 @@ let create ~current_config p json =
           | Ok ((sc : Runtime_config.slack_config), snapshot) -> (
               let allowed = sc.standing_orders.allowed_targets in
               let call =
-                SO.make ~db:p.db ~current_config ~snapshot
-                  ~channel_id:p.route.channel
+                SO.make ~team_id:p.route.team ~app_id:p.route.app ~db:p.db
+                  ~current_config ~snapshot ~channel_id:p.route.channel
                   ~audit:
                     (SO.audit_label ~order_id:(Some order_id) ~unit_label:"plan")
                   ()
@@ -509,7 +509,8 @@ let pause p (o : T.order) =
   in
   let receipt = Pause.receipt ~display_no:o.display_no ~by:user outcome in
   let+ () =
-    Pause.post_receipt ~manager:(manager p)
+    Pause.post_receipt ~manager:(manager p) ~team_id:p.route.team
+      ~app_id:p.route.app
       ?order:(Pause.order_of_outcome outcome)
       ~channel_id:p.route.channel ~thread_ts:p.route.root receipt
   in
@@ -531,8 +532,8 @@ let resume ~current_config p (o : T.order) =
                (Render.reason_text f.Grant.reason))
       | Ok (_, snapshot) -> (
           let call =
-            SO.make ~db:p.db ~current_config ~snapshot
-              ~channel_id:p.route.channel
+            SO.make ~team_id:p.route.team ~app_id:p.route.app ~db:p.db
+              ~current_config ~snapshot ~channel_id:p.route.channel
               ~audit:
                 (SO.audit_label ~order_id:(Some o.id) ~unit_label:"resume_card")
               ()
@@ -589,7 +590,8 @@ let cancel ~current_config p (o : T.order) =
         Lwt.return (refused (Grant.Member_indeterminate "access_snapshot"))
     | Ok snapshot -> (
         let call =
-          SO.make ~db:p.db ~current_config ~snapshot ~channel_id:p.route.channel
+          SO.make ~team_id:p.route.team ~app_id:p.route.app ~db:p.db
+            ~current_config ~snapshot ~channel_id:p.route.channel
             ~audit:(SO.audit_label ~order_id:(Some o.id) ~unit_label:"cancel")
             ()
         in

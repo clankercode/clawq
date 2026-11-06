@@ -695,8 +695,234 @@ let test_reload_capability_transport () =
           no_http "zero Slack calls across every reload deny" mock))
     SO.capability_names
 
+module Clock = Test_slack_read_limiter
+
+let test_retry_headers () =
+  List.iter
+    (fun value ->
+      Alcotest.(check (option (float 0.)))
+        "invalid retry-after" None
+        (SO.retry_after_seconds [ ("Retry-After", value) ]))
+    [ ""; "later"; "nan"; "inf"; "-infinity"; "-1" ];
+  Alcotest.(check (option (float 0.)))
+    "case insensitive seconds" (Some 17.)
+    (SO.retry_after_seconds [ ("rEtRy-AfTeR", " 17 ") ]);
+  Alcotest.(check (option (float 0.)))
+    "longest duplicate" (Some 17.)
+    (SO.retry_after_seconds [ ("Retry-After", "2"); ("retry-after", "17") ])
+
+let test_shared_retry () =
+  List.iter
+    (fun (status, headers, body, delay) ->
+      Clock.with_clock (fun c limiter ->
+          let open Lwt.Syntax in
+          let db = S.fresh_db () and cfg = S.config () and calls = ref 0 in
+          let snap = snapshot db cfg in
+          let http_response ~verb:_ ~token:_ ~method_:_ ~params:_ =
+            incr calls;
+            Lwt.return { SO.status; headers; body }
+          in
+          let construct ?http ?http_response () =
+            SO.make ~db
+              ~current_config:(fun () -> cfg)
+              ~snapshot:snap ~channel_id:"C123"
+              ~audit:"standing_order:so_1:fire_1" ~limiter ?http ?http_response
+              ()
+          in
+          let first = construct ~http_response () in
+          let* result = first "auth.test" [] in
+          expect_error "typed rate limit" SO.Rate_limited result;
+          Alcotest.(check int) "no implicit retry" 1 !calls;
+          let second =
+            construct
+              ~http:(fun ~verb:_ ~token:_ ~method_:_ ~params:_ ->
+                incr calls;
+                Lwt.return (200, Yojson.Safe.to_string (S.ok [])))
+              ()
+          in
+          let queued = second "auth.test" [] in
+          let* _ = second "canvases.getContent" [] in
+          let* () = Clock.advance c (delay -. 0.001) in
+          check_bool "shared caller still cooling down" true
+            (Lwt.is_sleeping queued);
+          let* () = Clock.advance c 0.001 in
+          let+ result = queued in
+          ignore (expect_ok "released at server deadline" result)))
+    ([
+       (429, [ ("Retry-After", "17") ], "", 17.);
+       ( 200,
+         [ ("Retry-After", "17") ],
+         Yojson.Safe.to_string
+           (S.obj [ ("ok", `Bool false); ("error", `String "ratelimited") ]),
+         60. );
+     ]
+    @ List.map
+        (fun headers -> (429, headers, "", 60.))
+        ([]
+        :: List.map
+             (fun v -> [ ("Retry-After", v) ])
+             [ "bad"; "nan"; "infinity"; "-1" ]))
+
+let test_shared_posts () =
+  Clock.with_clock (fun c limiter ->
+      let previous = !SO.configured_limiter in
+      let open Lwt.Syntax in
+      Lwt.finalize
+        (fun () ->
+          SO.configure_limiter (Some limiter);
+          let db = S.fresh_db () and cfg = S.config () and sent = ref [] in
+          let snap = snapshot db cfg in
+          let construct label =
+            SO.make ~db
+              ~current_config:(fun () -> cfg)
+              ~snapshot:snap ~channel_id:"C123"
+              ~audit:("standing_order:so_1:" ^ label)
+              ~http:(fun ~verb:_ ~token:_ ~method_ ~params:_ ->
+                sent := (label, method_, c.Clock.now) :: !sent;
+                Lwt.return (200, Yojson.Safe.to_string (S.ok [])))
+              ()
+          in
+          let* _ =
+            construct "relay" "files.completeUploadExternal"
+              [ ("channel_id", `String "C123") ]
+          in
+          (* POST is not evidence of message production. *)
+          let* () =
+            Lwt_list.iter_s
+              (fun method_ ->
+                let+ _ = construct "nonmessage" method_ [] in
+                ())
+              [
+                "auth.test";
+                "canvases.getContent";
+                "files.delete";
+                "chat.update";
+                "files.getUploadURLExternal";
+              ]
+          in
+          check_bool "nonmessage calls share no post slot" true
+            (List.for_all (fun (_, _, time) -> time = 0.) !sent);
+          let rec posts time = function
+            | [] -> Lwt.return_unit
+            | (label, method_, selector) :: rest ->
+                let queued =
+                  construct label method_ [ (selector, `String "C123") ]
+                in
+                check_bool "all message producers wait" true
+                  (Lwt.is_sleeping queued);
+                let* () = Clock.advance c 1. in
+                let* result = queued in
+                ignore (expect_ok label result);
+                check_bool "actual HTTP uses shared channel slot" true
+                  (List.hd !sent = (label, method_, time));
+                posts (time +. 1.) rest
+          in
+          posts 1.
+            [
+              ("repost", "files.completeUploadExternal", "channel_id");
+              ("report", "chat.postMessage", "channel");
+              ("notice", "chat.postMessage", "channel");
+              ("cleanup", "chat.postMessage", "channel");
+            ])
+        (fun () ->
+          SO.configure_limiter previous;
+          Lwt.return_unit))
+
+let test_shared_wait_fences () =
+  List.iter
+    (fun revoke ->
+      Clock.with_clock (fun c limiter ->
+          let open Lwt.Syntax in
+          let db = S.fresh_db ()
+          and cfg = ref (S.config ())
+          and calls = ref 0
+          and fences = ref 0 in
+          let snap = snapshot db !cfg in
+          let denied = ref false in
+          let call =
+            SO.make ~db
+              ~current_config:(fun () -> !cfg)
+              ~snapshot:snap ~channel_id:"C123"
+              ~audit:"standing_order:so_1:fire_1" ~limiter
+              ~capability_fence:true
+              ~before_send:(fun () ->
+                incr fences;
+                if !denied then Error SO.Dispatch_refused else Ok ())
+              ~http:(fun ~verb:_ ~token:_ ~method_:_ ~params:_ ->
+                incr calls;
+                Lwt.return (200, Yojson.Safe.to_string (S.ok [])))
+              ()
+          in
+          let* _ = call "chat.postMessage" [ ("channel", `String "C123") ] in
+          let pending =
+            call "files.completeUploadExternal"
+              [ ("channel_id", `String "C123") ]
+          in
+          check_bool "completion waits for shared post" true
+            (Lwt.is_sleeping pending);
+          let expected =
+            match revoke with
+            | `Egress ->
+                cfg := S.config ~strict_rules:[] ();
+                SO.Egress_denied "files.completeUploadExternal"
+            | `Capability ->
+                cfg := S.profile !cfg ~denied:[ "slack_huddle_content" ] ();
+                SO.Dispatch_refused
+            | `Fence ->
+                denied := true;
+                SO.Dispatch_refused
+          in
+          let* () = Clock.advance c 1. in
+          let+ result = pending in
+          expect_error "last checks after all waits" expected result;
+          Alcotest.(check int) "no prohibited HTTP" 1 !calls;
+          Alcotest.(check int)
+            "local fence follows policy"
+            (if revoke = `Fence then 2 else 1)
+            !fences))
+    [ `Egress; `Capability; `Fence ]
+
+let test_exclusive_http () =
+  let db = S.fresh_db () and m = S.mock () and cfg = S.config () in
+  let rejected =
+    try
+      ignore
+        (SO.make ~db
+           ~current_config:(fun () -> cfg)
+           ~snapshot:(snapshot db cfg) ~channel_id:"C123"
+           ~audit:"standing_order:so_1:fire" ~http:m.http
+           ~http_response:(SO.adapt_http m.http) ()
+          : SO.call);
+      false
+    with Invalid_argument _ -> true
+  in
+  check_bool "reject ambiguous injection before I/O" true rejected;
+  no_http "no HTTP" m
+
+let test_header_socket () =
+  let callback _ _ _ =
+    Cohttp_lwt_unix.Server.respond_string ~status:`Too_many_requests
+      ~headers:(Cohttp.Header.of_list [ ("Retry-After", "17") ])
+      ~body:"private" ()
+  in
+  Test_policy_http_client.with_http_server callback (fun port ->
+      let uri = Printf.sprintf "http://127.0.0.1:%d/" port in
+      let response = Lwt_main.run (SO.api_get ~uri ~headers:[]) in
+      Alcotest.(check int) "socket status" 429 response.status;
+      Alcotest.(check (option (float 0.)))
+        "socket retains real response headers" (Some 17.)
+        (SO.retry_after_seconds response.headers))
+
 let suite =
   [
+    S.case "retry after parses conservative seconds" test_retry_headers;
+    S.case "shared headers and JSON cooldown never retry writes"
+      test_shared_retry;
+    S.case "process default shares message pacing across producers"
+      test_shared_posts;
+    S.case "policy and final fences follow shared waits" test_shared_wait_fences;
+    S.case "HTTP injection is exclusive before IO" test_exclusive_http;
+    S.case "production socket keeps response headers" test_header_socket;
     S.case "reload capability denial fences reads and writes"
       test_reload_capability_transport;
     S.case "default API adapter never captures HTTP bodies"

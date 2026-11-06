@@ -76,16 +76,16 @@ let retry_state db ~fire_id =
 
 let backoff n = match n with 0 -> 120. | 1 -> 300. | 2 -> 600. | _ -> 1200.
 
-let evaluate ~ctx ~db ~manager ?http ~stage (order : T.order) =
+let evaluate ~ctx ~db ~manager ?http ?http_response ~stage (order : T.order) =
   let limit ~channel_id =
     if not (ctx.Ctx.accepting ()) then Lwt.fail Lwt.Canceled
     else
       let* () = ctx.limit ~channel_id in
       if ctx.accepting () then Lwt.return_unit else Lwt.fail Lwt.Canceled
   in
-  Grant.evaluate ~db
+  Grant.evaluate ?limiter:ctx.Ctx.limiter ~db
     ~current_config:(fun () -> Session.get_config manager)
-    ?http
+    ?http ?http_response
     ~limit:(fun () -> limit ~channel_id:order.T.channel_id)
     ~now:(ctx.now ()) ~stage ~unit_label:"fire"
     (Grant.subject_of_order order)
@@ -253,11 +253,13 @@ let with_lease ~ctx ~db ?renew_wait ~fire_id work =
           Store.release db ~fire_id ~lease:!latest ~now:(ctx.now ());
           Lwt.return_unit)
 
-let resolve_pending ~ctx ~db ~manager ?http ?roots:only_roots (order : T.order)
-    =
+let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
+    (order : T.order) =
   if not (ctx.Ctx.accepting ()) then Lwt.return_unit
   else
-    let* grant = evaluate ~ctx ~db ~manager ?http ~stage:Grant.Resolve order in
+    let* grant =
+      evaluate ~ctx ~db ~manager ?http ?http_response ~stage:Grant.Resolve order
+    in
     match grant with
     | Error { Grant.cls = Hard; reason } ->
         ignore
@@ -323,6 +325,7 @@ let resolve_pending ~ctx ~db ~manager ?http ?roots:only_roots (order : T.order)
                                     ~date_end:room.date_end ~now:(ctx.now ());
                                   let* fire_grant =
                                     evaluate ~ctx ~db ~manager ?http
+                                      ?http_response
                                       ~stage:
                                         (Grant.Fire
                                            {
@@ -366,7 +369,8 @@ let transcript_conflict db ~fire_id id =
         ignore
       <> []
 
-let fetch ~ctx ~db ~manager ?http ~lease (initial : Store.fire_runtime) =
+let fetch ~ctx ~db ~manager ?http ?http_response ~lease
+    (initial : Store.fire_runtime) =
   let run () =
     match Store.runtime db ~fire_id:initial.fire.id with
     | None -> Lwt.return (Error "fetch_missing")
@@ -388,7 +392,7 @@ let fetch ~ctx ~db ~manager ?http ~lease (initial : Store.fire_runtime) =
                  (terminal ~ctx ~db ~lease r T.Skipped_inactive "order_missing"))
         | Some order -> (
             let* grant =
-              evaluate ~ctx ~db ~manager ?http
+              evaluate ~ctx ~db ~manager ?http ?http_response
                 ~stage:
                   (Grant.Fire { fire_epoch = r.fire.epoch; fire_id = r.fire.id })
                 order
@@ -536,6 +540,7 @@ let fetch ~ctx ~db ~manager ?http ~lease (initial : Store.fire_runtime) =
                                    row is returned last, immediately before CAS. *)
                                       let* grant =
                                         evaluate ~ctx ~db ~manager ?http
+                                          ?http_response
                                           ~stage:
                                             (Grant.Fire
                                                {

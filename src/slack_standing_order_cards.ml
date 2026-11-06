@@ -245,7 +245,10 @@ let card_open c =
 let is_admin c = Admin.is_admin ~db:c.db ~channel:"slack" ~sender_id:c.clicker
 
 let make_call c snapshot =
-  SO.make ~db:c.db ~current_config:(current_config c) ~snapshot
+  SO.make
+    ~priority:
+      (if c.card.kind = T.Pause_button then Slack_read_limiter.Pause else Live)
+    ~db:c.db ~current_config:(current_config c) ~snapshot
     ~channel_id:c.card.channel_id
     ~audit:
       (SO.audit_label ~order_id:(Some c.order.id)
@@ -558,7 +561,8 @@ let pause c =
     | outcome -> outcome
   in
   (* An unknown diagnostic count still gets the successful pause receipt. *)
-  Pause.post_receipt ~manager:c.manager
+  Pause.post_receipt ~manager:c.manager ~team_id:c.card.team_id
+    ~app_id:c.card.app_id
     ?order:(Pause.order_of_outcome outcome)
     ~channel_id:c.card.channel_id ~thread_ts:(reply_thread c)
     (Pause.receipt ~display_no:o.display_no ~by:c.clicker outcome)

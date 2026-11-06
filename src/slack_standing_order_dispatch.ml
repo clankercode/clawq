@@ -105,13 +105,13 @@ let refuse ~ctx ~db ~lease ~fire_id (f : Grant.failure) =
       set_state ~ctx ~db ~lease ~fire_id r.fire.state (Some reason)
         (Some (ctx.Ctx.now () +. 120.))
 
-let evaluate ~ctx ~db ~manager ?http ~lease (r : Store.fire_runtime)
-    (order : T.order) =
+let evaluate ~ctx ~db ~manager ?http ?http_response ~lease
+    (r : Store.fire_runtime) (order : T.order) =
   accepting ctx;
   let* result =
-    Grant.evaluate ~db
+    Grant.evaluate ?limiter:ctx.Ctx.limiter ~db
       ~current_config:(fun () -> Session.get_config manager)
-      ?http
+      ?http ?http_response
       ~limit:(limit ~ctx ~channel_id:order.channel_id)
       ~now:(ctx.Ctx.now ())
       ~stage:(Grant.Fire { fire_epoch = r.fire.epoch; fire_id = r.fire.id })
@@ -389,7 +389,7 @@ let resolve_share ~ctx ?(observe = fun () -> None) ~call ~(order : T.order)
     (function
       | Lwt.Canceled -> Lwt.fail Lwt.Canceled | _ -> Lwt.return Ambiguous)
 
-let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
+let deliver ~ctx ~db ~manager ?http ?http_response ?upload_http ~lease
     (initial : Store.fire_runtime) (payload : P.verified) =
   let fire_id = initial.fire.id in
   let fail reason =
@@ -428,7 +428,7 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
       | Some o -> o
       | None -> raise Stop
     in
-    let* v = evaluate ~ctx ~db ~manager ?http ~lease r order in
+    let* v = evaluate ~ctx ~db ~manager ?http ?http_response ~lease r order in
     let nonce =
       match r.nonce with
       | Some n -> n
@@ -485,7 +485,9 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
         match found with
         | Some (ts, ids) ->
             let r = current db fire_id in
-            let* v = evaluate ~ctx ~db ~manager ?http ~lease r order in
+            let* v =
+              evaluate ~ctx ~db ~manager ?http ?http_response ~lease r order
+            in
             (match
                fence ~ctx ~db ~manager ~lease ~v ~prepared:r ~reserve:true ()
              with
@@ -506,12 +508,15 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
               | [] -> Lwt.return (List.rev acc)
               | (filename, body) :: rest ->
                   let r = current db fire_id in
-                  let* v = evaluate ~ctx ~db ~manager ?http ~lease r order in
+                  let* v =
+                    evaluate ~ctx ~db ~manager ?http ?http_response ~lease r
+                      order
+                  in
                   let call =
-                    SO.make ~capability_fence:true ~db
+                    SO.make ?limiter:ctx.Ctx.limiter ~capability_fence:true ~db
                       ~current_config:(fun () -> Session.get_config manager)
                       ~snapshot:v.snapshot ~channel_id:order.channel_id
-                      ~audit:"standing_order:upload_url" ?http
+                      ~audit:"standing_order:upload_url" ?http ?http_response
                       ~limit:(limit ~ctx ~channel_id:order.channel_id)
                       ~before_send:
                         (fence ~ctx ~db ~manager ~lease ~v ~prepared:r
@@ -544,9 +549,12 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
                   in
                   save ~ctx ~db ~lease ~before:r ~after;
                   let r = current db fire_id in
-                  let* v = evaluate ~ctx ~db ~manager ?http ~lease r order in
+                  let* v =
+                    evaluate ~ctx ~db ~manager ?http ?http_response ~lease r
+                      order
+                  in
                   let* uploaded =
-                    Upload.post ~db
+                    Upload.post ?limiter:ctx.Ctx.limiter ~db
                       ~current_config:(fun () -> Session.get_config manager)
                       ~snapshot:v.snapshot ~channel_id:order.channel_id
                       ~audit:"standing_order:upload" ?http:upload_http
@@ -565,7 +573,9 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
             in
             let* ids = upload [] files in
             let r = current db fire_id in
-            let* v = evaluate ~ctx ~db ~manager ?http ~lease r order in
+            let* v =
+              evaluate ~ctx ~db ~manager ?http ?http_response ~lease r order
+            in
             let reserved = ref false in
             let before_send () =
               let result =
@@ -575,10 +585,10 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
               result
             in
             let call =
-              SO.make ~capability_fence:true ~db
+              SO.make ?limiter:ctx.Ctx.limiter ~capability_fence:true ~db
                 ~current_config:(fun () -> Session.get_config manager)
                 ~snapshot:v.snapshot ~channel_id:order.channel_id
-                ~audit:"standing_order:complete" ?http
+                ~audit:"standing_order:complete" ?http ?http_response
                 ~limit:(limit ~ctx ~channel_id:order.channel_id)
                 ~before_send ()
             in
@@ -640,12 +650,13 @@ let deliver ~ctx ~db ~manager ?http ?upload_http ~lease
     | Lwt.Canceled -> Lwt.fail Lwt.Canceled
     | _ -> Lwt.return_unit)
 
-let track ~ctx ~db ~manager ?http (r : Store.fire_runtime) (order : T.order) =
+let track ~ctx ~db ~manager ?http ?http_response (r : Store.fire_runtime)
+    (order : T.order) =
   accepting ctx;
   let* result =
-    Grant.evaluate ~db
+    Grant.evaluate ?limiter:ctx.Ctx.limiter ~db
       ~current_config:(fun () -> Session.get_config manager)
-      ?http
+      ?http ?http_response
       ~limit:(limit ~ctx ~channel_id:order.channel_id)
       ~now:(ctx.Ctx.now ())
       ~stage:(Grant.Track { fire_id = r.fire.id })
@@ -750,8 +761,8 @@ let confirm_no_pickup ~call ~(order : T.order) (r : Store.fire_runtime) =
           replies a ts 5 [] "")
     r.attempts
 
-let reconcile ~ctx ~db ~manager ?http ?upload_http ?(allow_new = true) ~lease
-    (initial : Store.fire_runtime) =
+let reconcile ~ctx ~db ~manager ?http ?http_response ?upload_http
+    ?(allow_new = true) ~lease (initial : Store.fire_runtime) =
   let fire_id = initial.fire.id in
   let run () =
     accepting ctx;
@@ -761,7 +772,7 @@ let reconcile ~ctx ~db ~manager ?http ?upload_http ?(allow_new = true) ~lease
       | Some o -> o
       | None -> raise Stop
     in
-    let* call = track ~ctx ~db ~manager ?http r order in
+    let* call = track ~ctx ~db ~manager ?http ?http_response r order in
     let nonce = match r.nonce with Some n -> n | None -> raise Stop in
     (* With no original timestamp, the shared nonce cannot distinguish an
        original history match from a new attempt. Re-establish absence even
@@ -907,7 +918,9 @@ let reconcile ~ctx ~db ~manager ?http ?upload_http ?(allow_new = true) ~lease
             let* () = confirm_no_pickup ~call ~order (current db fire_id) in
             let r = current db fire_id in
             if not (no_pickup r) then raise Stop;
-            let* _ = evaluate ~ctx ~db ~manager ?http ~lease r order in
+            let* _ =
+              evaluate ~ctx ~db ~manager ?http ?http_response ~lease r order
+            in
             let root_ts =
               match r.root_ts with Some ts -> ts | None -> raise Stop
             in
@@ -922,7 +935,9 @@ let reconcile ~ctx ~db ~manager ?http ?upload_http ?(allow_new = true) ~lease
             let r = current db fire_id in
             if (not (source_matches r payload)) || not (no_pickup r) then
               raise Stop;
-            let* _ = evaluate ~ctx ~db ~manager ?http ~lease r order in
+            let* _ =
+              evaluate ~ctx ~db ~manager ?http ?http_response ~lease r order
+            in
             let after = update_attempt r second in
             save ~ctx ~db ~lease ~before:r
               ~after:
@@ -938,7 +953,7 @@ let reconcile ~ctx ~db ~manager ?http ?upload_http ?(allow_new = true) ~lease
                     };
                   next_attempt_at = None;
                 };
-            deliver ~ctx ~db ~manager ?http ?upload_http ~lease
+            deliver ~ctx ~db ~manager ?http ?http_response ?upload_http ~lease
               (current db fire_id) payload
   in
   Lwt.catch run (function
@@ -946,6 +961,6 @@ let reconcile ~ctx ~db ~manager ?http ?upload_http ?(allow_new = true) ~lease
     | Lwt.Canceled -> Lwt.fail Lwt.Canceled
     | _ -> Lwt.return_unit)
 
-let repost ~ctx ~db ~manager ?http ?upload_http ~lease initial
+let repost ~ctx ~db ~manager ?http ?http_response ?upload_http ~lease initial
     (_payload : P.verified) =
-  reconcile ~ctx ~db ~manager ?http ?upload_http ~lease initial
+  reconcile ~ctx ~db ~manager ?http ?http_response ?upload_http ~lease initial

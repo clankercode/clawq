@@ -316,6 +316,7 @@ let all_suites =
     ("slack_standing_order_store", Test_slack_standing_order_store.suite);
     ( "slack_standing_order_fire_store",
       Test_slack_standing_order_fire_store.suite );
+    ("slack_read_limiter", Test_slack_read_limiter.suite);
     ("slack_standing_order_slack", Test_slack_standing_order_slack.suite);
     ("slack_file_upload", Test_slack_file_upload.suite);
     ("slack_canvas", Test_slack_canvas.suite);

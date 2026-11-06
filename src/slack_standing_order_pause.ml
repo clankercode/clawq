@@ -112,7 +112,8 @@ let ledger ~db ~channel_id ~actor ~event_type metadata =
 
 (* Best effort under its own snapshot: a failure is a warning carrying the
    error code, never an exception. *)
-let post ~manager ?order ~unit_label ~channel_id ~thread_ts text =
+let post ~manager ?order ?team_id ?app_id ?(priority = Slack_read_limiter.Live)
+    ?(capability_fence = false) ~unit_label ~channel_id ~thread_ts text =
   let failed code =
     Logs.warn (fun m ->
         m "standing-order %s not posted in %s: %s" unit_label channel_id code);
@@ -131,7 +132,8 @@ let post ~manager ?order ~unit_label ~channel_id ~thread_ts text =
           | Error code -> failed code
           | Ok snapshot -> (
               let call =
-                SO.make ~db ~current_config ~snapshot ~channel_id
+                SO.make ~capability_fence ~priority ?team_id ?app_id ~db
+                  ~current_config ~snapshot ~channel_id
                   ~audit:
                     (SO.audit_label
                        ~order_id:(Option.map (fun (o : T.order) -> o.id) order)
@@ -155,13 +157,16 @@ let post ~manager ?order ~unit_label ~channel_id ~thread_ts text =
       | Lwt.Canceled -> Lwt.fail Lwt.Canceled
       | exn -> failed ("exception: " ^ Printexc.to_string exn))
 
-let post_receipt ~manager ?order ~channel_id ~thread_ts text =
-  post ~manager ?order ~unit_label:"pause_receipt" ~channel_id ~thread_ts text
+let post_receipt ~manager ?order ?team_id ?app_id ~channel_id ~thread_ts text =
+  post ~manager ?order ?team_id ?app_id ~capability_fence:true
+    ~priority:Slack_read_limiter.Pause ~unit_label:"pause_receipt" ~channel_id
+    ~thread_ts text
 
 let notify_grantor ~manager (o : T.order) ~user_id event =
   if user_id = o.grantor_user_id then Lwt.return_unit
   else
-    post ~manager ~order:o ~unit_label:"pause_notice"
+    post ~manager ~order:o ~capability_fence:true
+      ~priority:Slack_read_limiter.Pause ~unit_label:"pause_notice"
       ~channel_id:o.management_channel_id ~thread_ts:o.management_thread_ts
       (Render.grantor_notice o event)
 
@@ -257,7 +262,9 @@ let run ~manager ?now ~team_id ~app_id ~channel_id ~user_id ~target ~source () =
                     (Refused (Grant.Member_indeterminate "access_snapshot"))
               | Ok snapshot -> (
                   let call =
-                    SO.make ~db ~current_config ~snapshot ~channel_id
+                    SO.make ~capability_fence:true
+                      ~priority:Slack_read_limiter.Pause ~team_id ~app_id ~db
+                      ~current_config ~snapshot ~channel_id
                       ~audit:
                         (SO.audit_label ~order_id:(Some o.id)
                            ~unit_label:"pause")
@@ -353,8 +360,9 @@ let handle_text ~manager ~(route : Slack_thread_route.t) ~user ~ts text =
           in
           let answer () =
             let+ () =
-              post_receipt ~manager ?order:(order_of_outcome outcome)
-                ~channel_id:route.channel ~thread_ts:route.root
+              post_receipt ~manager ~team_id:route.team ~app_id:route.app
+                ?order:(order_of_outcome outcome) ~channel_id:route.channel
+                ~thread_ts:route.root
                 (receipt ~display_no:n ~by:user outcome)
             in
             true

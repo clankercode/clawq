@@ -247,6 +247,8 @@ let cmd_pause db ~now (o : T.order) =
               receipt (Pause.Paused { order = after; in_flight })))
 
 let cmd_resume db ~config ?http ~now (o : T.order) =
+  if http = None && Lwt.get Slack_transport.key = None then
+    ignore (Slack_standing_order_slack.ensure_limiter ());
   let n = T.display_name o in
   let not_resumed reason =
     Printf.sprintf "Not resumed: %s." (Render.reason_text reason)

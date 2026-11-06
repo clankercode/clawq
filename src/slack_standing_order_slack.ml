@@ -12,6 +12,90 @@ type http =
   params:(string * Yojson.Safe.t) list ->
   (int * string) Lwt.t
 
+type response = {
+  status : int;
+  headers : (string * string) list;
+  body : string;
+}
+
+type http_response =
+  verb:string ->
+  token:string ->
+  method_:string ->
+  params:(string * Yojson.Safe.t) list ->
+  response Lwt.t
+
+let configured_limiter : Slack_read_limiter.t option ref = ref None
+let configure_limiter limiter = configured_limiter := limiter
+
+let ensure_limiter () =
+  match !configured_limiter with
+  | Some limiter -> limiter
+  | None ->
+      let limiter = Slack_read_limiter.create () in
+      configure_limiter (Some limiter);
+      limiter
+
+(* Explicit fixtures can opt out while every production factory gets the
+   process dependency, including management sends without a worker context. *)
+let choose_limiter ?limiter ~fixture () =
+  match (limiter, !configured_limiter) with
+  | Some limiter, _ | None, Some limiter -> Some limiter
+  | None, None when fixture || Lwt.get Slack_transport.key <> None -> None
+  | None, None -> Some (ensure_limiter ())
+
+let retry_after_seconds headers =
+  let values =
+    List.filter_map
+      (fun (name, value) ->
+        if String.lowercase_ascii name = "retry-after" then
+          match float_of_string_opt (String.trim value) with
+          | Some n when Float.is_finite n && n >= 0. -> Some n
+          | _ -> None
+        else None)
+      headers
+  in
+  match values with [] -> None | n :: rest -> Some (List.fold_left max n rest)
+
+let retry_delay headers =
+  Option.value (retry_after_seconds headers) ~default:60.
+
+(* Identity comes from a persisted order, or the verified setup route before
+   pending insertion. Unknown peer scope shares a conservative process bucket. *)
+let installation ~db ~(snapshot : Access_snapshot.t) ?team_id ?app_id () =
+  match (team_id, app_id) with
+  | Some team, Some app -> team ^ ":" ^ app
+  | _ ->
+      let identity =
+        Option.bind snapshot.standing_order (fun order ->
+            try
+              let stmt =
+                Sqlite3.prepare db
+                  "SELECT team_id,api_app_id FROM slack_standing_orders WHERE \
+                   id=?"
+              in
+              Fun.protect
+                ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+                (fun () ->
+                  ignore
+                    (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT order.order_id));
+                  match Sqlite3.step stmt with
+                  | Sqlite3.Rc.ROW ->
+                      Some
+                        (Sql_util.text_column stmt 0
+                        ^ ":"
+                        ^ Sql_util.text_column stmt 1)
+                  | _ -> None)
+            with _ -> None)
+      in
+      Option.value identity ~default:"unbound"
+
+let method_key ~installation method_ = installation ^ ":" ^ method_
+
+let produces_message = function
+  | "chat.postMessage" | "files.completeUploadExternal" -> true
+  | _ -> false
+
 type error =
   | Rate_limited
   | Http_status of int
@@ -65,52 +149,79 @@ let query_value = function
 (* Http_client's optional HAR capture includes bodies and returned upload
    capabilities. Standing orders must never enter that path. Keep its timeout
    and user-agent conventions, with a single socket request and no capture. *)
+let perform request =
+  Http_client.labeled_timeout ~label:"standing_order_slack"
+    !Http_client.default_timeout_s (fun () ->
+      let* response, stream = request () in
+      let+ body = Cohttp_lwt.Body.to_string stream in
+      {
+        status = Cohttp.Response.status response |> Cohttp.Code.code_of_status;
+        headers = Cohttp.Response.headers response |> Cohttp.Header.to_list;
+        body;
+      })
+
+let headers values =
+  Http_client.ensure_user_agent values |> Cohttp.Header.of_list
+
+let api_get ~uri ~headers:values =
+  perform (fun () ->
+      Cohttp_lwt_unix.Client.get ~headers:(headers values) (Uri.of_string uri))
+
+let api_post ~uri ~headers:values ~body =
+  perform (fun () ->
+      Cohttp_lwt_unix.Client.post
+        ~headers:(headers (("Content-Type", "application/json") :: values))
+        ~body:(Cohttp_lwt.Body.of_string body)
+        (Uri.of_string uri))
+
 let api_transport : Slack_transport.t =
-  let perform request =
-    Http_client.labeled_timeout ~label:"standing_order_slack"
-      !Http_client.default_timeout_s (fun () ->
-        let* response, stream = request () in
-        let+ body = Cohttp_lwt.Body.to_string stream in
-        (Cohttp.Response.status response |> Cohttp.Code.code_of_status, body))
-  in
-  let headers values =
-    Http_client.ensure_user_agent values |> Cohttp.Header.of_list
-  in
   {
     get =
-      (fun ~uri ~headers:values ->
-        perform (fun () ->
-            Cohttp_lwt_unix.Client.get ~headers:(headers values)
-              (Uri.of_string uri)));
+      (fun ~uri ~headers ->
+        let+ r = api_get ~uri ~headers in
+        (r.status, r.body));
     post =
-      (fun ~uri ~headers:values ~body ->
-        perform (fun () ->
-            Cohttp_lwt_unix.Client.post
-              ~headers:
-                (headers (("Content-Type", "application/json") :: values))
-              ~body:(Cohttp_lwt.Body.of_string body)
-              (Uri.of_string uri)));
+      (fun ~uri ~headers ~body ->
+        let+ r = api_post ~uri ~headers ~body in
+        (r.status, r.body));
   }
+
+let adapt_http (http : http) : http_response =
+ fun ~verb ~token ~method_ ~params ->
+  let+ status, body = http ~verb ~token ~method_ ~params in
+  { status; headers = []; body }
+
+let default_http_response : http_response =
+ fun ~verb ~token ~method_ ~params ->
+  let uri =
+    match verb with
+    | "GET" ->
+        Uri.make ~scheme:"https" ~host:"slack.com" ~path:("/api/" ^ method_)
+          ~query:(List.map (fun (k, v) -> (k, [ query_value v ])) params)
+          ()
+        |> Uri.to_string
+    | _ -> api_uri method_
+  in
+  let body = Yojson.Safe.to_string (`Assoc params) in
+  match Lwt.get Slack_transport.key with
+  | Some transport ->
+      let* status, body =
+        match verb with
+        | "GET" -> transport.get ~uri ~headers:(auth_headers token)
+        | "POST" -> transport.post ~uri ~headers:(auth_headers token) ~body
+        | _ -> Lwt.fail_with "unsupported Slack verb"
+      in
+      Lwt.return { status; headers = []; body }
+  | None -> (
+      match verb with
+      | "GET" -> api_get ~uri ~headers:(auth_headers token)
+      | "POST" -> api_post ~uri ~headers:(auth_headers token) ~body
+      | _ -> Lwt.fail_with "unsupported Slack verb")
 
 let default_http : http =
  fun ~verb ~token ~method_ ~params ->
-  (* Preserve Slack_transport's Lwt-local fixture injection. *)
-  let transport =
-    Option.value (Lwt.get Slack_transport.key) ~default:api_transport
-  in
-  match verb with
-  | "GET" ->
-      let query = List.map (fun (k, v) -> (k, [ query_value v ])) params in
-      let uri =
-        Uri.make ~scheme:"https" ~host:"slack.com" ~path:("/api/" ^ method_)
-          ~query ()
-        |> Uri.to_string
-      in
-      transport.get ~uri ~headers:(auth_headers token)
-  | "POST" ->
-      transport.post ~uri:(api_uri method_) ~headers:(auth_headers token)
-        ~body:(Yojson.Safe.to_string (`Assoc params))
-  | other -> Lwt.fail_with ("unsupported Slack verb " ^ other)
+  let+ r = default_http_response ~verb ~token ~method_ ~params in
+  (r.status, r.body)
 
 let access_key ~channel_id = "slack:" ^ channel_id
 
@@ -299,39 +410,71 @@ let channel_params_allowed ~channel_id method_ params =
       | _ -> true)
     params
 
-let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit
-    ?(http = default_http) ?(limit = fun () -> Lwt.return_unit)
+let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit ?http
+    ?http_response ?limiter ?team_id ?app_id
+    ?(priority = Slack_read_limiter.Live) ?(limit = fun () -> Lwt.return_unit)
     ?(before_send = fun () -> Ok ()) ?(capability_fence = false) () : call =
- fun method_ params ->
-  let permitted =
-    match scope with
-    | Standing_order -> methods
-    | Peer_lookup -> [ ("users.info", "GET") ]
+  let http =
+    match (http, http_response) with
+    | Some _, Some _ ->
+        invalid_arg "standing-order HTTP fixtures are mutually exclusive"
+    | Some http, None -> adapt_http http
+    | None, Some http -> http
+    | None, None -> default_http_response
   in
-  match List.assoc_opt method_ permitted with
-  | None -> Lwt.return (Error (Method_not_permitted method_))
-  | Some _ when not (channel_params_allowed ~channel_id method_ params) ->
-      Lwt.return (Error Channel_denied)
-  | Some verb ->
-      Lwt.catch
-        (fun () ->
-          let* () = limit () in
-          match
-            preflight ~scope ~capability_fence ~db ~cfg:(current_config ())
-              ~snapshot ~channel_id ~audit method_ verb
-          with
-          | Error _ as denied -> Lwt.return denied
-          | Ok token -> (
-              match before_send () with
-              | Error error -> Lwt.return (Error error)
-              | Ok () ->
-                  let* status, body = http ~verb ~token ~method_ ~params in
-                  Lwt.return (decode status body)))
-        (function
-          | Lwt.Canceled -> Lwt.fail Lwt.Canceled
-          | _ ->
-              Logs.debug (fun m -> m "standing-order Slack transport failed");
-              Lwt.return (Error Transport))
+  let limiter =
+    choose_limiter ?limiter ~fixture:(http != default_http_response) ()
+  in
+  let installation = installation ~db ~snapshot ?team_id ?app_id () in
+  fun method_ params ->
+    let permitted =
+      match scope with
+      | Standing_order -> methods
+      | Peer_lookup -> [ ("users.info", "GET") ]
+    in
+    match List.assoc_opt method_ permitted with
+    | None -> Lwt.return (Error (Method_not_permitted method_))
+    | Some _ when not (channel_params_allowed ~channel_id method_ params) ->
+        Lwt.return (Error Channel_denied)
+    | Some verb ->
+        Lwt.catch
+          (fun () ->
+            let* () = limit () in
+            let key = method_key ~installation method_ in
+            let* () =
+              match limiter with
+              | None -> Lwt.return_unit
+              | Some limiter ->
+                  Slack_read_limiter.before_call limiter ~key ~priority
+                    ?channel:
+                      (if produces_message method_ then Some channel_id
+                       else None)
+                    ()
+            in
+            match
+              preflight ~scope ~capability_fence ~db ~cfg:(current_config ())
+                ~snapshot ~channel_id ~audit method_ verb
+            with
+            | Error _ as denied -> Lwt.return denied
+            | Ok token -> (
+                match before_send () with
+                | Error error -> Lwt.return (Error error)
+                | Ok () ->
+                    let* response = http ~verb ~token ~method_ ~params in
+                    let result = decode response.status response.body in
+                    (match (result, limiter) with
+                    | Error Rate_limited, Some limiter ->
+                        Slack_read_limiter.note_retry_after limiter ~key
+                          (if response.status = 429 then
+                             retry_delay response.headers
+                           else 60.)
+                    | _ -> ());
+                    Lwt.return result))
+          (function
+            | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+            | _ ->
+                Logs.debug (fun m -> m "standing-order Slack transport failed");
+                Lwt.return (Error Transport))
 
 let make = make_scoped ~scope:Standing_order
 let make_peer_lookup = make_scoped ~scope:Peer_lookup

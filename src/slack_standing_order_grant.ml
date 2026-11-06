@@ -596,8 +596,8 @@ let tracking_call (call : SO.call) method_ params =
       call method_ params
   | _ -> Lwt.return (Error (SO.Method_not_permitted method_))
 
-let evaluate ~db ~current_config ?http ?limit ?now ~stage ~unit_label
-    (s : subject) =
+let evaluate ~db ~current_config ?http ?http_response ?limiter ?priority ?limit
+    ?now ~stage ~unit_label (s : subject) =
   let now = match now with Some t -> t | None -> Store.now () in
   let run () =
     let cfg : Runtime_config.t = current_config () in
@@ -620,7 +620,8 @@ let evaluate ~db ~current_config ?http ?limit ?now ~stage ~unit_label
               SO.make ~capability_fence:true ~db ~current_config ~snapshot
                 ~channel_id:s.channel_id
                 ~audit:(SO.audit_label ~order_id:(Some s.order_id) ~unit_label)
-                ?http ?limit ()
+                ?http ?http_response ?limiter ?priority ~team_id:s.team_id
+                ~app_id:s.api_app_id ?limit ()
             in
             let call =
               match stage with Track _ -> tracking_call call | _ -> call

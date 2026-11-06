@@ -188,7 +188,7 @@ let capabilities_allowed (config : Runtime_config.t) ~channel_id =
         | Tool_authz.Denied _ -> false)
       Grant.capability_names
 
-let post_once ~(ctx : Ctx.t) ~db ~manager ?http ?fire_id ?period
+let post_once ~(ctx : Ctx.t) ~db ~manager ?http ?http_response ?fire_id ?period
     (order : T.order) cause =
   init db;
   (* Reload the immutable management route and grantor from persistence. *)
@@ -280,11 +280,11 @@ let post_once ~(ctx : Ctx.t) ~db ~manager ?http ?fire_id ?period
                       ignore (fence ())
                 in
                 let call =
-                  SO.make ~db ~current_config ~snapshot
+                  SO.make ?limiter:ctx.Ctx.limiter ~db ~current_config ~snapshot
                     ~channel_id:o.management_channel_id
                     ~audit:
                       (SO.audit_label ~order_id:(Some o.id) ~unit_label:"report")
-                    ?http ~limit ~before_send ()
+                    ?http ?http_response ~limit ~before_send ()
                 in
                 let* result =
                   call "chat.postMessage"

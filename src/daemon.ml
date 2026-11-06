@@ -8,6 +8,8 @@ let apply_runtime_config_reload =
 
 let run ~(config : Runtime_config.t) =
   Daemon_logging.install ();
+  let standing_order_limiter = Slack_read_limiter.create () in
+  Slack_standing_order_slack.configure_limiter (Some standing_order_limiter);
   (* B830: shrink major-heap headroom so burst peaks do not become permanent
      RSS (OCaml 5.1 never decommits major chunks). *)
   Gc_init.apply ();
@@ -857,7 +859,7 @@ let run ~(config : Runtime_config.t) =
   | None -> ()
   | Some db ->
       let ctx =
-        Slack_standing_order_exec.context
+        Slack_standing_order_exec.context ~limiter:standing_order_limiter
           ~accepting:(fun () ->
             (not !shutting_down) && (not !restarting)
             && Slack_thread_runs.accepting session_manager)
