@@ -27,7 +27,7 @@ let observe e root =
     (Test_slack_event_fixtures.envelope message)
 
 let test_paired_suppression () =
-  with_env (fun e ->
+  with_env ~fresh_binding:false (fun e ->
       let _, installation, _, _ = Rollout.read_anchor e.db in
       let original = Import_fixture.receipt e.order installation in
       let receipt =

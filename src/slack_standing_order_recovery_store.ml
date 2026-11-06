@@ -372,5 +372,38 @@ let status_json db ~order_id =
     with exn when Sql.is_db_error exn -> `Null
   in
   match Slack_standing_order_recovery_view.status_json db ~order_id with
-  | `Assoc fields -> `Assoc (("catchup_batches", batches) :: fields)
+  | `Assoc fields ->
+      let origin =
+        try
+          Sql.query db
+            "SELECT status FROM slack_order_coverage_origin WHERE order_id=?"
+            [ Sql.text order_id ]
+            (fun s -> `String (Sql_util.text_column s 0))
+          |> Sql.first
+          |> Option.value ~default:`Null
+        with _ -> `Null
+      in
+      `Assoc
+        (("coverage_origin", origin) :: ("catchup_batches", batches) :: fields)
   | json -> json
+
+let yield_owner db ~order_id ~owner ~now =
+  Sql.exec db
+    "UPDATE slack_standing_order_recovery_passes SET until=? WHERE order_id=? \
+     AND owner=? AND generation=? AND until>?"
+    (f now :: owner_params order_id owner now);
+  Sqlite3.changes db = 1
+
+let resume_owner db ~order_id ~owner ~now =
+  Sql.exec db
+    "UPDATE slack_standing_order_recovery_passes SET until=? WHERE order_id=? \
+     AND owner=? AND generation=? AND until=?"
+    Sql.
+      [
+        f (now +. 120.);
+        text order_id;
+        text owner.owner_id;
+        int owner.generation;
+        f now;
+      ];
+  Sqlite3.changes db = 1

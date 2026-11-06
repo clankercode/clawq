@@ -11,12 +11,24 @@ module Upload = Slack_standing_order_upload
 module P = Slack_standing_order_provenance
 module Ctx = Slack_standing_order_ctx
 module Sql = Slack_standing_order_sql
+module Recovery = Slack_standing_order_recovery_store
 
 type wait = Ctx.wait
 
 let default_wait = Ctx.default_wait
 
-exception Stop
+module Share = Slack_standing_order_share
+
+let scan = Share.scan
+let resolve_share = Share.resolve_share
+let rejected_before_share = Share.rejected_before_share
+
+type share_result = Share.share_result =
+  | Shared of string
+  | Proven_absent
+  | Ambiguous
+
+exception Stop = Slack_standing_order_share.Stop
 exception Tracking_refused of T.order * Grant.failure
 
 let current db fire_id =
@@ -58,7 +70,10 @@ let set_state ~ctx ~db ~lease ~fire_id state reason next_attempt_at =
 
 let dispatch_refused ~ctx ~db ~lease ~fire_id () =
   let r = current db fire_id in
-  (if r.fire.state = T.Uploading then
+  (if
+     r.fire.state = T.Uploading
+     && Recovery.relay_allowed db ~fire_id ~now:(ctx.Ctx.now ())
+   then
      (* The transport deliberately hides synchronous fence details. Recover the
        row refusal without yielding so cap reporting keeps its actual cause. *)
      let capped =
@@ -105,9 +120,21 @@ let refuse ~ctx ~db ~lease ~fire_id (f : Grant.failure) =
       set_state ~ctx ~db ~lease ~fire_id r.fire.state (Some reason)
         (Some (ctx.Ctx.now () +. 120.))
 
+module Validated_gaps = Ephemeron.K1.Make (struct
+  type t = Grant.validated
+
+  let equal = ( == )
+  let hash _ = 0
+end)
+
+let validated_gaps = Validated_gaps.create 8
+
 let evaluate ~ctx ~db ~manager ?http ?http_response ~lease
     (r : Store.fire_runtime) (order : T.order) =
   accepting ctx;
+  let gap =
+    try Some (Recovery.pass_token db r.fire.order_id) with _ -> None
+  in
   let* result =
     Grant.evaluate ?limiter:ctx.Ctx.limiter ~db
       ~current_config:(fun () -> Session.get_config manager)
@@ -120,7 +147,9 @@ let evaluate ~ctx ~db ~manager ?http ?http_response ~lease
   in
   accepting ctx;
   match result with
-  | Ok v -> Lwt.return v
+  | Ok v ->
+      Validated_gaps.replace validated_gaps v gap;
+      Lwt.return v
   | Error f ->
       refuse ~ctx ~db ~lease ~fire_id:r.fire.id f;
       raise Stop
@@ -132,7 +161,12 @@ let fence ~ctx ~db ~manager ~lease ~(v : Grant.validated)
   try
     accepting ctx;
     if Session.get_config manager != v.config then raise Stop;
+    (match Validated_gaps.find_opt validated_gaps v with
+    | Some (Some token) when Recovery.current_gap db token ~connected:true -> ()
+    | _ -> raise Stop);
     let r = current db prepared.fire.id in
+    if not (Recovery.relay_allowed db ~fire_id:r.fire.id ~now:(ctx.now ())) then
+      raise Stop;
     if
       (not (Store.valid_lease lease r (ctx.Ctx.now ())))
       || r.current_attempt <> prepared.current_attempt
@@ -160,82 +194,48 @@ let fence ~ctx ~db ~manager ~lease ~(v : Grant.validated)
      with
     | Ok _ -> ()
     | Error _ -> raise Stop);
+    let authorize () =
+      ctx.accepting ()
+      && Session.get_config manager == v.config
+      && (match Validated_gaps.find_opt validated_gaps v with
+        | Some (Some token) -> Recovery.current_gap db token ~connected:true
+        | _ -> false)
+      && Recovery.relay_allowed db ~fire_id:r.fire.id ~now:(ctx.now ())
+      && Store.valid_lease lease (current db r.fire.id) (ctx.now ())
+      && Result.is_ok
+           (Grant.stage_rows db ~now:(ctx.now ())
+              ~stage:
+                (Grant.Fire { fire_epoch = r.fire.epoch; fire_id = r.fire.id })
+              (Grant.subject_of_order order))
+      && Option.fold ~none:false
+           ~some:(fun sc ->
+             Result.is_ok
+               (Grant.grantor_policy ~db sc (Grant.subject_of_order order)))
+           v.config.channels.slack
+    in
     (if reserve then
        match
-         Store.reserve_dispatch db ~fire_id:r.fire.id ~lease
-           ~repost:(r.current_attempt = 1) ~now:(ctx.Ctx.now ())
+         Store.reserve_dispatch ~check:authorize
+           ~on_reserved:(fun () ->
+             let gap = Recovery.pass_token db r.fire.order_id in
+             Sql.exec db
+               "INSERT OR REPLACE INTO slack_order_dispatch_admission \
+                VALUES(?,?,?)"
+               Sql.
+                 [
+                   text r.fire.id; int r.current_attempt; int gap.gap_generation;
+                 ])
+           db ~fire_id:r.fire.id ~lease ~repost:(r.current_attempt = 1)
+           ~now:(ctx.Ctx.now ())
        with
+       | Ok true -> ()
+       | _ -> raise Stop
+     else
+       match Sql.in_tx db ~on_error:Fun.id (fun () -> Ok (authorize ())) with
        | Ok true -> ()
        | _ -> raise Stop);
     Ok ()
   with _ -> Error SO.Dispatch_refused
-
-let scan ~ctx ~(call : SO.call) ~(order : T.order) ~(r : Store.fire_runtime)
-    ~nonce ~oldest =
-  let a = attempt r in
-  let exclude_relay_ts =
-    List.filter_map
-      (fun (old : Store.relay_attempt) ->
-        if old.attempt_no <> a.attempt_no then old.relay_ts else None)
-      r.attempts
-  in
-  let prior_files =
-    List.concat_map
-      (fun (old : Store.relay_attempt) ->
-        if old.attempt_no <> a.attempt_no then old.uploaded_file_ids else [])
-      r.attempts
-  in
-  let latest = Printf.sprintf "%.6f" (ctx.Ctx.now ()) in
-  let rec page remaining seen cursor found =
-    let* result =
-      call "conversations.history"
-        ([
-           ("channel", `String order.channel_id);
-           ("oldest", `String oldest);
-           ("latest", `String latest);
-           ("inclusive", `Bool true);
-           ("limit", `Int 200);
-         ]
-        @ if cursor = "" then [] else [ ("cursor", `String cursor) ])
-    in
-    accepting ctx;
-    match result with
-    | Error _ -> Lwt.return (Error ())
-    | Ok json -> (
-        match P.get "messages" json with
-        | `List messages when List.length messages <= 200 -> (
-            let found =
-              List.fold_left
-                (fun acc m ->
-                  match
-                    Relay.adopt ~order ~nonce ~attempt:a ~exclude_relay_ts m
-                  with
-                  | Some ts ->
-                      let ids = Relay.own_files m in
-                      if
-                        a.attempt_no = 1 && a.uploaded_file_ids = []
-                        && List.exists (fun id -> List.mem id prior_files) ids
-                      then acc
-                      else (ts, ids) :: acc
-                  | None -> acc)
-                found messages
-            in
-            let cursor =
-              P.get "response_metadata" json |> P.get "next_cursor"
-            in
-            match (P.get "has_more" json, cursor) with
-            | (`Bool false | `Null), `String "" | `Bool false, `Null -> (
-                match List.sort_uniq compare found with
-                | [] -> Lwt.return (Ok None)
-                | [ one ] -> Lwt.return (Ok (Some one))
-                | _ -> Lwt.return (Error ()))
-            | (`Bool true | `Bool false | `Null), `String next
-              when next <> "" && remaining > 1 && not (List.mem next seen) ->
-                page (remaining - 1) (next :: seen) next found
-            | _ -> Lwt.return (Error ()))
-        | _ -> Lwt.return (Error ()))
-  in
-  page 5 [] "" []
 
 let oldest db (r : Store.fire_runtime) =
   match
@@ -272,122 +272,6 @@ let record_posted ~ctx ~db ~lease ~fire_id ~ts ~ids =
           };
         next_attempt_at = None;
       }
-
-type share_result = Shared of string | Proven_absent | Ambiguous
-
-(* Only an explicit argument rejection is known to precede sharing. Transport
-   failures, 5xx and even successful empty completions are not such evidence. *)
-let rejected_before_share = function
-  | Error (SO.Slack_error "invalid_arguments") -> true
-  | _ -> false
-
-let resolve_share ~ctx ?(observe = fun () -> None) ~call ~(order : T.order)
-    ~attempt_no (initial : Store.fire_runtime) =
-  let deadline = ctx.Ctx.now () +. 120. in
-  let fresh () = Option.value (observe ()) ~default:initial in
-  let get_attempt r =
-    Option.value
-      (Store.attempt r attempt_no)
-      ~default:(Store.empty_attempt attempt_no)
-  in
-  let bounded method_ params =
-    accepting ctx;
-    if ctx.Ctx.now () >= deadline then raise Stop;
-    let pending = call method_ params in
-    let* result =
-      if not (Lwt.is_sleeping pending) then pending
-      else
-        Lwt.pick
-          [
-            pending;
-            (let* () = ctx.Ctx.wait ~seconds:(deadline -. ctx.Ctx.now ()) in
-             Lwt.return (Error SO.Transport));
-          ]
-    in
-    accepting ctx;
-    Lwt.return result
-  in
-  let absent_file id =
-    let* result = bounded "files.info" [ ("file", `String id) ] in
-    match result with
-    | Error _ -> Lwt.return (None, false)
-    | Ok json ->
-        let file = P.get "file" json in
-        if P.field "id" file <> id then Lwt.return (None, false)
-        else
-          let empty visibility =
-            match P.get "shares" file |> P.get visibility with
-            | `Assoc fields -> (
-                match List.assoc_opt order.channel_id fields with
-                | None | Some (`List []) -> true
-                | _ -> false)
-            | _ -> false
-          in
-          Lwt.return
-            ( Relay.share_ts ~channel_id:order.channel_id file,
-              empty "public" && empty "private" )
-  in
-  let rec poll step =
-    let r = fresh () in
-    let a = get_attempt r in
-    match a.relay_ts with
-    | Some ts -> Lwt.return (Shared ts)
-    | None when ctx.Ctx.now () >= deadline -> Lwt.return Ambiguous
-    | None -> (
-        let rec files absent = function
-          | [] -> Lwt.return (None, absent)
-          | id :: rest -> (
-              let* ts, empty = absent_file id in
-              match ts with
-              | Some _ -> Lwt.return (ts, false)
-              | None -> files (absent && empty) rest)
-        in
-        let* ts, all_absent =
-          files (a.uploaded_file_ids <> []) a.uploaded_file_ids
-        in
-        match ts with
-        | Some ts -> Lwt.return (Shared ts)
-        | None -> (
-            let* history =
-              match (r.nonce, a.dispatched_at) with
-              | Some nonce, Some started ->
-                  scan ~ctx ~call:bounded ~order
-                    ~r:{ r with current_attempt = attempt_no }
-                    ~nonce
-                    ~oldest:(Printf.sprintf "%.6f" started)
-              | _ -> Lwt.return (Error ())
-            in
-            match history with
-            | Ok (Some (ts, _)) -> Lwt.return (Shared ts)
-            | Ok None when all_absent && a.complete_rejected_before_share ->
-                Lwt.return Proven_absent
-            | _ -> (
-                let r = fresh () in
-                match (get_attempt r).relay_ts with
-                | Some ts -> Lwt.return (Shared ts)
-                | None ->
-                    let remaining = deadline -. ctx.Ctx.now () in
-                    if remaining <= 0. then Lwt.return Ambiguous
-                    else
-                      let seconds =
-                        min remaining
-                          (match step with
-                          | 0 -> 1.
-                          | 1 -> 2.
-                          | 2 -> 5.
-                          | _ -> 10.)
-                      in
-                      let* () = ctx.Ctx.wait ~seconds in
-                      accepting ctx;
-                      poll (step + 1))))
-  in
-  Lwt.catch
-    (fun () ->
-      match (get_attempt initial).relay_ts with
-      | Some ts -> Lwt.return (Shared ts)
-      | None -> poll 0)
-    (function
-      | Lwt.Canceled -> Lwt.fail Lwt.Canceled | _ -> Lwt.return Ambiguous)
 
 let deliver ~ctx ~db ~manager ?http ?http_response ?upload_http ~lease
     (initial : Store.fire_runtime) (payload : P.verified) =
@@ -516,7 +400,10 @@ let deliver ~ctx ~db ~manager ?http ?http_response ?upload_http ~lease
                     SO.make ?limiter:ctx.Ctx.limiter ~capability_fence:true ~db
                       ~current_config:(fun () -> Session.get_config manager)
                       ~snapshot:v.snapshot ~channel_id:order.channel_id
-                      ~audit:"standing_order:upload_url" ?http ?http_response
+                      ~audit:
+                        (SO.audit_label ~order_id:(Some order.id)
+                           ~unit_label:("fire:" ^ fire_id ^ ":upload_url"))
+                      ?http ?http_response
                       ~limit:(limit ~ctx ~channel_id:order.channel_id)
                       ~before_send:
                         (fence ~ctx ~db ~manager ~lease ~v ~prepared:r
@@ -557,7 +444,10 @@ let deliver ~ctx ~db ~manager ?http ?http_response ?upload_http ~lease
                     Upload.post ?limiter:ctx.Ctx.limiter ~db
                       ~current_config:(fun () -> Session.get_config manager)
                       ~snapshot:v.snapshot ~channel_id:order.channel_id
-                      ~audit:"standing_order:upload" ?http:upload_http
+                      ~audit:
+                        (SO.audit_label ~order_id:(Some order.id)
+                           ~unit_label:("fire:" ^ fire_id ^ ":upload"))
+                      ?http:upload_http
                       ~limit:(limit ~ctx ~channel_id:order.channel_id)
                       ~before_send:
                         (fence ~ctx ~db ~manager ~lease ~v ~prepared:r
@@ -588,7 +478,10 @@ let deliver ~ctx ~db ~manager ?http ?http_response ?upload_http ~lease
               SO.make ?limiter:ctx.Ctx.limiter ~capability_fence:true ~db
                 ~current_config:(fun () -> Session.get_config manager)
                 ~snapshot:v.snapshot ~channel_id:order.channel_id
-                ~audit:"standing_order:complete" ?http ?http_response
+                ~audit:
+                  (SO.audit_label ~order_id:(Some order.id)
+                     ~unit_label:("fire:" ^ fire_id ^ ":complete"))
+                ?http ?http_response
                 ~limit:(limit ~ctx ~channel_id:order.channel_id)
                 ~before_send ()
             in

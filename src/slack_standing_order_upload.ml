@@ -37,7 +37,8 @@ let post ~db ~current_config ~snapshot ~channel_id ~audit ?http ?limiter
     let* () = limit () in
     match limiter with
     | None -> Lwt.return_unit
-    | Some limiter -> Slack_read_limiter.wrap limiter ~key ~priority ()
+    | Some limiter ->
+        SO.guard_wait (Slack_read_limiter.wrap limiter ~key ~priority ())
   in
   let http request =
     let+ response = (Option.value http ~default:default_http) request in

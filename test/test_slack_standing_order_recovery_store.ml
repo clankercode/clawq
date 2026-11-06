@@ -793,8 +793,14 @@ let test_close_failure_shared_handles ~identity_read_failure ~cold_closer () =
         (R.verify_gap b ~token:next ~owner ~through:c.latest ~now:(S.now +. 600.));
       List.iter
         (fun db ->
-          check "new verified generation admits all local handles" true
+          check "pre-gap undispatched candidate requires catch-up notice" false
             (R.relay_allowed db ~fire_id:live.id ~now:(S.now +. 600.)))
+        [ a; b ];
+      let fresh_live = fire b o "1700000601.1" "RNEW" "1700000601" in
+      List.iter
+        (fun db ->
+          check "new covered live candidate admitted on both handles" true
+            (R.relay_allowed db ~fire_id:fresh_live.id ~now:(S.now +. 600.)))
         [ a; b ])
 
 let suite =

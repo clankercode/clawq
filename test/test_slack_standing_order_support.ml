@@ -85,13 +85,13 @@ let relay_action ?(instruction = "Update the project docs.") ?(target = claude)
     ?(when_no = T.Relay_notes) () =
   T.Relay_to_app_mention { target; instruction; when_no_transcript = when_no }
 
-let seed db ?(team = "T123") ?(channel = "C123") ?(grantor = "U123")
-    ?(target = claude) ?(state = T.Active) () : T.order =
+let seed ?verified_identity db ?(team = "T123") ?(channel = "C123")
+    ?(grantor = "U123") ?(target = claude) ?(state = T.Active) () : T.order =
   let order_id = Store.new_id ~prefix:"so" in
   let pending =
     match
-      Store.insert_pending db ~id:order_id ~team_id:team ~api_app_id:"A123"
-        ~channel_id:channel ~grantor_user_id:grantor
+      Store.insert_pending ?verified_identity db ~id:order_id ~team_id:team
+        ~api_app_id:"A123" ~channel_id:channel ~grantor_user_id:grantor
         ~action:(relay_action ~target ()) ~management_thread_ts:"100.000001"
         ~now ()
     with

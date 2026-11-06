@@ -181,13 +181,35 @@ let collect ~db ~(order : T.order) ~oldest ~latest ~parent messages =
         && P.same_channel order.channel_id message
       then
         match Pause.parse_command (P.field "text" message) with
-        | Some n when n = order.display_no ->
+        | Some n when n = order.display_no -> (
             let thread_ts = Option.value parent ~default:ts in
-            ignore (Journal.remember db order { ts; thread_ts; user_id = user })
+            let applied =
+              Sql.int_query db
+                "SELECT count(*) FROM slack_order_ingress WHERE installation=? \
+                 AND team=? AND app=? AND channel=? AND identity=? AND pause=1 \
+                 AND applied=1"
+                (Slack_standing_order_admission.scope db ~team:order.team_id
+                   ~app:order.api_app_id ~channel:order.channel_id
+                @ [ Sql.text ("message:" ^ ts) ])
+              = 1
+            in
+            if not applied then
+              let status =
+                Journal.remember db order { ts; thread_ts; user_id = user }
+              in
+              if status = "pending" && S.maintenance db order.id then
+                match
+                  R.close_gap db ~team_id:order.team_id ~app_id:order.api_app_id
+                    ~channel_id:order.channel_id ~cause:"missed_pause"
+                    ~now:(Store.now ())
+                with
+                | Ok token -> ignore (R.mark_connected db ~token)
+                | Error e -> failwith e)
         | _ -> ())
     messages
 
-let sweep_internal ~db ~manager ~ctx ~owner ~(order : T.order) ~snapshot ~call =
+let sweep_internal ~page_budget ~wrap ~db ~manager ~ctx ~owner
+    ~(order : T.order) ~snapshot ~call =
   let config = Session.get_config manager in
   let replay_check = pause_fence ~ctx ~db ~manager ~config ~owner ~order in
   protect ~check:replay_check ~db ~order ~owner ~unit:"pause" (fun () ->
@@ -203,16 +225,19 @@ let sweep_internal ~db ~manager ~ctx ~owner ~(order : T.order) ~snapshot ~call =
           ~code:"pause_incomplete" ~resume_unit:"pause";
         let check = active_fence ~ctx ~db ~manager ~config ~owner order in
         let call =
-          scoped ~check ~priority:Slack_read_limiter.Maintenance call
+          scoped ~check ~priority:Slack_read_limiter.Maintenance (wrap call)
         in
         match R.load_coverage db ~order_id:order.T.id with
         | None -> Lwt.return (Error Lease_lost)
         | Some coverage -> (
             let now = Option.get (float_of_string_opt coverage.latest) in
             let oldest =
-              timestamp
-                (max (now -. 172800.)
-                   (Option.value coverage.last_success ~default:(now -. 172800.)))
+              if S.maintenance db order.id then coverage.oldest
+              else
+                timestamp
+                  (max (now -. 172800.)
+                     (Option.value coverage.last_success
+                        ~default:(now -. 172800.)))
             in
             let history_done =
               S.done_unit db order coverage "pause" "history"
@@ -262,12 +287,17 @@ let sweep_internal ~db ~manager ~ctx ~owner ~(order : T.order) ~snapshot ~call =
                 let parents =
                   List.filter_map
                     (fun m ->
-                      match P.get "reply_count" m with
-                      | `Int n when n > 0 -> Some (P.field "ts" m)
-                      | _ -> None)
+                      let root, needed =
+                        S.parent_metadata db order coverage m
+                      in
+                      if needed then Some root else None)
                     messages
                 in
-                if not (add_threads (parents @ S.threads db order)) then
+                let known =
+                  S.threads db order
+                  |> List.filter (S.known_thread_needed db order coverage)
+                in
+                if not (add_threads (parents @ known)) then
                   Lwt.return (Error Lease_lost)
                 else if not (save { coverage with R.pause_cursor = next }) then
                   Lwt.return (Error Lease_lost)
@@ -282,13 +312,17 @@ let sweep_internal ~db ~manager ~ctx ~owner ~(order : T.order) ~snapshot ~call =
             let*! () =
               if history_done then ok
               else
-                history 20
+                history page_budget
                   (if coverage.pause_cursor = "" then []
                    else [ coverage.pause_cursor ])
                   coverage.pause_cursor
             in
             let*! () =
-              if add_threads (S.parents db order coverage @ S.threads db order)
+              if
+                add_threads
+                  (S.parents db order coverage
+                  @ (S.threads db order
+                    |> List.filter (S.known_thread_needed db order coverage)))
               then ok
               else Lwt.return (Error Lease_lost)
             in
@@ -328,7 +362,9 @@ let sweep_internal ~db ~manager ~ctx ~owner ~(order : T.order) ~snapshot ~call =
                     (R.save_thread db ~order_id:order.id ~owner ~root_ts:root
                        ~cursor:next ~completed:(next = "") ~now:(ctx.now ()))
                 then Lwt.return (Error Lease_lost)
-                else if next = "" then ok
+                else if next = "" then (
+                  S.finish_thread db order coverage root;
+                  ok)
                 else thread root (remaining - 1) (next :: seen) next)
             in
             let rec threads = function
@@ -336,7 +372,7 @@ let sweep_internal ~db ~manager ~ctx ~owner ~(order : T.order) ~snapshot ~call =
               | (_, _, true) :: rest -> threads rest
               | (root, cursor, false) :: rest ->
                   let*! () =
-                    thread root 20
+                    thread root page_budget
                       (if cursor = "" then [] else [ cursor ])
                       cursor
                   in
@@ -478,16 +514,22 @@ let sweep ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
           call;
         }
       in
-      sweep_internal ~db ~manager ~ctx ~owner ~order ~snapshot:validated ~call
+      sweep_internal ~page_budget:20 ~wrap:Fun.id ~db ~manager ~ctx ~owner
+        ~order ~snapshot:validated ~call
   | Some _ ->
       Lwt.return (Error (Grant_failure (Grant.failure Grant.Identity_changed)))
 
-let sweep_with_grant ~db ~manager ~ctx ~owner ~(validated : Grant.validated)
-    ~order =
-  sweep_internal ~db ~manager ~ctx ~owner ~order ~snapshot:validated
-    ~call:validated.call
+let sweep_with_grant_wrapped ~page_budget ~wrap ~db ~manager ~ctx ~owner
+    ~(validated : Grant.validated) ~order =
+  sweep_internal ~page_budget ~wrap ~db ~manager ~ctx ~owner ~order
+    ~snapshot:validated ~call:validated.call
 
-let discover ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
+let sweep_with_grant ~db ~manager ~ctx ~owner ~validated ~order =
+  sweep_with_grant_wrapped ~page_budget:20 ~wrap:Fun.id ~db ~manager ~ctx ~owner
+    ~validated ~order
+
+let discover_wrapped ~page_budget ~wrap ~db ~manager ~ctx ~owner
+    ~(order : T.order) ~call =
   let config = Session.get_config manager in
   let check = active_fence ~ctx ~db ~manager ~config ~owner order in
   let result_check = pause_fence ~ctx ~db ~manager ~config ~owner ~order in
@@ -502,7 +544,9 @@ let discover ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
       in
       S.ensure_schema db;
       let validated_call = call in
-      let call = scoped ~check ~priority:Slack_read_limiter.Maintenance call in
+      let call =
+        scoped ~check ~priority:Slack_read_limiter.Maintenance (wrap call)
+      in
       match R.load_coverage db ~order_id:order.T.id with
       | None -> Lwt.return (Error Lease_lost)
       | Some _ when R.phase db order.id <> Some "history" ->
@@ -527,38 +571,85 @@ let discover ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
                   then ok
                   else Lwt.return (Error Lease_lost)
               | _ -> (
+                  Q.ensure_schema db;
                   Q.sync ~db order;
+                  let key = Q.key order root in
+                  if
+                    Sql.int_query db
+                      ("SELECT count(*) FROM slack_order_root_schedule WHERE "
+                     ^ Q.where)
+                      (Q.params key)
+                    = 0
+                  then Q.register ~db ~key ~metadata:"pinned_recovery_root";
                   Q.reopen_for_inspection ~db ~key:(Q.key order root)
                     ~now:(ctx.now ());
-                  let* result =
-                    Fetch.resolve_with_grant ~ctx:resolver_ctx ~db ~manager
-                      ~validated ~root order
-                  in
-                  match result with
-                  | Error Fetch.Lost_fence ->
-                      Lwt.return (Error (Root_failure Fetch.Lost_fence))
-                  | Error failure ->
-                      if result_check () = Ok () then
-                        record_failure db order ~owner root
-                          (Root_failure failure);
-                      Lwt.return (Error (Root_failure failure))
-                  | Ok _ when check () <> Ok () -> Lwt.return (Error Lease_lost)
-                  | Ok outcome ->
-                      let name =
-                        match outcome with
-                        | Fetch.Live _ -> "live"
-                        | Not_ready _ -> "not_ready"
-                        | Candidate _ -> "candidate"
-                        | Ineligible _ -> "ineligible"
-                        | Missing_exact_root -> "missing_exact_root"
-                        | Unavailable _ -> "unavailable"
-                        | No_notes _ -> "no_notes"
-                      in
-                      if
-                        S.complete_unit db ~order ~owner ~coverage ~kind:"root"
-                          ~unit:root ~outcome:name ~now:(ctx.now ())
-                      then ok
-                      else Lwt.return (Error Lease_lost))
+                  if not (Q.due ~db ~key:(Q.key order root) ~now:(ctx.now ()))
+                  then
+                    if
+                      Sql.int_query db
+                        "SELECT count(*) FROM slack_order_root_schedule WHERE \
+                         order_id=? AND root=? AND retry_at>?"
+                        Sql.
+                          [
+                            text order.id;
+                            text root;
+                            Sqlite3.Data.FLOAT (ctx.now ());
+                          ]
+                      > 0
+                    then
+                      Lwt.return
+                        (Error
+                           (Root_failure
+                              (Fetch.Incomplete
+                                 {
+                                   method_ = "conversations.history";
+                                   code = Pages.Store_failed;
+                                 })))
+                    else ok
+                  else
+                    let* result =
+                      Fetch.resolve_with_grant ~ctx:resolver_ctx ~db ~manager
+                        ~validated ~root order
+                    in
+                    match result with
+                    | Error Fetch.Lost_fence ->
+                        Lwt.return (Error (Root_failure Fetch.Lost_fence))
+                    | Error failure ->
+                        if result_check () = Ok () then
+                          record_failure db order ~owner root
+                            (Root_failure failure);
+                        Lwt.return (Error (Root_failure failure))
+                    | Ok _ when check () <> Ok () ->
+                        Lwt.return (Error Lease_lost)
+                    | Ok outcome ->
+                        Sql.exec db
+                          "UPDATE slack_order_root_schedule SET \
+                           next_probe_at=MIN(next_probe_at,CAST(? AS \
+                           REAL)+300) WHERE order_id=? AND epoch=? AND root=? \
+                           AND retry_at=0"
+                          Sql.
+                            [
+                              text coverage.latest;
+                              text order.id;
+                              int order.epoch;
+                              text root;
+                            ];
+                        let name =
+                          match outcome with
+                          | Fetch.Live _ -> "live"
+                          | Not_ready _ -> "not_ready"
+                          | Candidate _ -> "candidate"
+                          | Ineligible _ -> "ineligible"
+                          | Missing_exact_root -> "missing_exact_root"
+                          | Unavailable _ -> "unavailable"
+                          | No_notes _ -> "no_notes"
+                        in
+                        if
+                          S.complete_unit db ~order ~owner ~coverage
+                            ~kind:"root" ~unit:root ~outcome:name
+                            ~now:(ctx.now ())
+                        then ok
+                        else Lwt.return (Error Lease_lost))
           in
           let rec inspect_all = function
             | [] -> ok
@@ -630,7 +721,7 @@ let discover ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
               else history (remaining - 1) (next :: seen) next
           in
           let*! () =
-            history 20
+            history page_budget
               (if coverage.history_cursor = "" then []
                else [ coverage.history_cursor ])
               coverage.history_cursor
@@ -644,3 +735,7 @@ let discover ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
               ~code:"discovery_complete" ~resume_unit:"";
             ok)
           else Lwt.return (Error Lease_lost))
+
+let discover ~db ~manager ~ctx ~owner ~order ~call =
+  discover_wrapped ~page_budget:20 ~wrap:Fun.id ~db ~manager ~ctx ~owner ~order
+    ~call

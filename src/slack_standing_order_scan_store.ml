@@ -133,3 +133,96 @@ let previous_outcome db (order : T.order) root =
     Sql.[ text order.id; int order.epoch; text root ]
     (fun s -> Sql_util.text_column s 0)
   |> Sql.first
+
+let maintenance db order_id =
+  Sql.query db
+    "SELECT mode FROM slack_standing_order_recovery_passes WHERE order_id=?"
+    [ Sql.text order_id ]
+    (fun s -> Sql_util.text_column s 0)
+  = [ "maintenance" ]
+
+let parent_metadata db order coverage m =
+  let root = Slack_huddles.field "ts" m in
+  let count =
+    match Slack_huddles.get "reply_count" m with `Int n -> n | _ -> 0
+  in
+  let latest = Slack_huddles.field "latest_reply" m in
+  Sql.exec db
+    "INSERT OR REPLACE INTO slack_order_scan_units VALUES(?,?,?,?,?,?,?,?)"
+    (params db order coverage "parent_metadata" root
+    @ [ Sql.text (Printf.sprintf "%d:%s" count latest) ]);
+  let unchanged =
+    maintenance db order.T.id && count > 0 && latest <> ""
+    && Sql.int_query db
+         "SELECT count(*) FROM slack_order_thread_frontier WHERE order_id=? \
+          AND epoch=? AND root=? AND reply_count=? AND latest_reply=?"
+         Sql.
+           [ text order.id; int order.epoch; text root; int count; text latest ]
+       = 1
+  in
+  (root, count > 0 && not unchanged)
+
+let known_thread_needed db order coverage root =
+  match
+    Sql.query db
+      "SELECT outcome FROM slack_order_scan_units WHERE order_id=? AND epoch=? \
+       AND oldest=? AND latest=? AND gap=? AND kind='parent_metadata' AND \
+       unit=?"
+      ( params db order coverage "parent_metadata" root |> fun xs ->
+        List.filteri (fun i _ -> i <> 5) xs )
+      (fun s -> Sql_util.text_column s 0)
+  with
+  | [] -> true
+  | [ meta ] ->
+      let count, latest =
+        match String.split_on_char ':' meta with
+        | [ n; t ] -> (int_of_string n, t)
+        | _ -> (-1, "")
+      in
+      count > 0
+      && not
+           (maintenance db order.T.id && latest <> ""
+           && Sql.int_query db
+                "SELECT count(*) FROM slack_order_thread_frontier WHERE \
+                 order_id=? AND epoch=? AND root=? AND reply_count=? AND \
+                 latest_reply=?"
+                Sql.
+                  [
+                    text order.id;
+                    int order.epoch;
+                    text root;
+                    int count;
+                    text latest;
+                  ]
+              = 1)
+  | _ -> true
+
+let finish_thread db order coverage root =
+  let metadata =
+    Sql.query db
+      "SELECT outcome FROM slack_order_scan_units WHERE order_id=? AND epoch=? \
+       AND oldest=? AND latest=? AND gap=? AND kind='parent_metadata' AND \
+       unit=?"
+      ( params db order coverage "parent_metadata" root |> fun xs ->
+        List.filteri (fun i _ -> i <> 5) xs )
+      (fun s -> Sql_util.text_column s 0)
+  in
+  match metadata with
+  | [ meta ] -> (
+      match String.split_on_char ':' meta with
+      | [ n; latest ] ->
+          Sql.exec db
+            "INSERT INTO slack_order_thread_frontier VALUES(?,?,?,?,?,?) ON \
+             CONFLICT(order_id,epoch,root) DO UPDATE SET \
+             reply_count=excluded.reply_count,latest_reply=excluded.latest_reply,through=excluded.through"
+            Sql.
+              [
+                text order.T.id;
+                int order.epoch;
+                text root;
+                int (int_of_string n);
+                text latest;
+                text coverage.R.latest;
+              ]
+      | _ -> ())
+  | _ -> ()

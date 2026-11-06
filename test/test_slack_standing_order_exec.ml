@@ -585,6 +585,7 @@ let test_worker_drain () =
            (fun () ->
              E.start ~ctx:(W.context e c) ~db:e.db ~manager:e.manager ~http
                ~upload_http:raw ();
+             cover_order e.db e.order;
              seen e;
              ready e ();
              E.wake ();
@@ -706,7 +707,8 @@ let test_two_orders () =
       let target =
         { S.claude with T.user_id = "U456"; app_id = "A123"; bot_id = "BOWN" }
       in
-      let second = S.seed e.db ~target () in
+      let second = S.seed ~verified_identity:fixture_identity e.db ~target () in
+      cover_order e.db second;
       let card =
         Store.insert_card e.db ~kind:T.Pause_button ~order:second
           ~created_by:"U123" ~now:(Store.now ()) ()

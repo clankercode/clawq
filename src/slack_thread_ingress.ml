@@ -1,3 +1,7 @@
+let on_ingress_admit : (body:string -> unit) ref = ref (fun ~body:_ -> ())
+let on_ingress_applied : (body:string -> unit) ref = ref (fun ~body:_ -> ())
+let on_ingress_failure : (cause:string -> unit) ref = ref (fun ~cause:_ -> ())
+
 open Slack_api
 
 module Delivery_managers = Ephemeron.K1.Make (struct
@@ -19,8 +23,8 @@ let delivery_cache manager =
 
 (** Both signed HTTP and authenticated Socket Mode call this dispatcher. The
     transport preserves the outer installation identity, including for stops. *)
-let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
-    ?run_update_command ?event_limiter body =
+let handle_event_inner ~handle_message ~config:_ ~session_manager
+    ?send_message_fn ?run_update_command ?event_limiter body =
   let open Lwt.Syntax in
   let open Slack_huddles in
   let event_dedup = delivery_cache session_manager in
@@ -334,6 +338,22 @@ let handle_event ~handle_message ~config:_ ~session_manager ?send_message_fn
         Lwt.return "ok"
     end
 
+let handle_event ~handle_message ~config ~session_manager ?send_message_fn
+    ?run_update_command ?event_limiter body =
+  let open Lwt.Syntax in
+  Lwt.catch
+    (fun () ->
+      !on_ingress_admit ~body;
+      let* result =
+        handle_event_inner ~handle_message ~config ~session_manager
+          ?send_message_fn ?run_update_command ?event_limiter body
+      in
+      !on_ingress_applied ~body;
+      Lwt.return result)
+    (fun exn ->
+      !on_ingress_failure ~cause:"handler_failure";
+      Lwt.fail exn)
+
 let decode_http_payload body =
   if String.starts_with ~prefix:"payload=" body then
     match List.assoc_opt "payload" (Uri.query_of_encoded body) with
@@ -348,6 +368,7 @@ let dispatch_http ~handle_message ~config ~session_manager ?run_update_command
   | Some (UrlVerification _) ->
       handle_event ~handle_message ~config ~session_manager body
   | _ ->
+      !on_ingress_admit ~body;
       Lwt.async (fun () ->
           Lwt.catch
             (fun () ->
@@ -358,6 +379,7 @@ let dispatch_http ~handle_message ~config ~session_manager ?run_update_command
               in
               Lwt.return_unit)
             (fun exn ->
+              !on_ingress_failure ~cause:"http_handler_failure";
               Logs.err (fun m ->
                   m "Slack HTTP delivery failed: %s" (Printexc.to_string exn));
               Lwt.return_unit));

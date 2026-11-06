@@ -42,6 +42,7 @@
   test_contracts
   test_cost_tracker
   test_daemon
+  test_daemon_config_reload
   test_daemon_liveness
   test_b830k_loop_wait
   test_daemon_logging
@@ -342,6 +343,10 @@
   test_slack_standing_order_catchup_edges
   test_slack_standing_order_catchup_dispatch
   test_slack_standing_order_reconcile_scan
+  test_slack_standing_order_reconcile
+  test_slack_standing_order_reconcile_edges
+  test_slack_standing_order_reconcile_ingress
+  test_slack_standing_order_reconcile_support
   test_slack_standing_order_scan_support
   test_slack_standing_order_scan_replay
   test_slack_standing_order_scan_fences

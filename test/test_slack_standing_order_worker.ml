@@ -686,6 +686,7 @@ let test_ready_content ?(cooldown = 0.) () =
                    Slack_standing_order_upload.
                      { status = 200; headers = []; body = "" })
                ();
+             cover_order e.db e.order;
              let fire =
                S.fire e.db e.order ~room:"R123"
                  ~date_start:(string_of_int start) ~state:T.Fetching ()
@@ -696,6 +697,9 @@ let test_ready_content ?(cooldown = 0.) () =
                 id=?"
                Sqlite3.Data.
                  [ TEXT root_ts; FLOAT (c.now +. 300.); TEXT fire.id ];
+             Slack_standing_order_recovery_store.record_root e.db ~order:e.order
+               ~root_ts ~room_id:"R123" ~date_start:(string_of_int start)
+               ~fire_id:(Some fire.id);
              observe_ready e ();
              observe_ready e ();
              let rec until n =

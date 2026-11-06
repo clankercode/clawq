@@ -25,7 +25,7 @@ let message ?(user = "U456") ?thread ?(ts = "1700000070.000001") text =
         thread)
 
 let with_scan ?(config = Fun.id) ?(at_time = now) f =
-  with_env (fun old ->
+  with_env ~fresh_binding:false (fun old ->
       S.at at_time;
       let manager =
         Session.create ~config:(config (S.config ())) ~db:old.db ()

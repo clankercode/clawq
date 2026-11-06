@@ -354,6 +354,8 @@ let all_suites =
     ("group_chat_filter", Test_group_chat_filter.suite);
     ("dot_dir", Test_dot_dir.suite);
     ("discord_gateway", Test_discord_gateway.suite);
+    ("daemon_config_reload", Test_daemon_config_reload.suite);
+    ("slack_standing_order_reconcile", Test_slack_standing_order_reconcile.suite);
     ("slack_socket", Test_slack_socket.suite);
     ("slash_commands", Test_slash_commands.suite);
     ("provider", Test_provider.suite);

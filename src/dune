@@ -547,6 +547,7 @@
   slack_standing_order_provenance
   slack_standing_order_relay
   slack_standing_order_ctx
+  slack_standing_order_share
   slack_standing_order_dispatch
   slack_standing_order_pickup
   slack_standing_order_report
@@ -556,6 +557,9 @@
   slack_standing_order_resolution_lease
   slack_standing_order_scan_store
   slack_standing_order_reconcile_scan
+  slack_standing_order_reconcile
+  slack_standing_order_reconcile_lifecycle
+  slack_standing_order_admission
   slack_standing_order_pages
   slack_standing_order_exec
   slack_standing_order_types

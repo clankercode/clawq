@@ -310,6 +310,8 @@ let process_fire ~ctx ~db ~manager ?http ?http_response ?upload_http ?renew_wait
             (Option.get (Store.find db fire.order_id))
             cause)
 
+let recovery_managed = ref false
+let on_gap : (cause:string -> unit) ref = ref (fun ~cause:_ -> ())
 let channel_locks = Hashtbl.create 8
 
 let pass ~ctx ~db ~manager ?http ?http_response ?upload_http ?renew_wait ?orders
@@ -326,6 +328,7 @@ let pass ~ctx ~db ~manager ?http ?http_response ?upload_http ?renew_wait ?orders
     Lwt.catch work (function
       | Lwt.Canceled | Dispatch.Stop -> Lwt.return_unit
       | _ ->
+          !on_gap ~cause:"executor_pass_failure";
           Logs.warn (fun m ->
               m "standing-order executor pass failed for %s" order.id);
           Lwt.return_unit)
@@ -409,6 +412,11 @@ let pass ~ctx ~db ~manager ?http ?http_response ?upload_http ?renew_wait ?orders
                     if
                       (not (allowed order))
                       || List.mem r.fire.id held
+                      || !recovery_managed
+                         && r.fire.dispatched_at = None
+                         && not
+                              (R.relay_allowed db ~fire_id:r.fire.id
+                                 ~now:(ctx.now ()))
                       || (terminal && !terminal_polled)
                     then Lwt.return_unit
                     else (
@@ -481,7 +489,7 @@ let start ~ctx ~db ~manager ?http ?http_response ?upload_http
   match !worker with
   | Some _ -> ()
   | None ->
-      R.recover_startup db ~now:(ctx.Ctx.now ());
+      if not !recovery_managed then R.recover_startup db ~now:(ctx.Ctx.now ());
       let signal = Lwt_condition.create () in
       let drain, drain_wake = Lwt.wait () in
       let w =
@@ -618,34 +626,55 @@ let start ~ctx ~db ~manager ?http ?http_response ?upload_http
                       (fun () ->
                         let* () = Lwt.pause () in
                         let roots_for_order (order : T.order) =
-                          Hashtbl.to_seq origins |> List.of_seq
-                          |> List.filter_map
-                               (fun ((team, app, ch, ts), eligible) ->
-                                 if
-                                   eligible && team = order.team_id
-                                   && app = order.api_app_id
-                                   && ch = order.channel_id
-                                 then Some ts
-                                 else None)
+                          if !recovery_managed then
+                            if
+                              R.covered db order.id order.epoch
+                              || R.attempt_bool (fun () ->
+                                  R.current_gap db (R.pass_token db order.id)
+                                    ~connected:true
+                                  && List.mem (R.phase db order.id)
+                                       [
+                                         Some "history";
+                                         Some "swept";
+                                         Some "complete";
+                                       ])
+                            then
+                              rows ()
+                              |> List.filter_map (fun ((o : T.order), r) ->
+                                  if o.id = order.id then Schedule.root_of_row r
+                                  else None)
+                            else []
+                          else
+                            Hashtbl.to_seq origins |> List.of_seq
+                            |> List.filter_map
+                                 (fun ((team, app, ch, ts), eligible) ->
+                                   if
+                                     eligible && team = order.team_id
+                                     && app = order.api_app_id
+                                     && ch = order.channel_id
+                                   then Some ts
+                                   else None)
                         in
-                        pass ~ctx:local ~db ~manager ?http ?http_response
-                          ?upload_http ~renew_wait:ctx.wait ~roots_for_order
-                          ~held:
-                            (List.filter
-                               (fun id ->
-                                 not
-                                   (R.relay_allowed db ~fire_id:id
-                                      ~now:(ctx.now ())))
-                               held)
-                          ~read_only:(read_only ())
-                          ~orders:
-                            (List.filter
-                               (fun (o : T.order) -> o.channel_id = channel)
-                               all)
-                          ())
+                        SO.with_wait_guard cancellable (fun () ->
+                            pass ~ctx:local ~db ~manager ?http ?http_response
+                              ?upload_http ~renew_wait:ctx.wait ~roots_for_order
+                              ~held:
+                                (List.filter
+                                   (fun id ->
+                                     not
+                                       (R.relay_allowed db ~fire_id:id
+                                          ~now:(ctx.now ())))
+                                   held)
+                              ~read_only:(read_only ())
+                              ~orders:
+                                (List.filter
+                                   (fun (o : T.order) -> o.channel_id = channel)
+                                   all)
+                              ()))
                       (function
                         | Lwt.Canceled when not w.running -> Lwt.return_unit
                         | exn ->
+                            !on_gap ~cause:"executor_channel_failure";
                             Logs.warn (fun m ->
                                 m "standing-order worker channel %s failed: %s"
                                   channel (Printexc.to_string exn));
@@ -677,6 +706,7 @@ let start ~ctx ~db ~manager ?http ?http_response ?upload_http
             (function
               | Lwt.Canceled when not w.running -> Lwt.return_unit
               | exn ->
+                  !on_gap ~cause:"executor_tick_failure";
                   Logs.warn (fun m ->
                       m "standing-order worker backoff failed: %s"
                         (Printexc.to_string exn));
@@ -694,6 +724,7 @@ let start ~ctx ~db ~manager ?http ?http_response ?upload_http
             (function
               | Lwt.Canceled when not w.running -> Lwt.return_false
               | exn ->
+                  !on_gap ~cause:"executor_tick_failure";
                   Logs.warn (fun m ->
                       m "standing-order worker tick failed: %s"
                         (Printexc.to_string exn));
@@ -720,6 +751,7 @@ let start ~ctx ~db ~manager ?http ?http_response ?upload_http
           (function
             | Lwt.Canceled when not w.running -> Lwt.return_unit
             | exn ->
+                !on_gap ~cause:"executor_supervision_failure";
                 Logs.warn (fun m ->
                     m "standing-order worker stopped unexpectedly: %s"
                       (Printexc.to_string exn));

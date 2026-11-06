@@ -446,6 +446,59 @@ let with_policy ~check ~priority work =
   in
   Lwt.with_value call_policy (Some { check; priority }) work
 
+(* Worker drain cancels only queued transport waits. Once HTTP starts, its
+   receipt remains owned by the leased executor and is joined during shutdown. *)
+let wait_guard : (unit Lwt.t -> unit Lwt.t) Lwt.key = Lwt.new_key ()
+let with_wait_guard guard work = Lwt.with_value wait_guard (Some guard) work
+
+let guard_wait pending =
+  match Lwt.get wait_guard with None -> pending | Some guard -> guard pending
+
+(* Reconciliation read deadlines use the same injected clock as its owner lease.
+   Live calls never wait behind a background HTTP response. *)
+let read_wait : (seconds:float -> unit Lwt.t) Lwt.key = Lwt.new_key ()
+let with_read_wait wait work = Lwt.with_value read_wait (Some wait) work
+
+module Background_lanes = Ephemeron.K1.Make (struct
+  type t = Slack_read_limiter.t
+
+  let equal = ( == )
+  let hash _ = 0
+end)
+
+let background_lanes = Background_lanes.create 2
+
+let background_lane limiter key =
+  let lanes =
+    match Background_lanes.find_opt background_lanes limiter with
+    | Some lanes -> lanes
+    | None ->
+        let lanes = Hashtbl.create 8 in
+        Background_lanes.add background_lanes limiter lanes;
+        lanes
+  in
+  match Hashtbl.find_opt lanes key with
+  | Some lane -> lane
+  | None ->
+      let lane = Lwt_mutex.create () in
+      Hashtbl.add lanes key lane;
+      lane
+
+let bounded_read work =
+  let pending = work () in
+  if not (Lwt.is_sleeping pending) then pending
+  else
+    let wait =
+      Option.value (Lwt.get read_wait) ~default:(fun ~seconds ->
+          Lwt_unix.sleep seconds)
+    in
+    Lwt.pick
+      [
+        pending;
+        (let* () = wait ~seconds:30. in
+         Lwt.fail_with "standing-order read timeout");
+      ]
+
 let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit ?http
     ?http_response ?limiter ?team_id ?app_id
     ?(priority = Slack_read_limiter.Live) ?(limit = fun () -> Lwt.return_unit)
@@ -481,15 +534,16 @@ let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit ?http
               match limiter with
               | None -> Lwt.return_unit
               | Some limiter ->
-                  Slack_read_limiter.before_call limiter ~key
-                    ~priority:
-                      (match Lwt.get call_policy with
-                      | Some p -> p.priority
-                      | None -> priority)
-                    ?channel:
-                      (if produces_message method_ then Some channel_id
-                       else None)
-                    ()
+                  guard_wait
+                    (Slack_read_limiter.before_call limiter ~key
+                       ~priority:
+                         (match Lwt.get call_policy with
+                         | Some p -> p.priority
+                         | None -> priority)
+                       ?channel:
+                         (if produces_message method_ then Some channel_id
+                          else None)
+                       ())
             in
             match
               preflight ~scope ~capability_fence ~db ~cfg:(current_config ())
@@ -505,7 +559,15 @@ let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit ?http
                 with
                 | Error error -> Lwt.return (Error error)
                 | Ok () ->
-                    let* response = http ~verb ~token ~method_ ~params in
+                    let work () = http ~verb ~token ~method_ ~params in
+                    let* response =
+                      if
+                        verb = "GET"
+                        || List.mem method_
+                             [ "auth.test"; "canvases.getContent" ]
+                      then bounded_read work
+                      else work ()
+                    in
                     let result = decode response.status response.body in
                     (match (result, limiter) with
                     | Error Rate_limited, Some limiter ->
@@ -520,6 +582,21 @@ let make_scoped ~scope ~db ~current_config ~snapshot ~channel_id ~audit ?http
             | _ ->
                 Logs.debug (fun m -> m "standing-order Slack transport failed");
                 Lwt.return (Error Transport))
+  in
+  let send = call in
+  let call method_ params =
+    let selected =
+      match Lwt.get call_policy with Some p -> p.priority | None -> priority
+    in
+    match limiter with
+    | Some limiter
+      when selected = Slack_read_limiter.Maintenance
+           && (List.assoc_opt method_ methods = Some "GET"
+              || List.mem method_ [ "auth.test"; "canvases.getContent" ]) ->
+        Lwt_mutex.with_lock
+          (background_lane limiter (method_key ~installation method_))
+          (fun () -> send method_ params)
+    | _ -> send method_ params
   in
   Call_scopes.replace call_scopes call { snapshot; channel_id; audit; limiter };
   call

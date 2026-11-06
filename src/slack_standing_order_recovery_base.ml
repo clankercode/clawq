@@ -5,6 +5,7 @@ module Sql = Slack_standing_order_sql
 module Store = Slack_standing_order_store
 module T = Slack_standing_order_types
 module Rollout = Slack_standing_order_rollout_store
+module Admission = Slack_standing_order_admission
 
 type rollout_state = Rollout.rollout_state =
   | Unused_surface_unbound
@@ -164,24 +165,35 @@ let close_gap db ~team_id ~app_id ~channel_id ~cause ~now =
   let token = { team_id; app_id; channel_id; gap_generation = 0 } in
   latch db token;
   match
-    Sql.in_tx db ~on_error:Fun.id (fun () ->
-        Rollout.require_initialized db;
-        let identity = database_identity db in
-        let params = gap_params db token in
-        Sql.exec db
-          "INSERT INTO \
-           slack_standing_order_recovery_gaps(installation,team,app,channel,generation,connected,cause,closed_at) \
-           VALUES(?,?,?,?,1,0,?,?) ON CONFLICT(installation,team,app,channel) \
-           DO UPDATE SET \
-           generation=generation+1,connected=0,cause=excluded.cause,closed_at=excluded.closed_at"
-          (params @ [ Sql.text cause; f now ]);
-        let generation =
-          Sql.int_query db
-            ("SELECT generation FROM slack_standing_order_recovery_gaps WHERE "
-           ^ gap_where)
-            params
-        in
-        Ok ({ token with gap_generation = generation }, identity))
+    Sql.guard (fun () ->
+        Admission.ensure_schema db;
+        Sql.in_tx db ~on_error:Fun.id (fun () ->
+            Rollout.require_initialized db;
+            let identity = database_identity db in
+            let params = gap_params db token in
+            Sql.exec db
+              "INSERT INTO \
+               slack_standing_order_recovery_gaps(installation,team,app,channel,generation,connected,cause,closed_at) \
+               VALUES(?,?,?,?,1,0,?,?) ON \
+               CONFLICT(installation,team,app,channel) DO UPDATE SET \
+               generation=generation+1,connected=0,cause=excluded.cause,closed_at=excluded.closed_at"
+              (params @ [ Sql.text cause; f now ]);
+            Sql.exec db
+              "UPDATE slack_standing_order_recovery_candidates AS c SET \
+               origin='recovery' WHERE EXISTS(SELECT 1 FROM \
+               slack_standing_orders o WHERE o.id=c.order_id AND o.team_id=? \
+               AND o.api_app_id=? AND o.channel_id=?) AND NOT EXISTS(SELECT 1 \
+               FROM slack_standing_order_fires f WHERE f.order_id=c.order_id \
+               AND f.room_id=c.room_id AND f.date_start=c.date_start AND \
+               f.dispatched_at IS NOT NULL)"
+              Sql.[ text team_id; text app_id; text channel_id ];
+            let generation =
+              Sql.int_query db
+                ("SELECT generation FROM slack_standing_order_recovery_gaps \
+                  WHERE " ^ gap_where)
+                params
+            in
+            Ok ({ token with gap_generation = generation }, identity)))
   with
   | Error e -> Error e
   | Ok (token, identity) ->
@@ -508,14 +520,16 @@ let verify_gap db ~token ~owner ~through ~now =
         when fenced db ~order_id ~owner ~now
              && pass_token db order_id = token
              && ready db order_id
-             && phase db order_id = Some "complete" -> (
+             && phase db order_id = Some "complete"
+             && Admission.clear db ~team:token.team_id ~app:token.app_id
+                  ~channel:token.channel_id ~through () -> (
           match load_coverage db ~order_id with
           | Some c when c.latest = through ->
               Sql.exec db
                 "UPDATE slack_standing_order_recovery_passes SET \
                  verified_generation=gap_generation,verified_epoch=epoch,last_success=? \
                  WHERE order_id=?"
-                Sql.[ f now; text order_id ];
+                Sql.[ f (float_of_string through); text order_id ];
               true
           | _ -> false)
       | _ -> false)
@@ -535,7 +549,10 @@ let covered db order_id epoch =
           gap_generation = Sql_util.int_column s 3;
         })
   with
-  | [ t ] -> current_gap db t ~connected:true
+  | [ t ] ->
+      current_gap db t ~connected:true
+      && Admission.clear db ~team:t.team_id ~app:t.app_id ~channel:t.channel_id
+           ()
   | _ -> false
 
 let relay_allowed db ~fire_id ~now =
