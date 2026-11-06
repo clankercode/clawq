@@ -3,6 +3,7 @@ include Slack_standing_order_fetch
 module Dispatch = Slack_standing_order_dispatch
 module Pickup = Slack_standing_order_pickup
 module Report = Slack_standing_order_report
+module Schedule = Slack_standing_order_schedule
 
 (* Production supplies the process limiter; retain the legacy callback for
    isolated callers that still exercise the old channel pacing seam. *)
@@ -215,6 +216,10 @@ let process_fire ~ctx ~db ~manager ?http ?http_response ?upload_http ?renew_wait
     ~allow_new ?(poll = true) (fire : T.fire) =
   with_lease ~ctx ~db ?renew_wait ~fire_id:fire.id (fun ctx lease ->
       let current () = Dispatch.current db fire.id in
+      if poll && ctx.Ctx.accepting () then
+        ignore
+          (Schedule.take_ready ~db ~fire_id:fire.id ~lease ~now:(ctx.now ()));
+
       let* () =
         if not (ctx.Ctx.accepting ()) then Lwt.return_unit
         else (
@@ -365,8 +370,9 @@ let pass ~ctx ~db ~manager ?http ?http_response ?upload_http ?renew_wait ?orders
           in
           (* One terminal poll for the whole channel job, after every order's
              relay-producing work. Store.due keeps fresh preparation first. *)
+          let hinted = Schedule.ready_fires ~db ~now:(ctx.now ()) in
           let due =
-            Store.due db ~now:(ctx.now ())
+            hinted @ Store.due db ~now:(ctx.now ())
             |> List.filter_map (fun (r : Store.fire_runtime) ->
                 Option.map
                   (fun order -> (order, r))
@@ -563,8 +569,15 @@ let start ~ctx ~db ~manager ?http ?http_response ?upload_http
                     Hashtbl.add origins key eligible)
                 keys)
             (rows ()));
+      let scheduled_config = ref (Session.get_config manager) in
       let tick () =
         let all = orders () in
+        let current_config = Session.get_config manager in
+        if current_config != !scheduled_config then (
+          scheduled_config := current_config;
+          List.map (fun (o : T.order) -> o.channel_id) all
+          |> List.sort_uniq String.compare
+          |> List.iter (fun channel -> Schedule.dirty_channel ~db ~channel));
         let channels =
           List.map (fun (o : T.order) -> o.channel_id) all
           |> List.sort_uniq String.compare
@@ -660,7 +673,10 @@ let start ~ctx ~db ~manager ?http ?http_response ?upload_http
       in
       worker := Some w;
       Slack_huddle_observer.wake := wake;
-      (Slack_huddle_observer.posture_changed := fun ~channel:_ -> wake ());
+      (Slack_huddle_observer.posture_changed :=
+         fun ~channel ->
+           Schedule.dirty_channel ~db ~channel;
+           wake ());
       Logs.info (fun m -> m "standing-order worker started");
       let rec supervise ~recover () =
         Lwt.catch

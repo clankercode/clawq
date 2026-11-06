@@ -513,6 +513,8 @@ let test_egress () =
       let cfg = Session.get_config e.manager in
       Session.update_config e.manager
         { cfg with egress = { cfg.egress with default_allowlist = [] } };
+      (* Settled roots are no longer polled; supply pending audited work. *)
+      seed_report e Report.Reply_delayed;
       Lwt_main.run (pass ~http ~upload_http e);
       let denied =
         Egress_audit.query ~db:e.db ~decision:Egress_audit.Denied ()
@@ -766,6 +768,11 @@ let test_other_channel () =
           ~created_by:"U123" ~now:(Store.now ()) ()
       in
       Store.set_card_message_ts e.db ~card_id:card.id "1700000000.000300";
+      (* Resolution now requires queued roots rather than idle order polling. *)
+      seen e;
+      L.record_seen ~db:e.db ~team:other.team_id ~channel:other.channel_id
+        ~source:"event" ~now:(Store.now ()) ~root_ts ~file_ids:[]
+        (Option.get (Slack_huddle_classify.room_of_json (get "room" !(e.root))));
       let blocked, wake = Lwt.task () and calls = ref 0 in
       let http ~verb:_ ~token:_ ~method_:_ ~params:_ =
         incr calls;

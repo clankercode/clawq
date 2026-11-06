@@ -11,6 +11,7 @@ module C = Slack_huddle_classify
 module L = Slack_huddle_ledger
 module Ctx = Slack_standing_order_ctx
 module Sql = Slack_standing_order_sql
+module Schedule = Slack_standing_order_schedule
 
 let valid_ts ts =
   T.valid_slack_ts ts
@@ -161,7 +162,7 @@ let refuse ~ctx ~db ~lease (r : Store.fire_runtime) (failure : Grant.failure) =
   | Inactive -> terminal ~ctx ~db ~lease r T.Skipped_inactive reason
   | Capped -> terminal ~ctx ~db ~lease r T.Skipped_cap reason
 
-let read_root ~call ~channel ~root_ts =
+let inspect_root ?(require_ended = true) ~call ~channel ~root_ts () =
   let+ response =
     P.request call "conversations.history"
       [
@@ -182,10 +183,13 @@ let read_root ~call ~channel ~root_ts =
           match C.room_of_json (P.get "room" root) with
           | Some room
             when room.date_start <> None
-                 && P.get "has_ended" (P.get "room" root) = `Bool true ->
+                 && ((not require_ended)
+                    || P.get "has_ended" (P.get "room" root) = `Bool true) ->
               Ok (root, room)
           | _ -> Error (P.Rejected "root_mismatch"))
       | _ -> Error (P.Rejected "root_mismatch"))
+
+let read_root ~call ~channel ~root_ts = inspect_root ~call ~channel ~root_ts ()
 
 let current_order ~db ~manager ~now (v : Grant.validated) (order : T.order) =
   if Session.get_config manager != v.config then None
@@ -253,110 +257,209 @@ let with_lease ~ctx ~db ?renew_wait ~fire_id work =
           Store.release db ~fire_id ~lease:!latest ~now:(ctx.now ());
           Lwt.return_unit)
 
+let with_resolution_lease ~ctx ~db initial work =
+  let current = ref initial and lost = ref false in
+  let lease = { initial with Schedule.until = Float.max_float } in
+  let accepting () =
+    ctx.Ctx.accepting () && (not !lost)
+    && Schedule.owns_resolution ~db ~lease ~now:(ctx.now ())
+  in
+  let rec renew () =
+    let* () = ctx.wait ~seconds:30. in
+    match Schedule.renew_resolution ~db ~lease:!current ~now:(ctx.now ()) with
+    | Some next ->
+        current := next;
+        renew ()
+    | None ->
+        lost := true;
+        Lwt.return_unit
+  in
+  let heartbeat =
+    Lwt.catch renew (function
+      | Lwt.Canceled -> Lwt.return_unit
+      | _ ->
+          lost := true;
+          Lwt.return_unit)
+  in
+  Lwt.finalize
+    (fun () -> work { ctx with Ctx.accepting } lease)
+    (fun () -> cancel heartbeat)
+
 let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
     (order : T.order) =
-  if not (ctx.Ctx.accepting ()) then Lwt.return_unit
-  else
-    let* grant =
-      evaluate ~ctx ~db ~manager ?http ?http_response ~stage:Grant.Resolve order
-    in
-    match grant with
-    | Error { Grant.cls = Hard; reason } ->
-        ignore
-          (Store.suspend_if_epoch db ~order_id:order.id ~epoch:order.epoch
-             ~reason:(Grant.reason_code reason) ~now:(ctx.now ()));
-        Lwt.return_unit
-    | Error _ -> Lwt.return_unit
-    | Ok v ->
-        let order = Option.get v.order in
-        let rows =
-          L.list_rows ~db ~team:order.team_id ~channel:order.channel_id
+  Schedule.sync ~db order;
+  let roots =
+    L.list_rows ~db ~team:order.team_id ~channel:order.channel_id
+    |> List.filter_map Schedule.root_of_row
+    |> List.sort_uniq String.compare
+    |> List.filter (fun root ->
+        Option.fold ~none:true ~some:(List.mem root) only_roots)
+  in
+  (* Share only this pass's read validation across due roots. Fire and every
+     write still validate independently; a config publication discards this. *)
+  let validation = ref None in
+  let validate () =
+    match !validation with
+    | Some (Ok v as result) when Session.get_config manager == v.Grant.config ->
+        Lwt.return result
+    | Some (Error _ as result) -> Lwt.return result
+    | _ ->
+        let* result =
+          evaluate ~ctx ~db ~manager ?http ?http_response ~stage:Grant.Resolve
+            order
         in
-        let roots =
-          List.filter_map
-            (fun (r : L.row) ->
-              match r.kind with
-              | L.Notes_stub -> r.notes_thread_ts
-              | Room -> r.root_ts)
-            rows
-          |> List.sort_uniq String.compare
-          |> List.filter (fun root ->
-              Option.fold ~none:true ~some:(List.mem root) only_roots)
-        in
-        let rec resolve = function
-          | [] -> Lwt.return_unit
-          | _ when not (ctx.accepting ()) -> Lwt.return_unit
-          | root_ts :: rest -> (
-              let* root =
-                read_root ~call:v.call ~channel:order.channel_id ~root_ts
-              in
-              if not (ctx.accepting ()) then Lwt.return_unit
-              else
-                match
-                  (root, current_order ~db ~manager ~now:(ctx.now ()) v order)
-                with
-                | Ok (root, room), Some fresh
-                  when started_eligible ~order:fresh
-                         ~date_start:(Option.get room.date_start)
-                         ~fire_epoch:order.epoch ->
-                    let date_start = Option.get room.date_start in
-                    L.record_seen ~db ~team:order.team_id
-                      ~channel:order.channel_id ~source:"reconcile"
-                      ~now:(ctx.now ()) ~root_ts ~file_ids:(P.file_ids root)
-                      room;
-                    let* () =
-                      match
-                        Store.insert_fire db ~order:fresh ~room_id:room.room_id
-                          ~date_start:(string_of_int date_start) ~root_ts
-                          ~now:(ctx.now ()) ()
-                      with
-                      | Ok (Some fire) ->
-                          checkpoint db ~fire_id:fire.id ~date_end:room.date_end
-                            ~now:(ctx.now ());
-                          with_lease ~ctx ~db ~fire_id:fire.id (fun ctx lease ->
-                              let r =
-                                Option.get (Store.runtime db ~fire_id:fire.id)
+        validation := Some result;
+        Lwt.return result
+  in
+  Lwt_list.iter_s
+    (fun root_ts ->
+      if not (ctx.Ctx.accepting ()) then Lwt.return_unit
+      else
+        match
+          Schedule.claim_resolution ~db
+            ~key:(Schedule.key order root_ts)
+            ~owner_id:(Store.new_id ~prefix:"resolve")
+            ~now:(ctx.now ())
+        with
+        | None -> Lwt.return_unit
+        | Some initial ->
+            with_resolution_lease ~ctx ~db initial (fun ctx lease ->
+                let finish outcome =
+                  ignore
+                    (Schedule.finish_resolution ~db ~lease ~outcome
+                       ~now:(ctx.now ()))
+                in
+                let failed failure =
+                  ignore
+                    (Schedule.fail_resolution ~db ~lease ~failure
+                       ~now:(ctx.now ()));
+                  if failure.Grant.cls = Grant.Hard then
+                    ignore
+                      (Store.suspend_if_epoch db ~order_id:order.id
+                         ~epoch:order.epoch
+                         ~reason:(Grant.reason_code failure.reason)
+                         ~now:(ctx.now ()))
+                in
+                Lwt.catch
+                  (fun () ->
+                    let* grant = validate () in
+                    match grant with
+                    | Error failure ->
+                        failed failure;
+                        Lwt.return_unit
+                    | Ok _
+                      when not
+                             (Schedule.owns_resolution ~db ~lease
+                                ~now:(ctx.now ())) ->
+                        Lwt.return_unit
+                    | Ok v -> (
+                        let* root =
+                          inspect_root ~require_ended:false ~call:v.call
+                            ~channel:order.channel_id ~root_ts ()
+                        in
+                        if
+                          (not (ctx.accepting ()))
+                          || not
+                               (Schedule.owns_resolution ~db ~lease
+                                  ~now:(ctx.now ()))
+                        then (
+                          failed
+                            (Grant.failure
+                               (Grant.Indeterminate "resolution_stopped"));
+                          Lwt.return_unit)
+                        else
+                          match
+                            ( root,
+                              current_order ~db ~manager ~now:(ctx.now ()) v
+                                order )
+                          with
+                          | Ok (root, _), Some _
+                            when P.get "has_ended" (P.get "room" root)
+                                 <> `Bool true ->
+                              finish Schedule.Live;
+                              Lwt.return_unit
+                          | Ok (root, room), Some fresh
+                            when started_eligible ~order:fresh
+                                   ~date_start:(Option.get room.date_start)
+                                   ~fire_epoch:order.epoch ->
+                              let date_start = Option.get room.date_start in
+                              L.record_seen ~db ~team:order.team_id
+                                ~channel:order.channel_id ~source:"reconcile"
+                                ~now:(ctx.now ()) ~root_ts
+                                ~file_ids:(P.file_ids root) room;
+                              let* () =
+                                match
+                                  Store.insert_fire db ~order:fresh
+                                    ~room_id:room.room_id
+                                    ~date_start:(string_of_int date_start)
+                                    ~root_ts ~now:(ctx.now ()) ()
+                                with
+                                | Ok (Some fire) ->
+                                    checkpoint db ~fire_id:fire.id
+                                      ~date_end:room.date_end ~now:(ctx.now ());
+                                    with_lease ~ctx ~db ~fire_id:fire.id
+                                      (fun ctx fire_lease ->
+                                        let r =
+                                          Option.get
+                                            (Store.runtime db ~fire_id:fire.id)
+                                        in
+                                        let after =
+                                          { r with root_ts = Some root_ts }
+                                        in
+                                        match
+                                          save ~ctx ~db ~lease:fire_lease
+                                            ~before:r ~after
+                                        with
+                                        | Error _ ->
+                                            Lwt.fail_with
+                                              "resolution_fire_fence"
+                                        | Ok () ->
+                                            let* fire_grant =
+                                              evaluate ~ctx ~db ~manager ?http
+                                                ?http_response
+                                                ~stage:
+                                                  (Grant.Fire
+                                                     {
+                                                       fire_epoch = fire.epoch;
+                                                       fire_id = fire.id;
+                                                     })
+                                                fresh
+                                            in
+                                            (if ctx.accepting () then
+                                               match fire_grant with
+                                               | Ok _ -> ()
+                                               | Error failure ->
+                                                   ignore
+                                                     (refuse ~ctx ~db
+                                                        ~lease:fire_lease after
+                                                        failure));
+                                            Lwt.return_unit)
+                                | Ok None -> Lwt.return_unit
+                                | Error _ -> Lwt.fail_with "fire_insert_failed"
                               in
-                              let after = { r with root_ts = Some root_ts } in
-                              match save ~ctx ~db ~lease ~before:r ~after with
-                              | Error _ -> Lwt.return_unit
-                              | Ok () ->
-                                  checkpoint db ~fire_id:fire.id
-                                    ~date_end:room.date_end ~now:(ctx.now ());
-                                  let* fire_grant =
-                                    evaluate ~ctx ~db ~manager ?http
-                                      ?http_response
-                                      ~stage:
-                                        (Grant.Fire
-                                           {
-                                             fire_epoch = fire.epoch;
-                                             fire_id = fire.id;
-                                           })
-                                      fresh
-                                  in
-                                  (if ctx.accepting () then
-                                     match fire_grant with
-                                     | Ok _ -> ()
-                                     | Error failure ->
-                                         ignore
-                                           (refuse ~ctx ~db ~lease after failure));
-                                  Lwt.return_unit)
-                      | Ok None -> Lwt.return_unit
-                      | Error _ -> Lwt.fail_with "fire_insert_failed"
-                    in
-                    resolve rest
-                | Error (P.Api { method_; error }), _ ->
-                    let failure = P.grant_failure ~method_ error in
-                    if failure.cls = Grant.Hard then
-                      ignore
-                        (Store.suspend_if_epoch db ~order_id:order.id
-                           ~epoch:order.epoch
-                           ~reason:(Grant.reason_code failure.reason)
-                           ~now:(ctx.now ()));
-                    Lwt.return_unit
-                | _ -> resolve rest)
-        in
-        resolve roots
+                              finish Schedule.Settled;
+                              Lwt.return_unit
+                          | Error (P.Api { method_; error }), _ ->
+                              failed (P.grant_failure ~method_ error);
+                              Lwt.return_unit
+                          | _, None ->
+                              failed (Grant.failure Grant.Config_changed);
+                              Lwt.return_unit
+                          | Ok _, Some _ ->
+                              finish Schedule.Settled;
+                              Lwt.return_unit
+                          | Error _, Some _ ->
+                              (* Malformed/wrong-neighbor data is uncertainty, never
+                             successful inspection or proof of disappearance. *)
+                              failed
+                                (Grant.failure
+                                   (Grant.Indeterminate "root_unverified"));
+                              Lwt.return_unit))
+                  (fun exn ->
+                    failed
+                      (Grant.failure (Grant.Indeterminate "resolution_failed"));
+                    Lwt.fail exn)))
+    roots
 
 let transcript_conflict db ~fire_id id =
   match id with
