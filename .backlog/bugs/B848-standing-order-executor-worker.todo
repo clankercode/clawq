@@ -1,13 +1,17 @@
 ---
+claimed_at: "2026-11-06T02:27:13Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 created_at: "2026-11-06T01:57:04Z"
 depends_on: []
 estimate_hours: 1
 id: B848
 priority: high
-status: pending
+started_at: "2026-11-06T02:27:13Z"
+status: in_progress
 tags: []
 title: 'Standing-order executor worker dies permanently on any tick exception (SO-1 missed the 06 Nov 12:20 #core-sync huddle)'
-updated_at: "2026-11-06T01:57:04Z"
+updated_at: "2026-11-06T02:27:13Z"
 ---
 The worker loop in src/slack_standing_order_exec.ml (start) wraps the whole loop in one Lwt.catch. Any non-Canceled exception from a tick (Store.list runs ensure_schema DDL + queries every 5 s; a transient SQLite BUSY is the likely cause, and the daemon logs 'models_cache upsert failed: BUSY' at startup) ends the loop for good. The only log is 'standing-order worker stopped unexpectedly', with no exception text. The observer still records huddles, but no passes run, so no fires happen. Seen 2026-11-05 19:47 (27 min after SO-1 was created) and 2026-11-06 05:35, so the 06 Nov 11:01 huddle (ended 12:20, notes F0CF74X2VSP) was never relayed: no fire row and no standing_order access snapshot. Fix: catch per tick, log Printexc.to_string, keep looping (bounded backoff); log the exception in the outer handler too; log one line when the worker starts. A restart revives it, but a root first seen before the restart is never promoted (P4 recovery), so a missed huddle needs a manual relay.
