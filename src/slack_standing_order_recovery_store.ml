@@ -63,7 +63,16 @@ let ensure_schema = Store.ensure_schema
    lifecycle callers must keep it stopped until durable closure succeeds. *)
 type database_identity = File of int * int * string | Anonymous of Sqlite3.db
 
-let database_identity db =
+module Database_keys = Ephemeron.K1.Make (struct
+  type t = Sqlite3.db
+
+  let equal = ( == )
+  let hash = Hashtbl.hash
+end)
+
+let database_keys = Database_keys.create 8
+
+let read_database_identity db =
   match
     Sql.query db "PRAGMA database_list" [] (fun s ->
         (Sql_util.text_column s 1, Sql_util.text_column s 2))
@@ -78,32 +87,52 @@ let database_identity db =
       File (stat.Unix.st_dev, stat.Unix.st_ino, uuid)
   | _ -> Anonymous db
 
+(* Cache only physical database identity, never rollout/config authority. The
+   first admission resolves it; subsequent closure cannot depend on a new read. *)
+let database_identity db =
+  match Database_keys.find_opt database_keys db with
+  | Some identity -> identity
+  | None ->
+      let identity = read_database_identity db in
+      Database_keys.replace database_keys db identity;
+      identity
+
 let same_database a b =
   match (a, b) with
   | File (ad, ai, au), File (bd, bi, bu) -> ad = bd && ai = bi && au = bu
   | Anonymous a, Anonymous b -> a == b
   | _ -> false
 
-let local_denied : (database_identity * string * string * string) list ref =
-  ref []
+(* Keep unresolved handles too: a failed identity read must not erase denial
+   when the lock clears. Resolving one later shares its denial with other handles.
+   Unresolvable identity conservatively denies through the existing DB fences. *)
+let local_denied : (Sqlite3.db * string * string * string) list ref = ref []
 
-let matches identity (t : gap_token) (d, team, app, ch) =
-  same_database identity d && team = t.team_id && app = t.app_id
-  && ch = t.channel_id
+let same_scope (t : gap_token) (_, team, app, ch) =
+  team = t.team_id && app = t.app_id && ch = t.channel_id
+
+let same_handle db t ((other, _, _, _) as entry) =
+  db == other && same_scope t entry
+
+let matches identity t ((other, _, _, _) as entry) =
+  same_scope t entry && same_database identity (database_identity other)
 
 let latched db token =
-  List.exists (matches (database_identity db) token) !local_denied
+  List.exists (same_handle db token) !local_denied
+  ||
+  let identity = database_identity db in
+  List.exists (matches identity token) !local_denied
 
 let latch db (t : gap_token) =
-  let identity = database_identity db in
-  if not (List.exists (matches identity t) !local_denied) then
-    local_denied :=
-      (identity, t.team_id, t.app_id, t.channel_id) :: !local_denied
+  if not (List.exists (same_handle db t) !local_denied) then
+    local_denied := (db, t.team_id, t.app_id, t.channel_id) :: !local_denied
 
-let clear_latch db token =
+let clear_latch identity token =
   local_denied :=
     List.filter
-      (fun entry -> not (matches (database_identity db) token entry))
+      (fun entry ->
+        try not (matches identity token entry)
+        with exn when Sql.is_db_error exn -> true)
       !local_denied
 
 let f n = Sqlite3.Data.FLOAT n
@@ -133,37 +162,31 @@ let gap_where = "installation=? AND team=? AND app=? AND channel=?"
 
 let close_gap db ~team_id ~app_id ~channel_id ~cause ~now =
   let token = { team_id; app_id; channel_id; gap_generation = 0 } in
+  latch db token;
   match
-    try
-      latch db token;
-      Ok ()
-    with exn when Sql.is_db_error exn -> Error (Printexc.to_string exn)
+    Sql.in_tx db ~on_error:Fun.id (fun () ->
+        Rollout.require_initialized db;
+        let identity = database_identity db in
+        let params = gap_params db token in
+        Sql.exec db
+          "INSERT INTO \
+           slack_standing_order_recovery_gaps(installation,team,app,channel,generation,connected,cause,closed_at) \
+           VALUES(?,?,?,?,1,0,?,?) ON CONFLICT(installation,team,app,channel) \
+           DO UPDATE SET \
+           generation=generation+1,connected=0,cause=excluded.cause,closed_at=excluded.closed_at"
+          (params @ [ Sql.text cause; f now ]);
+        let generation =
+          Sql.int_query db
+            ("SELECT generation FROM slack_standing_order_recovery_gaps WHERE "
+           ^ gap_where)
+            params
+        in
+        Ok ({ token with gap_generation = generation }, identity))
   with
   | Error e -> Error e
-  | Ok () -> (
-      match
-        Sql.in_tx db ~on_error:Fun.id (fun () ->
-            Rollout.require_initialized db;
-            let params = gap_params db token in
-            Sql.exec db
-              "INSERT INTO \
-               slack_standing_order_recovery_gaps(installation,team,app,channel,generation,connected,cause,closed_at) \
-               VALUES(?,?,?,?,1,0,?,?) ON \
-               CONFLICT(installation,team,app,channel) DO UPDATE SET \
-               generation=generation+1,connected=0,cause=excluded.cause,closed_at=excluded.closed_at"
-              (params @ [ Sql.text cause; f now ]);
-            let generation =
-              Sql.int_query db
-                ("SELECT generation FROM slack_standing_order_recovery_gaps \
-                  WHERE " ^ gap_where)
-                params
-            in
-            Ok { token with gap_generation = generation })
-      with
-      | Error e -> Error e
-      | Ok token ->
-          clear_latch db token;
-          Ok token)
+  | Ok (token, identity) ->
+      clear_latch identity token;
+      Ok token
 
 let current_gap db (t : gap_token) ~connected =
   (not (latched db t))

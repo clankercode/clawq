@@ -648,11 +648,13 @@ let test_malformed_indexes () =
            false
          with _ -> true))
 
-let test_close_failure_shared_handles () =
+let test_close_failure_shared_handles ~identity_read_failure ~cold_closer () =
   let path = Filename.temp_file "clawq-shared-denial-" ".db" in
   let a = Sqlite3.db_open path and b = Sqlite3.db_open path in
+  let closer = if cold_closer then Sqlite3.db_open path else a in
   Fun.protect
     ~finally:(fun () ->
+      if cold_closer then ignore (Sqlite3.db_close closer);
       ignore (Sqlite3.db_close a);
       ignore (Sqlite3.db_close b);
       Sys.remove path)
@@ -690,15 +692,34 @@ let test_close_failure_shared_handles () =
           check "admitted before failure" true
             (R.relay_allowed db ~fire_id:live.id ~now:(S.now +. 600.)))
         [ a; b ];
-      Sql.exec a
-        "CREATE TRIGGER fail_shared_close BEFORE UPDATE ON \
-         slack_standing_order_recovery_gaps BEGIN SELECT RAISE(ABORT,'injected \
-         close failure'); END"
-        [];
-      check "durable close failed" true
-        (Result.is_error
-           (R.close_gap a ~team_id:"T123" ~app_id:"A123" ~channel_id:"C123"
-              ~cause:"disconnect" ~now:(S.now +. 600.)));
+      if identity_read_failure then Sql.exec b "BEGIN EXCLUSIVE" []
+      else
+        Sql.exec a
+          "CREATE TRIGGER fail_shared_close BEFORE UPDATE ON \
+           slack_standing_order_recovery_gaps BEGIN SELECT \
+           RAISE(ABORT,'injected close failure'); END"
+          [];
+      let closed =
+        Fun.protect
+          ~finally:(fun () ->
+            if identity_read_failure then Sql.exec b "ROLLBACK" [])
+          (fun () ->
+            let closed =
+              R.close_gap closer ~team_id:"T123" ~app_id:"A123"
+                ~channel_id:"C123" ~cause:"disconnect" ~now:(S.now +. 600.)
+            in
+            if identity_read_failure then
+              check
+                "initiating handle latches even while identity is unreadable"
+                true (R.latched closer gap);
+            closed)
+      in
+      check "durable close failed" true (Result.is_error closed);
+      if identity_read_failure then
+        check "exclusive lock caused storage failure" true
+          (match closed with
+          | Error detail -> Test_helpers.string_contains detail "BUSY"
+          | Ok _ -> false);
       List.iter
         (fun db ->
           check "all local handles deny relay" false
@@ -733,7 +754,8 @@ let test_close_failure_shared_handles () =
       Sys.remove unrelated_path;
       check "unrelated channel has no local denial" false
         (R.latched b { gap with R.channel_id = "COTHER" });
-      Sql.exec a "DROP TRIGGER fail_shared_close" [];
+      if not identity_read_failure then
+        Sql.exec a "DROP TRIGGER fail_shared_close" [];
       let next =
         R.close_gap b ~team_id:"T123" ~app_id:"A123" ~channel_id:"C123"
           ~cause:"retry" ~now:(S.now +. 600.)
@@ -741,7 +763,18 @@ let test_close_failure_shared_handles () =
       in
       check "successful close supersedes generation" true
         (next.gap_generation > gap.gap_generation);
-      check "retry clears shared latch" true (R.mark_connected a ~token:next);
+      List.iter
+        (fun db ->
+          check "successful durable retry clears local latch" false
+            (R.latched db next);
+          check "old generation cannot reconnect after retry" false
+            (R.mark_connected db ~token:gap);
+          check "old generation cannot verify after retry" false
+            (R.verify_gap db ~token:gap ~owner ~through:c.latest
+               ~now:(S.now +. 600.)))
+        [ a; b; closer ];
+      check "retry connects only new generation" true
+        (R.mark_connected a ~token:next);
       List.iter
         (fun db ->
           check "old generation remains denied after durable retry" false
@@ -771,7 +804,14 @@ let suite =
         "narrow malformed index definitions cannot establish schema authority"
         test_malformed_indexes;
       S.case "failed close denies every local handle until durable retry"
-        test_close_failure_shared_handles;
+        (test_close_failure_shared_handles ~identity_read_failure:false
+           ~cold_closer:false);
+      S.case "identity read failure stays closed after lock release"
+        (test_close_failure_shared_handles ~identity_read_failure:true
+           ~cold_closer:false);
+      S.case "uncached failed-close handle retains shared denial"
+        (test_close_failure_shared_handles ~identity_read_failure:true
+           ~cold_closer:true);
     ]
 
 let test_missing_constraints () =
