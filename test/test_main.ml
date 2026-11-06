@@ -523,6 +523,9 @@ let all_suites =
             check_config_not_modified;
         ] );
     ]
+  @ [
+      ("slack_standing_order_catchup", Test_slack_standing_order_catchup.suite);
+    ]
 
 (* Alcotest still walks every registered suite and prints a skip line for each
    non-match. A broad filter such as "tools" therefore spends minutes printing

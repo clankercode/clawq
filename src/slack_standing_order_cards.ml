@@ -227,6 +227,11 @@ let bind ~manager ~db ~now ~payload ~button action =
         Ok o
     | _ -> Error "the card's order is unavailable"
   in
+  let* () =
+    require
+      (Slack_standing_order_card_store.catchup_card_valid db card order)
+      "the catch-up notice is not bound to this epoch"
+  in
   let action_ts =
     match get "action_ts" action with
     | `String ts when T.valid_slack_ts ts -> Some ts

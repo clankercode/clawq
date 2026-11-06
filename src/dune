@@ -563,7 +563,9 @@
   slack_standing_order_delivery_inventory
   slack_standing_order_rollout_schema
   slack_standing_order_rollout_store
+  slack_standing_order_recovery_base
   slack_standing_order_recovery_store
+  slack_standing_order_catchup
   slack_standing_order_recovery_view
   slack_standing_order_receipt_import
   slack_standing_order_store_base

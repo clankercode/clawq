@@ -111,3 +111,24 @@ let use_card db ~card_id ~now:_ =
      used_at IS NULL"
     [ text (stamp ()); text card_id ];
   Sqlite3.changes db = 1
+
+(* Ordinary activation buttons remain usable as before. A catch-up card may
+   pause only the epoch and exact notice it advertised, including after reclaim. *)
+let catchup_card_valid db (card : T.card) (order : T.order) =
+  let rows =
+    query db
+      "SELECT epoch,status,notice_ts FROM \
+       slack_standing_order_recovery_batches WHERE card_id=?"
+      [ text card.id ]
+      (fun s ->
+        ( Sql_util.int_column s 0,
+          Sql_util.text_column s 1,
+          Sql_util.opt_text_column s 2 ))
+  in
+  match rows with
+  | [] -> true
+  | [ (epoch, status, ts) ] ->
+      epoch = order.epoch && card.order_epoch = epoch
+      && List.mem status [ "confirmed"; "released" ]
+      && ts <> None && ts = card.message_ts
+  | _ -> false

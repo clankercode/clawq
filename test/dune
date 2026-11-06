@@ -335,6 +335,12 @@
   test_slack_standing_order_worker_suppression
   test_slack_standing_order_worker
   test_slack_standing_order_recovery_store
+  test_slack_standing_order_catchup
+  test_slack_standing_order_catchup_support
+  test_slack_standing_order_catchup_faults
+  test_slack_standing_order_catchup_fences
+  test_slack_standing_order_catchup_edges
+  test_slack_standing_order_catchup_dispatch
   test_slack_standing_order_reconcile_scan
   test_slack_standing_order_scan_support
   test_slack_standing_order_scan_replay
