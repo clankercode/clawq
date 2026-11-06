@@ -441,7 +441,9 @@ let stop () =
       | _ -> ());
       Lwt.return_unit
 
-let start ~ctx ~db ~manager ?http ?upload_http () =
+let start ~ctx ~db ~manager ?http ?upload_http
+    ?(fallback_sleep = Lwt_unix.sleep)
+    ?(list_orders = fun () -> Store.list db ~include_cancelled:true ()) () =
   match !worker with
   | Some _ -> ()
   | None ->
@@ -484,7 +486,7 @@ let start ~ctx ~db ~manager ?http ?upload_http () =
                 if accepting () then Lwt.return_unit else Lwt.fail Lwt.Canceled);
         }
       in
-      let orders () = Store.list db ~include_cancelled:true () in
+      let orders = list_orders in
       let rows () =
         List.concat_map
           (fun (o : T.order) ->
@@ -559,23 +561,34 @@ let start ~ctx ~db ~manager ?http ?upload_http () =
               let job =
                 Lwt.finalize
                   (fun () ->
-                    let* () = Lwt.pause () in
-                    let roots_for_order (order : T.order) =
-                      Hashtbl.to_seq origins |> List.of_seq
-                      |> List.filter_map (fun ((team, app, ch, ts), eligible) ->
-                          if
-                            eligible && team = order.team_id
-                            && app = order.api_app_id && ch = order.channel_id
-                          then Some ts
-                          else None)
-                    in
-                    pass ~ctx:local ~db ~manager ?http ?upload_http
-                      ~renew_wait:ctx.wait ~roots_for_order ~held ~read_only
-                      ~orders:
-                        (List.filter
-                           (fun (o : T.order) -> o.channel_id = channel)
-                           all)
-                      ())
+                    Lwt.catch
+                      (fun () ->
+                        let* () = Lwt.pause () in
+                        let roots_for_order (order : T.order) =
+                          Hashtbl.to_seq origins |> List.of_seq
+                          |> List.filter_map
+                               (fun ((team, app, ch, ts), eligible) ->
+                                 if
+                                   eligible && team = order.team_id
+                                   && app = order.api_app_id
+                                   && ch = order.channel_id
+                                 then Some ts
+                                 else None)
+                        in
+                        pass ~ctx:local ~db ~manager ?http ?upload_http
+                          ~renew_wait:ctx.wait ~roots_for_order ~held ~read_only
+                          ~orders:
+                            (List.filter
+                               (fun (o : T.order) -> o.channel_id = channel)
+                               all)
+                          ())
+                      (function
+                        | Lwt.Canceled when not w.running -> Lwt.return_unit
+                        | exn ->
+                            Logs.warn (fun m ->
+                                m "standing-order worker channel %s failed: %s"
+                                  channel (Printexc.to_string exn));
+                            Lwt.return_unit))
                   (fun () ->
                     Hashtbl.remove w.jobs channel;
                     Lwt.return_unit)
@@ -584,27 +597,68 @@ let start ~ctx ~db ~manager ?http ?upload_http () =
               Lwt.async (fun () -> job)))
           channels
       in
-      let rec loop () =
-        let timer = wait ~seconds:5. and event = Lwt_condition.wait signal in
-        let* () =
-          Lwt.finalize
-            (fun () -> Lwt.pick [ timer; event ])
-            (fun () ->
-              let* () = cancel timer in
-              cancel event)
-        in
+      let wait_for_tick () =
+        let timer = wait ~seconds:5. in
+        Lwt.finalize
+          (fun () ->
+            let event = Lwt_condition.wait signal in
+            Lwt.finalize
+              (fun () -> Lwt.pick [ timer; event ])
+              (fun () -> cancel event))
+          (fun () -> cancel timer)
+      in
+      let backoff () =
+        let* () = Lwt.pause () in
         if not w.running then Lwt.return_unit
-        else (
-          tick ();
-          loop ())
+        else
+          Lwt.catch
+            (fun () -> wait ~seconds:5.)
+            (function
+              | Lwt.Canceled when not w.running -> Lwt.return_unit
+              | exn ->
+                  Logs.warn (fun m ->
+                      m "standing-order worker backoff failed: %s"
+                        (Printexc.to_string exn));
+                  cancellable (fallback_sleep 5.))
+      in
+      let rec loop ~wait_first () =
+        let* wait_first =
+          Lwt.catch
+            (fun () ->
+              let* () =
+                if wait_first then wait_for_tick () else Lwt.return_unit
+              in
+              if w.running then tick ();
+              Lwt.return_true)
+            (function
+              | Lwt.Canceled when not w.running -> Lwt.return_false
+              | exn ->
+                  Logs.warn (fun m ->
+                      m "standing-order worker tick failed: %s"
+                        (Printexc.to_string exn));
+                  let* () = backoff () in
+                  (* Backoff replaces the next head wait, keeping a five-second
+                     retry cadence even when the tick itself failed. *)
+                  Lwt.return_false)
+        in
+        if w.running then loop ~wait_first () else Lwt.return_unit
       in
       worker := Some w;
       Slack_huddle_observer.wake := wake;
       (Slack_huddle_observer.posture_changed := fun ~channel:_ -> wake ());
-      w.loop <-
-        Lwt.catch loop (function
-          | Lwt.Canceled -> Lwt.return_unit
-          | _ ->
-              Logs.warn (fun m ->
-                  m "standing-order worker stopped unexpectedly");
-              Lwt.return_unit)
+      Logs.info (fun m -> m "standing-order worker started");
+      let rec supervise ~recover () =
+        Lwt.catch
+          (fun () ->
+            let* () = if recover then backoff () else Lwt.return_unit in
+            if w.running then loop ~wait_first:(not recover) ()
+            else Lwt.return_unit)
+          (function
+            | Lwt.Canceled when not w.running -> Lwt.return_unit
+            | exn ->
+                Logs.warn (fun m ->
+                    m "standing-order worker stopped unexpectedly: %s"
+                      (Printexc.to_string exn));
+                supervise ~recover:true ())
+      in
+      w.loop <- supervise ~recover:false ()
