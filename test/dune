@@ -331,6 +331,8 @@
   test_slack_standing_order_dispatch_retry
   test_slack_standing_order_exec_support
   test_slack_standing_order_fetch
+  test_slack_standing_order_worker_support
+  test_slack_standing_order_worker_suppression
   test_slack_standing_order_worker
   test_slack_standing_order_recovery_store
   test_slack_standing_order_receipt_import

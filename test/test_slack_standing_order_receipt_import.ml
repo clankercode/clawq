@@ -285,6 +285,18 @@ let test_automatic_conflict () =
      fire_id=? AND attempt_no=0"
     Sql.
       [ text (Yojson.Safe.to_string (I.strings r.own_file_ids)); text fire.id ];
+  Sql.exec db
+    "INSERT INTO \
+     slack_standing_order_dispatches(fire_id,attempt_no,uploaded_file_ids,relay_ts,dispatched_at) \
+     VALUES(?,1,'[\"FSECOND\"]','1700000050.000001',?)"
+    [ Sql.text fire.id; Sqlite3.Data.FLOAT S.now ];
+  Sql.exec db
+    "UPDATE slack_standing_order_fires SET \
+     reposts=1,current_attempt=1,uploaded_file_ids='[\"FSECOND\"]',relay_ts='1700000050.000001' \
+     WHERE id=?"
+    [ Sql.text fire.id ];
+  (* The other legitimate retained attempt is a different delivery of the same
+     instance; only a collision or incompatible identity is a conflict. *)
   ignore (I.validate db ~receipt:r |> ok);
   let conflicting = { r with relay_ts = "1700000031.000001" } in
   let conflicting =
@@ -305,6 +317,15 @@ let test_automatic_conflict () =
   Alcotest.(check int)
     "linked delivery creates no attempt" before
     (count db "slack_standing_order_dispatches");
+  Sql.exec db
+    "UPDATE slack_standing_order_dispatches SET relay_ts='1700000999.000001' \
+     WHERE fire_id=?"
+    [ Sql.text fire.id ];
+  check "stored automatic link must still match retained evidence" true
+    (I.verify_rollout db ~manifest_digest:(I.inventory_digest m)
+    = Error I.Invalid_proof);
+  check "readiness denies a stale automatic link" true
+    (R.rollout_readiness db ~order_id:o.id = R.Denied R.Invalid_proof);
   ignore (Sqlite3.db_close db)
 
 let suite =
@@ -378,4 +399,200 @@ let suite =
         test_used_origin_is_monotonic;
       S.case "stored receipt payload digest is rechecked"
         test_stored_receipt_corruption;
+    ]
+
+let test_cross_instance_conflicts () =
+  List.iter
+    (fun (cross_order, same_relay) ->
+      let db, a, installation = legacy () in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.db_close db))
+        (fun () ->
+          let b =
+            if cross_order then
+              S.seed db ~target:{ S.claude with app_id = "AOTHER" } ()
+            else a
+          in
+          let original = receipt a installation in
+          let fire =
+            S.fire db a ~room:original.room_id ~date_start:original.date_start
+              ~state:T.Posted ~dispatched_at:S.now ~relay_ts:original.relay_ts
+              ()
+          in
+          Sql.exec db
+            "UPDATE slack_standing_order_fires SET \
+             root_ts=?,uploaded_file_ids=? WHERE id=?"
+            Sql.
+              [
+                text original.root_ts;
+                text (Yojson.Safe.to_string (I.strings original.own_file_ids));
+                text fire.id;
+              ];
+          Sql.exec db
+            "UPDATE slack_standing_order_dispatches SET uploaded_file_ids=? \
+             WHERE fire_id=?"
+            Sql.
+              [
+                text (Yojson.Safe.to_string (I.strings original.own_file_ids));
+                text fire.id;
+              ];
+          let proposed =
+            {
+              original with
+              I.order_id = b.id;
+              root_ts = "1700000002.000001";
+              room_id = "ROTHER";
+              date_start = "1700000002";
+              relay_ts =
+                (if same_relay then original.relay_ts else "1700000040.000001");
+              own_file_ids =
+                (if same_relay then [ "FDIFFERENT" ] else [ "FNOTES"; "FNEW" ]);
+            }
+          in
+          let proposed =
+            { proposed with I.evidence_digest = I.receipt_digest proposed }
+          in
+          check "cross-instance automatic conflict rejected" true
+            (I.validate db ~receipt:proposed = Error I.Conflicting_delivery);
+          let m = inventory db a installation [ proposed ] in
+          let m =
+            if cross_order then
+              {
+                m with
+                I.orders =
+                  m.orders
+                  @ [
+                      {
+                        I.order_id = b.id;
+                        epoch = b.epoch;
+                        active_since = b.active_since;
+                        activation_evidence = R.digest "reviewed-click";
+                      };
+                    ];
+              }
+            else m
+          in
+          (* Even an envelope validated before another handle records delivery must be rechecked in apply. *)
+          let inputs = [ I.Complete_inventory m; I.Delivery proposed ] in
+          check "atomic apply rejects conflict" true
+            (I.apply db inputs ~manifest_digest:(I.inventory_digest m)
+            = Error I.Conflicting_delivery);
+          check "conflict stays pending" true
+            (R.rollout_readiness db ~order_id:b.id
+            = R.Denied R.Inventory_pending);
+          Alcotest.(check int)
+            "no partial suppression" 0
+            (count db "slack_standing_order_suppression")))
+    [ (false, true); (true, true); (false, false); (true, false) ]
+
+let suite =
+  suite
+  @ [
+      S.case "cross-root and cross-order relay or file overlap denies import"
+        test_cross_instance_conflicts;
+    ]
+
+let add_automatic db (o : T.order) (r : I.external_receipt) ~root ~files =
+  let f =
+    S.fire db o ~room:"RCONFLICT" ~date_start:"1700000009" ~state:T.Posted
+      ~dispatched_at:S.now ~relay_ts:r.relay_ts ()
+  in
+  Sql.exec db
+    "UPDATE slack_standing_order_fires SET root_ts=?,uploaded_file_ids=? WHERE \
+     id=?"
+    Sql.[ text root; text (Yojson.Safe.to_string (I.strings files)); text f.id ];
+  Sql.exec db
+    "UPDATE slack_standing_order_dispatches SET uploaded_file_ids=? WHERE \
+     fire_id=?"
+    Sql.[ text (Yojson.Safe.to_string (I.strings files)); text f.id ];
+  f
+
+let test_conflict_race_and_reopen () =
+  List.iter
+    (fun late ->
+      let source, o, installation = legacy () in
+      let path = Filename.temp_file "clawq-import-conflicts-" ".db" in
+      let a = Sqlite3.db_open path and b = Sqlite3.db_open path in
+      Fun.protect
+        ~finally:(fun () ->
+          ignore (Sqlite3.db_close a);
+          ignore (Sqlite3.db_close b);
+          ignore (Sqlite3.db_close source);
+          Sys.remove path)
+        (fun () ->
+          let backup =
+            Sqlite3.Backup.init ~dst:a ~dst_name:"main" ~src:source
+              ~src_name:"main"
+          in
+          ignore (Sqlite3.Backup.step backup (-1));
+          ignore (Sqlite3.Backup.finish backup);
+          let r = receipt o installation in
+          let m = inventory a o installation [ r ] in
+          let inputs = validated a m [ r ] and digest = I.inventory_digest m in
+          if late then ignore (I.apply a inputs ~manifest_digest:digest |> ok);
+          ignore
+            (add_automatic b o r ~root:"1700000009.000001" ~files:[ "FNOTES" ]);
+          if late then
+            let reopened = Sqlite3.db_open path in
+            Fun.protect
+              ~finally:(fun () -> ignore (Sqlite3.db_close reopened))
+              (fun () ->
+                check "reopened verifier rejects late automatic conflict" true
+                  (I.verify_rollout reopened ~manifest_digest:digest
+                  = Error I.Invalid_proof);
+                check "readiness rechecks same inventory conflict" true
+                  (R.rollout_readiness reopened ~order_id:o.id
+                  = R.Denied R.Invalid_proof);
+                check "late conflict never removes suppression" true
+                  (R.suppressed reopened ~order_id:o.id ~root_ts:r.root_ts
+                     ~room_id:r.room_id ~date_start:r.date_start))
+          else (
+            check
+              "apply rechecks a validated envelope after competing handle \
+               writes"
+              true
+              (I.apply a inputs ~manifest_digest:digest
+              = Error I.Conflicting_delivery);
+            check "atomic race leaves pending" true
+              (R.rollout_readiness a ~order_id:o.id
+              = R.Denied R.Inventory_pending);
+            Alcotest.(check int)
+              "no partial delivery on race" 0
+              (count a "slack_standing_order_external_deliveries"))))
+    [ false; true ]
+
+let test_malformed_automatic_inventory () =
+  let db, o, installation = legacy () in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.db_close db))
+    (fun () ->
+      let r = receipt o installation in
+      let f =
+        add_automatic db o r ~root:"1700000009.000001" ~files:[ "FNOTES" ]
+      in
+      Sql.exec db
+        "UPDATE slack_standing_order_dispatches SET \
+         uploaded_file_ids='malformed json' WHERE fire_id=?"
+        [ Sql.text f.id ];
+      check "raw malformed delivery cannot be skipped" true
+        (I.validate db ~receipt:r = Error I.Conflicting_delivery);
+      Sql.exec db
+        "UPDATE slack_standing_order_dispatches SET \
+         uploaded_file_ids='[\"FOTHER\"]' WHERE fire_id=?"
+        [ Sql.text f.id ];
+      Sql.exec db
+        "UPDATE slack_standing_orders SET action_json='undecodable' WHERE id=?"
+        [ Sql.text o.id ];
+      check "undecodable order cannot hide its retained relay" true
+        (I.validate db ~receipt:r = Error I.Conflicting_delivery))
+
+let suite =
+  suite
+  @ [
+      S.case
+        "atomic import race and reopened verification inspect retained \
+         deliveries"
+        test_conflict_race_and_reopen;
+      S.case "raw malformed or undecodable automatic inventory is never skipped"
+        test_malformed_automatic_inventory;
     ]

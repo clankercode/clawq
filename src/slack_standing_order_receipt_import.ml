@@ -233,51 +233,10 @@ let check_identity db order_id channel (i : R.identity) =
     refuse Invalid_identity
 
 let automatic_match db (r : external_receipt) =
-  let fires =
-    Sql.query db
-      "SELECT id,root_ts,room_id,date_start FROM slack_standing_order_fires \
-       WHERE order_id=? AND (root_ts=? OR (room_id=? AND date_start=?))"
-      Sql.[ text r.order_id; text r.root_ts; text r.room_id; text r.date_start ]
-      (fun s ->
-        ( Sql_util.text_column s 0,
-          Sql_util.opt_text_column s 1,
-          Sql_util.text_column s 2,
-          Sql_util.text_column s 3 ))
-  in
-  List.iter
-    (fun (_, root, room, date) ->
-      if root <> Some r.root_ts || room <> r.room_id || date <> r.date_start
-      then refuse Conflicting_delivery)
-    fires;
-  let attempts =
-    List.concat_map
-      (fun (id, _, _, _) ->
-        Sql.query db
-          "SELECT attempt_no,relay_ts,uploaded_file_ids FROM \
-           slack_standing_order_dispatches WHERE fire_id=? AND dispatched_at \
-           IS NOT NULL"
-          [ Sql.text id ]
-          (fun s ->
-            ( id,
-              Sql_util.int_column s 0,
-              Sql_util.opt_text_column s 1,
-              Sql_util.text_column s 2 )))
-      fires
-  in
-  let matches =
-    List.filter
-      (fun (_, _, ts, files) ->
-        let files =
-          Yojson.Safe.Util.to_list (Yojson.Safe.from_string files)
-          |> List.map Yojson.Safe.Util.to_string
-        in
-        ts = Some r.relay_ts && sorted files = sorted r.own_file_ids)
-      attempts
-  in
-  match (matches, attempts) with
-  | [ (id, n, _, _) ], _ -> Some (id, n)
-  | [], [] -> None
-  | _ -> refuse Conflicting_delivery
+  let module Inventory = Slack_standing_order_delivery_inventory in
+  match Inventory.automatic_match db (Inventory.of_json (receipt_json r)) with
+  | Ok link -> link
+  | Error () -> refuse Conflicting_delivery
 
 let validate db ~(receipt : external_receipt) =
   protect (fun () ->
@@ -331,8 +290,11 @@ let validate db ~(receipt : external_receipt) =
             Yojson.Safe.Util.(
               json |> member "own_file_ids" |> to_list |> List.map to_string)
           in
-          if List.exists (fun id -> List.mem id ids) r.own_file_ids then
-            refuse Conflicting_delivery)
+          if
+            Yojson.Safe.Util.member "channel_id" json = str r.channel_id
+            && Yojson.Safe.Util.member "relay_ts" json = str r.relay_ts
+            || List.exists (fun id -> List.mem id ids) r.own_file_ids
+          then refuse Conflicting_delivery)
         file_conflict;
       ignore (automatic_match db r);
       Delivery r)

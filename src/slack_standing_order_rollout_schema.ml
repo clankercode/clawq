@@ -132,6 +132,75 @@ let columns_present db table required =
   in
   List.for_all (fun c -> List.mem c found) required
 
+(* Recognize constraint tokens, not names or text inside comments/literals.
+   Unsupported spellings conservatively deny; this is the shipped schema, not
+   a general SQLite equivalence prover. String literals retain their case. *)
+let tokens sql =
+  let len = String.length sql in
+  let rec quoted quote i =
+    if i >= len then failwith "unterminated schema quote"
+    else if sql.[i] = quote then
+      if i + 1 < len && sql.[i + 1] = quote then quoted quote (i + 2) else i + 1
+    else quoted quote (i + 1)
+  in
+  let rec comment i =
+    if i + 1 >= len then failwith "unterminated schema comment"
+    else if sql.[i] = '*' && sql.[i + 1] = '/' then i + 2
+    else comment (i + 1)
+  in
+  let word = function
+    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true
+    | _ -> false
+  in
+  let rec finish i = if i < len && word sql.[i] then finish (i + 1) else i in
+  let rec line i = if i < len && sql.[i] <> '\n' then line (i + 1) else i in
+  let rec scan i acc =
+    if i >= len then List.rev acc
+    else
+      match sql.[i] with
+      | ' ' | '\n' | '\r' | '\t' -> scan (i + 1) acc
+      | '-' when i + 1 < len && sql.[i + 1] = '-' -> scan (line (i + 2)) acc
+      | '/' when i + 1 < len && sql.[i + 1] = '*' -> scan (comment (i + 2)) acc
+      | ('\'' | '"' | '`') as quote ->
+          let j = quoted quote (i + 1) in
+          scan j (String.sub sql i (j - i) :: acc)
+      | c when word c ->
+          let j = finish i in
+          scan j (String.lowercase_ascii (String.sub sql i (j - i)) :: acc)
+      | c -> scan (i + 1) (String.make 1 c :: acc)
+  in
+  scan 0 []
+
+let compact sql = String.concat "" (tokens sql)
+
+let schema_sql db kind name =
+  match
+    query db "SELECT sql FROM sqlite_master WHERE type=? AND name=?"
+      [ text kind; text name ]
+      (fun s -> Sql_util.text_column s 0)
+  with
+  | [ sql ] -> sql
+  | _ -> ""
+
+let has_check sql expression =
+  let rec body depth acc = function
+    | [] -> None
+    | ")" :: rest when depth = 0 -> Some (String.concat "" (List.rev acc), rest)
+    | "(" :: rest -> body (depth + 1) ("(" :: acc) rest
+    | ")" :: rest -> body (depth - 1) (")" :: acc) rest
+    | token :: rest -> body depth (token :: acc) rest
+  in
+  let expected = compact expression in
+  let rec find = function
+    | "check" :: "(" :: rest -> (
+        match body 0 [] rest with
+        | Some (actual, rest) -> actual = expected || find rest
+        | None -> false)
+    | _ :: rest -> find rest
+    | [] -> false
+  in
+  find (tokens sql)
+
 let base_shape db =
   let nonnull table cols =
     let found =
@@ -164,12 +233,24 @@ let base_shape db =
        (fun (table, cols) -> nonnull table cols)
        [
          ( "slack_standing_orders",
-           columns "team_id api_app_id channel_id state epoch" );
+           columns
+             "display_no team_id api_app_id channel_id grantor_user_id \
+              trigger_kind action_json target_app_id state epoch revision \
+              management_channel_id management_thread_ts max_fires_per_day \
+              created_at updated_at spoken_requests card_version" );
          ( "slack_standing_order_fires",
-           columns "order_id room_id date_start state epoch" );
+           columns
+             "order_id room_id date_start state epoch lease_epoch \
+              cancel_requested repost_forbidden uploaded_file_ids attempts \
+              reposts created_at updated_at" );
          ( "slack_standing_order_cards",
-           columns "order_id team_id app_id channel_id order_epoch" );
-         ("slack_standing_order_dispatches", columns "fire_id attempt_no");
+           columns
+             "kind order_id team_id app_id channel_id order_epoch created_by \
+              created_at" );
+         ( "slack_standing_order_dispatches",
+           columns
+             "fire_id attempt_no uploaded_file_ids reaction_seen not_delivered"
+         );
        ]
   && List.for_all
        (fun (table, cols) -> unique table cols)
@@ -181,4 +262,83 @@ let base_shape db =
          ("slack_standing_order_fires", columns "order_id canvas_file_id");
          ("slack_standing_order_cards", [ "id" ]);
          ("slack_standing_order_dispatches", columns "fire_id attempt_no");
+       ]
+  && List.for_all
+       (fun (table, checks) ->
+         let sql = schema_sql db "table" table in
+         List.for_all (fun check -> has_check sql check) checks)
+       [
+         ( "slack_standing_orders",
+           [
+             "display_no>=1";
+             "trigger_kind IN ('huddle_notes_ready')";
+             "state IN \
+              ('pending_confirmation','active','paused','suspended','cancelled')";
+             "spoken_requests IN (0,1)";
+           ] );
+         ( "slack_standing_order_fires",
+           [
+             "date_start<>''";
+             "reposts BETWEEN 0 AND 1";
+             "state IN ("
+             ^ String.concat ","
+                 (List.map
+                    (fun state ->
+                      "'"
+                      ^ Slack_standing_order_types.fire_state_to_string state
+                      ^ "'")
+                    Slack_standing_order_types.all_fire_states)
+             ^ ")";
+           ] );
+         ( "slack_standing_order_cards",
+           [ "kind IN ('confirm','resume','pause','change')" ] );
+         ( "slack_standing_order_dispatches",
+           [
+             "attempt_no IN (0,1)";
+             "reaction_seen IN (0,1)";
+             "not_delivered IN (0,1)";
+           ] );
+       ]
+  && List.for_all
+       (fun (table, cols, predicate) ->
+         query db
+           ("PRAGMA index_list(" ^ table ^ ")")
+           []
+           (fun s ->
+             ( Sql_util.text_column s 1,
+               Sql_util.int_column s 2,
+               Sql_util.int_column s 4 ))
+         |> List.exists (fun (name, unique, partial) ->
+             unique = 1 && partial = 1
+             && query db "SELECT name FROM pragma_index_info(?) ORDER BY seqno"
+                  [ text name ]
+                  (fun s -> Sql_util.text_column s 0)
+                = cols
+             &&
+             let sql = compact (schema_sql db "index" name) in
+             let suffix = "where" ^ compact predicate in
+             String.ends_with ~suffix sql))
+       [
+         ( "slack_standing_order_fires",
+           [ "transcript_file_id" ],
+           "transcript_file_id IS NOT NULL" );
+         ( "slack_standing_orders",
+           columns "team_id channel_id trigger_kind target_app_id",
+           "state IN ('pending_confirmation','active','paused')" );
+       ]
+
+let installed_shape db =
+  base_shape db
+  && List.for_all
+       (fun (table, col) ->
+         columns_present db table [ col ]
+         && List.mem (col, 1)
+              (query db
+                 ("PRAGMA table_info(" ^ table ^ ")")
+                 []
+                 (fun s -> (Sql_util.text_column s 1, Sql_util.int_column s 3)))
+         && has_check (schema_sql db "table" table) (col ^ " IN (0,1)"))
+       [
+         ("slack_standing_order_fires", "current_attempt");
+         ("slack_standing_order_dispatches", "complete_rejected_before_share");
        ]

@@ -794,12 +794,13 @@ let test_complete_evidence_migration () =
       List.iter (Sql_util.exec_exn db) Slack_standing_order_store_base.schema;
       Store.exec db
         "CREATE TABLE slack_standing_order_dispatches (fire_id TEXT NOT \
-         NULL,attempt_no INTEGER NOT NULL,uploaded_file_ids TEXT NOT NULL \
-         DEFAULT '[]',relay_ts TEXT,upload_started_at REAL,dispatched_at \
-         REAL,pickup_started_at REAL,first_reply_ts TEXT,rate_limited_at \
-         REAL,reaction_seen INTEGER NOT NULL DEFAULT 0,acknowledged_at \
-         REAL,picked_up_at REAL,not_delivered INTEGER NOT NULL DEFAULT \
-         0,PRIMARY KEY(fire_id,attempt_no))"
+         NULL,attempt_no INTEGER NOT NULL CHECK(attempt_no IN \
+         (0,1)),uploaded_file_ids TEXT NOT NULL DEFAULT '[]',relay_ts \
+         TEXT,upload_started_at REAL,dispatched_at REAL,pickup_started_at \
+         REAL,first_reply_ts TEXT,rate_limited_at REAL,reaction_seen INTEGER \
+         NOT NULL DEFAULT 0 CHECK(reaction_seen IN (0,1)),acknowledged_at \
+         REAL,picked_up_at REAL,not_delivered INTEGER NOT NULL DEFAULT 0 \
+         CHECK(not_delivered IN (0,1)),PRIMARY KEY(fire_id,attempt_no))"
         [];
       Store.exec db
         "INSERT INTO \

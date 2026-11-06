@@ -218,6 +218,14 @@ let test_corruption () =
             "UPDATE slack_standing_order_rollout_evidence SET digest='bad' \
              WHERE seq=1"
             [] );
+      ( "malformed installed transcript index",
+        fun db ->
+          Sql.exec db "DROP INDEX slack_standing_order_fires_transcript" [];
+          Sql.exec db
+            "CREATE INDEX slack_standing_order_fires_transcript ON \
+             slack_standing_order_fires(transcript_file_id) WHERE \
+             transcript_file_id IS NOT NULL"
+            [] );
       ( "missing schema component",
         fun db -> Sql.exec db "DROP TABLE slack_standing_order_thread_work" []
       );
@@ -364,14 +372,25 @@ let test_unused_and_ambiguous_origins () =
     (fun setup ->
       let db = Sqlite3.db_open ":memory:" in
       setup db;
-      Store.ensure_schema db;
-      check "ambiguous/used origin held" true
-        (R.rollout_readiness db ~order_id:"missing"
-        = R.Denied R.Inventory_pending);
-      Store.ensure_schema db;
-      check "restart never auto-freshens" true
-        (R.rollout_readiness db ~order_id:"missing"
-        = R.Denied R.Inventory_pending);
+      let malformed = not (Rollout.base_shape db) in
+      let initialized =
+        try
+          Store.ensure_schema db;
+          true
+        with _ -> false
+      in
+      if malformed then (
+        check "malformed schema initialization denied" false initialized;
+        check "malformed schema has no anchored proof" false
+          (Rollout.table_exists db "slack_standing_order_feature_version"))
+      else (
+        check "ambiguous/used origin held" true
+          (R.rollout_readiness db ~order_id:"missing"
+          = R.Denied R.Inventory_pending);
+        Store.ensure_schema db;
+        check "restart never auto-freshens" true
+          (R.rollout_readiness db ~order_id:"missing"
+          = R.Denied R.Inventory_pending));
       ignore (Sqlite3.db_close db))
     [
       (fun db ->
@@ -558,4 +577,250 @@ let suite =
         test_cursor_rescan;
       S.case "startup holds durable roots without dispatched fire"
         test_startup_orphan_live_root;
+    ]
+
+let test_malformed_indexes () =
+  List.iter
+    (fun (name, replacement) ->
+      let db = Sqlite3.db_open ":memory:" in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.db_close db))
+        (fun () ->
+          Slack_standing_order_store_base.ensure_schema_tables db;
+          Sql.exec db ("DROP INDEX " ^ name) [];
+          Sql.exec db replacement [];
+          check "isolated malformed index is not recognized" false
+            (Rollout.base_shape db);
+          check "malformed resulting schema cannot be anchored" true
+            (try
+               Store.ensure_schema db;
+               false
+             with _ -> true);
+          check "no version anchor after rollback" false
+            (Rollout.table_exists db "slack_standing_order_feature_version");
+          check "malformed schema never ready" true
+            (match R.rollout_readiness db ~order_id:"absent" with
+            | R.Denied _ -> true
+            | _ -> false)))
+    [
+      ( "slack_standing_order_fires_transcript",
+        "CREATE INDEX slack_standing_order_fires_transcript ON \
+         slack_standing_order_fires(transcript_file_id) WHERE \
+         transcript_file_id IS NOT NULL" );
+      ( "slack_standing_order_fires_transcript",
+        "CREATE UNIQUE INDEX slack_standing_order_fires_transcript ON \
+         slack_standing_order_fires(transcript_file_id) WHERE \
+         transcript_file_id IS NOT NULL AND order_id='only_one'" );
+      ( "slack_standing_orders_one_live",
+        "CREATE INDEX slack_standing_orders_one_live ON \
+         slack_standing_orders(team_id,channel_id,trigger_kind,target_app_id) \
+         WHERE state IN ('pending_confirmation','active','paused')" );
+      ( "slack_standing_orders_one_live",
+        "CREATE UNIQUE INDEX slack_standing_orders_one_live ON \
+         slack_standing_orders(team_id,channel_id,trigger_kind,target_app_id) \
+         WHERE state='active'" );
+    ];
+  let db = fresh () in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.db_close db))
+    (fun () ->
+      let a = new_order db "so_unique_a" in
+      let b =
+        new_order ~target:{ S.claude with app_id = "AOTHER" } db "so_unique_b"
+      in
+      let f1 = fire db a "1700000001.1" "R1" "1700000001" in
+      let f2 = fire db b "1700000002.1" "R2" "1700000002" in
+      Sql.exec db
+        "UPDATE slack_standing_order_fires SET transcript_file_id='FSAME' \
+         WHERE id=?"
+        [ Sql.text f1.id ];
+      check "global transcript cannot be reused by another order" true
+        (try
+           Sql.exec db
+             "UPDATE slack_standing_order_fires SET transcript_file_id='FSAME' \
+              WHERE id=?"
+             [ Sql.text f2.id ];
+           false
+         with _ -> true);
+      check "one live order invariant" true
+        (try
+           ignore (new_order db "so_duplicate_target");
+           false
+         with _ -> true))
+
+let test_close_failure_shared_handles () =
+  let path = Filename.temp_file "clawq-shared-denial-" ".db" in
+  let a = Sqlite3.db_open path and b = Sqlite3.db_open path in
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (Sqlite3.db_close a);
+      ignore (Sqlite3.db_close b);
+      Sys.remove path)
+    (fun () ->
+      Store.ensure_schema a;
+      let o = new_order a "so_shared" in
+      let gap, owner, c = scan a o in
+      check "recovery candidate saved" true
+        (R.save_page a ~order_id:o.id ~owner ~coverage:c
+           ~candidates:[ ("1700000001.1", "RHOLD", "1700000001") ]
+           ~now:S.now);
+      finish a o gap owner c;
+      let live = fire a o "1700000002.1" "RLIVE" "1700000002" in
+      let card =
+        Store.insert_card a ~kind:T.Pause_button ~order:o ~created_by:"U123"
+          ~now:S.now ()
+      in
+      check "batch created" true
+        (R.create_batch a ~order:o ~owner ~batch_id:"shared_batch"
+           ~card_id:card.id
+           ~roots:[ ("1700000001.1", "1700000001") ]
+           ~now:S.now);
+      check "notice reserved" true
+        (R.reserve_notice a ~batch_id:"shared_batch" ~owner ~now:S.now);
+      check "notice confirmed" true
+        (R.bind_notice a ~batch_id:"shared_batch" ~owner ~ts:"1700000100.1"
+           ~release_at:(S.now +. 600.) ~now:S.now);
+      List.iter
+        (fun t ->
+          check "renew hold" true
+            (R.renew a ~order_id:o.id ~owner ~now:(S.now +. t)))
+        [ 100.; 200.; 300.; 400.; 500.; 599. ];
+      List.iter
+        (fun db ->
+          check "admitted before failure" true
+            (R.relay_allowed db ~fire_id:live.id ~now:(S.now +. 600.)))
+        [ a; b ];
+      Sql.exec a
+        "CREATE TRIGGER fail_shared_close BEFORE UPDATE ON \
+         slack_standing_order_recovery_gaps BEGIN SELECT RAISE(ABORT,'injected \
+         close failure'); END"
+        [];
+      check "durable close failed" true
+        (Result.is_error
+           (R.close_gap a ~team_id:"T123" ~app_id:"A123" ~channel_id:"C123"
+              ~cause:"disconnect" ~now:(S.now +. 600.)));
+      List.iter
+        (fun db ->
+          check "all local handles deny relay" false
+            (R.relay_allowed db ~fire_id:live.id ~now:(S.now +. 600.));
+          check "all local handles deny verification" false
+            (R.verify_gap db ~token:gap ~owner ~through:c.latest
+               ~now:(S.now +. 600.));
+          check "all local handles deny release" false
+            (R.release_batch db ~batch_id:"shared_batch" ~owner
+               ~now:(S.now +. 600.));
+          check "old hello cannot clear latch" false
+            (R.mark_connected db ~token:gap))
+        [ a; b ];
+      let unrelated_path = Filename.temp_file "clawq-unrelated-denial-" ".db" in
+      List.iter
+        (fun path ->
+          let unrelated = Sqlite3.db_open path in
+          Fun.protect
+            ~finally:(fun () -> ignore (Sqlite3.db_close unrelated))
+            (fun () ->
+              let backup =
+                Sqlite3.Backup.init ~dst:unrelated ~dst_name:"main" ~src:a
+                  ~src_name:"main"
+              in
+              ignore (Sqlite3.Backup.step backup (-1));
+              ignore (Sqlite3.Backup.finish backup);
+              check
+                "unrelated DB with identical installation UUID stays admitted"
+                true
+                (R.relay_allowed unrelated ~fire_id:live.id ~now:(S.now +. 600.))))
+        [ ":memory:"; unrelated_path ];
+      Sys.remove unrelated_path;
+      check "unrelated channel has no local denial" false
+        (R.latched b { gap with R.channel_id = "COTHER" });
+      Sql.exec a "DROP TRIGGER fail_shared_close" [];
+      let next =
+        R.close_gap b ~team_id:"T123" ~app_id:"A123" ~channel_id:"C123"
+          ~cause:"retry" ~now:(S.now +. 600.)
+        |> ok
+      in
+      check "successful close supersedes generation" true
+        (next.gap_generation > gap.gap_generation);
+      check "retry clears shared latch" true (R.mark_connected a ~token:next);
+      List.iter
+        (fun db ->
+          check "old generation remains denied after durable retry" false
+            (R.relay_allowed db ~fire_id:live.id ~now:(S.now +. 600.)))
+        [ a; b ];
+      check "retry scan under new durable generation" true
+        (R.begin_scan b ~order:o ~owner ~mode:R.Gap_recovery ~gap:next
+           ~oldest:c.oldest ~latest:c.latest ~now:(S.now +. 600.));
+      check "retry pause coverage" true
+        (R.complete_pause b ~order_id:o.id ~owner ~now:(S.now +. 600.));
+      check "retry history coverage" true
+        (R.complete_history b ~order_id:o.id ~owner ~now:(S.now +. 600.));
+      check "retry scan complete" true
+        (R.finish_scan b ~order_id:o.id ~owner ~now:(S.now +. 600.));
+      check "retry verified" true
+        (R.verify_gap b ~token:next ~owner ~through:c.latest ~now:(S.now +. 600.));
+      List.iter
+        (fun db ->
+          check "new verified generation admits all local handles" true
+            (R.relay_allowed db ~fire_id:live.id ~now:(S.now +. 600.)))
+        [ a; b ])
+
+let suite =
+  suite
+  @ [
+      S.case
+        "narrow malformed index definitions cannot establish schema authority"
+        test_malformed_indexes;
+      S.case "failed close denies every local handle until durable retry"
+        test_close_failure_shared_handles;
+    ]
+
+let test_missing_constraints () =
+  let replace sql before after =
+    let re = Str.regexp_string before in
+    Str.global_replace re after sql
+  in
+  List.iter
+    (fun (before, after) ->
+      let db = Sqlite3.db_open ":memory:" in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.db_close db))
+        (fun () ->
+          List.iter
+            (fun sql -> Sql.exec db (replace sql before after) [])
+            Slack_standing_order_store_base.schema;
+          Sql.exec db
+            (replace Slack_standing_order_store_base.dispatch_schema before
+               after)
+            [];
+          check "isolated missing check or nullability denied" false
+            (Rollout.base_shape db);
+          check "no malformed resulting schema anchor" true
+            (try
+               Store.ensure_schema db;
+               false
+             with _ -> true);
+          check "no inventory can certify malformed schema" true
+            (Result.is_error
+               (Slack_standing_order_receipt_import.apply db []
+                  ~manifest_digest:(String.make 64 '0')));
+          check "malformed stays denied" true
+            (match R.rollout_readiness db ~order_id:"absent" with
+            | R.Denied _ -> true
+            | _ -> false)))
+    [
+      ("CHECK (reposts BETWEEN 0 AND 1)", "");
+      ( "CHECK (reposts BETWEEN 0 AND 1)",
+        "/* CHECK (reposts BETWEEN 0 AND 1) */" );
+      ("CHECK (display_no >= 1)", "");
+      ("CHECK (date_start <> '')", "");
+      ("CHECK (attempt_no IN (0,1))", "");
+      ("target_app_id TEXT NOT NULL", "target_app_id TEXT");
+      ("uploaded_file_ids TEXT NOT NULL", "uploaded_file_ids TEXT");
+    ]
+
+let suite =
+  suite
+  @ [
+      S.case "required checks and nullability cannot be certified by inventory"
+        test_missing_constraints;
     ]

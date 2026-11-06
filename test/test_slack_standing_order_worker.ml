@@ -1,47 +1,10 @@
 open Lwt.Syntax
 open Test_slack_standing_order_exec_support
 module E = Slack_standing_order_exec
-module Ctx = Slack_standing_order_ctx
 
 let check = Alcotest.(check bool)
 
-let rec flush n =
-  if n = 0 then Lwt.return_unit
-  else
-    let* () = Lwt.pause () in
-    flush (n - 1)
-
-type timer = { due : float; promise : unit Lwt.t; wake : unit Lwt.u }
-type clock = { mutable now : float; mutable timers : timer list }
-
-let clock () =
-  let c = { now = Store.now (); timers = [] } in
-  (Store.clock := fun () -> c.now);
-  c
-
-let wait c ~seconds =
-  let promise, wake = Lwt.task () in
-  c.timers <- { due = c.now +. seconds; promise; wake } :: c.timers;
-  promise
-
-let pending c = List.filter (fun t -> Lwt.is_sleeping t.promise) c.timers
-
-let advance c seconds =
-  c.now <- c.now +. seconds;
-  List.iter
-    (fun t ->
-      if Lwt.is_sleeping t.promise && t.due <= c.now then Lwt.wakeup t.wake ())
-    c.timers;
-  c.timers <- pending c;
-  flush 20
-
-let context e c = { (ctx e) with Ctx.wait = wait c }
-
-let cleanup c =
-  let stranded = pending c in
-  List.iter (fun t -> Lwt.cancel t.promise) stranded;
-  Alcotest.(check int)
-    "no stranded timers before cleanup" 0 (List.length stranded)
+include Test_slack_standing_order_worker_support
 
 let test_due () =
   with_env (fun e ->
@@ -818,90 +781,4 @@ let suite =
     S.case "post pacing at least one second" test_pacing;
   ]
 
-let test_import_suppression_worker () =
-  let module I = Slack_standing_order_receipt_import in
-  let module Import_fixture = Test_slack_standing_order_receipt_import in
-  let module R = Slack_standing_order_rollout_store in
-  with_env (fun e ->
-      let _, installation, _, _ = R.read_anchor e.db in
-      let receipt = Import_fixture.receipt e.order installation in
-      let receipt =
-        {
-          receipt with
-          I.root_ts;
-          room_id = "R123";
-          date_start = string_of_int start;
-        }
-      in
-      let receipt =
-        { receipt with I.evidence_digest = I.receipt_digest receipt }
-      in
-      let inventory =
-        Import_fixture.inventory e.db e.order installation [ receipt ]
-      in
-      let inputs = Import_fixture.validated e.db inventory [ receipt ] in
-      ignore
-        (Import_fixture.ok
-           (I.apply e.db inputs ~manifest_digest:(I.inventory_digest inventory)));
-      let c = clock () and uploads = ref 0 in
-      Lwt_main.run
-        (Lwt.finalize
-           (fun () ->
-             E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager
-               ~http:e.mock.http
-               ~upload_http:(fun _ ->
-                 incr uploads;
-                 Lwt.return
-                   Slack_standing_order_upload.
-                     { status = 200; headers = []; body = "" })
-               ();
-             seen e;
-             observe_ready e ();
-             let* () = flush 40 in
-             let* () = advance c 601. in
-             observe_ready e ();
-             let* () = flush 40 in
-             let* () = E.stop () in
-             E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager
-               ~http:e.mock.http ();
-             seen e;
-             observe_ready e ();
-             let* () = flush 40 in
-             let methods = S.methods_called e.mock in
-             check "suppressed event/history allocates zero files" false
-               (List.mem "files.getUploadURLExternal" methods);
-             check "suppressed event/history completes zero shares" false
-               (List.mem "files.completeUploadExternal" methods);
-             Alcotest.(check int) "zero raw uploads" 0 !uploads;
-             Alcotest.(check int)
-               "no executor fire/debit for manual delivery" 0
-               (Import_fixture.count e.db "slack_standing_order_fires");
-             let fire =
-               Store.insert_fire e.db ~order:e.order ~room_id:"R123"
-                 ~date_start:(string_of_int start) ~root_ts ~now:c.now ()
-               |> Result.get_ok |> Option.get
-             in
-             check "final synchronous Fire fence refuses suppressed row" true
-               (match
-                  Slack_standing_order_grant.stage_rows e.db ~now:c.now
-                    ~stage:
-                      (Slack_standing_order_grant.Fire
-                         { fire_epoch = e.order.epoch; fire_id = fire.id })
-                    (Slack_standing_order_grant.subject_of_order e.order)
-                with
-               | Error _ -> true
-               | _ -> false);
-             Lwt.return_unit)
-           (fun () ->
-             let* () = E.stop () in
-             cleanup c;
-             Lwt.return_unit)))
-
-let suite =
-  suite
-  @ [
-      S.case
-        "reviewed manual suppression survives event history restart and final \
-         fence"
-        test_import_suppression_worker;
-    ]
+let suite = suite @ Test_slack_standing_order_worker_suppression.suite

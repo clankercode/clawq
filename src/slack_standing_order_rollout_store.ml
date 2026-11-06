@@ -332,8 +332,11 @@ let state_row db =
 
 let validate_proof db =
   let _, installation, bootstrap, fp = read_anchor db in
-  if String.length installation <> 36 || fingerprint db <> fp then
-    failwith "invalid installation schema";
+  if
+    String.length installation <> 36
+    || (not (installed_shape db))
+    || fingerprint db <> fp
+  then failwith "invalid installation schema";
   let state, seq, identity, valid, manifest = state_row db in
   let rows =
     query db
@@ -406,6 +409,8 @@ let bootstrap db ~install =
               failwith "orphan feature artifacts";
             let inv, fresh = inventory db in
             install ();
+            if not (installed_shape db) then
+              failwith "unsupported standing-order schema constraints";
             List.iter
               (fun (n, cols) ->
                 exec db ("CREATE TABLE " ^ n ^ " (" ^ cols ^ ")") [])
@@ -682,19 +687,31 @@ let inventory_complete db uuid manifest =
              | `String "delivered" -> (
                  match
                    query db
-                     "SELECT e.metadata FROM \
-                      slack_standing_order_external_deliveries e JOIN \
+                     "SELECT e.metadata,e.automatic_fire,e.automatic_attempt \
+                      FROM slack_standing_order_external_deliveries e JOIN \
                       slack_standing_order_suppression s ON \
                       s.receipt_digest=e.receipt_digest WHERE s.installation=? \
                       AND s.receipt_digest=?"
                      [ text uuid; text id ]
-                     (fun s -> Sql_util.text_column s 0)
+                     (fun s ->
+                       ( Sql_util.text_column s 0,
+                         Sql_util.opt_text_column s 1,
+                         Sql_util.opt_int_column s 2 ))
                  with
-                 | [ metadata ] ->
+                 | [ (metadata, fire, attempt) ] -> (
                      let j = Yojson.Safe.from_string metadata in
                      member "evidence_digest" j = `String id
                      && member "installation" j = `String uuid
                      && digest (Yojson.Safe.to_string (external_payload j)) = id
+                     &&
+                     match (fire, attempt) with
+                     | None, None ->
+                         Slack_standing_order_delivery_inventory.link_valid db j
+                           None
+                     | Some fire, Some attempt ->
+                         Slack_standing_order_delivery_inventory.link_valid db j
+                           (Some (fire, attempt))
+                     | _ -> false)
                  | _ -> false)
              | `String "out_of_scope" -> (
                  match member "reason" d with
@@ -773,7 +790,6 @@ let rollout_readiness db ~order_id =
       | Ok (uuid, state, _, Some identity, true, manifest)
         when List.mem state [ "fresh_no_legacy_work"; "inventory_verified" ]
         -> (
-          if not (base_shape db) then failwith "malformed order schema";
           let rows =
             query db
               "SELECT \
