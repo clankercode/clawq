@@ -17,13 +17,17 @@ let with_resolution_lease ~ctx ~db initial work =
   in
   let rec renew () =
     let* () = ctx.wait ~seconds:30. in
-    match Schedule.renew_resolution ~db ~lease:!current ~now:(ctx.now ()) with
-    | Some next ->
-        current := next;
-        renew ()
-    | None ->
-        lost := true;
-        Lwt.return_unit
+    if not (ctx.accepting ()) then (
+      lost := true;
+      Lwt.return_unit)
+    else
+      match Schedule.renew_resolution ~db ~lease:!current ~now:(ctx.now ()) with
+      | Some next ->
+          current := next;
+          renew ()
+      | None ->
+          lost := true;
+          Lwt.return_unit
   in
   let heartbeat =
     Lwt.catch renew (function

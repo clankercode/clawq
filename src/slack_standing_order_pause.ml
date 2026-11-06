@@ -15,6 +15,7 @@ module SO = Slack_standing_order_slack
 module Grant = Slack_standing_order_grant
 module Render = Slack_standing_order_render
 module Journal = Slack_standing_order_pause_store
+module Sql = Slack_standing_order_sql
 
 type replay = {
   call : SO.call;
@@ -266,47 +267,71 @@ let lookup db ~team_id ~app_id ~channel_id = function
           then Some o
           else None)
 
-(* Steps 4-5 on the row as it is now; [deactivate] re-checks it in its
-   transaction, so a concurrent change yields [changed = false]. A failed store
-   read or write refuses: the order is known, so it is never "not found". *)
-let apply ~db ~now ~channel_id ~user_id ~source (o : T.order) =
+(* The privacy transition, pre-dispatch sweep and replay decision commit once.
+   Membership/notification I/O stays outside this synchronous transaction. *)
+let apply ~db ~now ?message ~channel_id ~user_id ~source (o : T.order) =
   let settled (o : T.order) =
-    Lwt.return
-      (match o.state with T.Paused -> Already_paused o | _ -> Not_active o)
+    match o.state with T.Paused -> Already_paused o | _ -> Not_active o
   in
   let failed e =
     Logs.warn (fun m -> m "standing-order pause of %s failed: %s" o.id e);
     Lwt.return store_refused
   in
   let deactivate (fresh : T.order) op =
-    match
-      Result.join
-        (read (fun () -> Store.deactivate db ~order_id:fresh.id op ~now))
-    with
-    | Error e -> failed e
-    | Ok { Store.changed = false; after; _ } -> settled after
-    | Ok { Store.after; in_flight; _ } ->
-        let withdrawn = match op with Store.Withdraw _ -> true | _ -> false in
-        ledger ~db ~channel_id ~actor:user_id
-          ~event_type:
-            (if withdrawn then "standing_order_withdrawn"
-             else "standing_order_paused")
-          [
-            ("order", `String (T.display_name after));
-            ("source", `String (source_to_string source));
-          ];
-        Lwt.return
-          (if withdrawn then Withdrawn after
-           else Paused { order = after; in_flight })
+    Result.map
+      (function
+        | { Store.changed = false; after; _ } -> settled after
+        | { Store.after; in_flight; _ } -> (
+            match op with
+            | Store.Withdraw _ -> Withdrawn after
+            | _ -> Paused { order = after; in_flight }))
+      (Store.deactivate_in_tx db ~order_id:fresh.id op ~now)
   in
-  match read (fun () -> Store.find db o.id) with
+  let result =
+    Sql.in_tx db ~on_error:Fun.id (fun () ->
+        (* Another event/sweep may have committed while membership awaited.
+           Recheck under the write lock, including after a later resume. *)
+        match Option.bind message (Journal.completed_outcome db o) with
+        | Some _ -> Ok (remembered_outcome db o message)
+        | None ->
+            let fresh = Option.value (Store.find db o.id) ~default:o in
+            let result =
+              match fresh.state with
+              | T.Pending_confirmation ->
+                  deactivate fresh (Store.Withdraw user_id)
+              | T.Active -> deactivate fresh (Store.Pause user_id)
+              | T.Paused | T.Suspended | T.Cancelled -> Ok (settled fresh)
+            in
+            Result.map
+              (fun outcome ->
+                let code =
+                  match outcome with
+                  | Paused _ -> "paused"
+                  | Withdrawn _ -> "withdrawn"
+                  | Already_paused _ -> "already_paused"
+                  | Not_active _ -> "inactive"
+                  | _ -> "refused"
+                in
+                Option.iter (fun m -> Journal.outcome db o m code) message;
+                outcome)
+              result)
+  in
+  match result with
   | Error e -> failed e
-  | Ok found -> (
-      let fresh = Option.value found ~default:o in
-      match fresh.state with
-      | T.Pending_confirmation -> deactivate fresh (Store.Withdraw user_id)
-      | T.Active -> deactivate fresh (Store.Pause user_id)
-      | T.Paused | T.Suspended | T.Cancelled -> settled fresh)
+  | Ok result ->
+      (match result with
+      | Paused { order; _ } | Withdrawn order ->
+          ledger ~db ~channel_id ~actor:user_id
+            ~event_type:
+              (match result with
+              | Withdrawn _ -> "standing_order_withdrawn"
+              | _ -> "standing_order_paused")
+            [
+              ("order", `String (T.display_name order));
+              ("source", `String (source_to_string source));
+            ]
+      | _ -> ());
+      Lwt.return result
 
 let run ~manager ?now ?replay ?message ~team_id ~app_id ~channel_id ~user_id
     ~target ~source () =
@@ -399,24 +424,8 @@ let run ~manager ?now ?replay ?message ~team_id ~app_id ~channel_id ~user_id
                           (Refused (Grant.Member_indeterminate "replay_fence"))
                     | Ok () ->
                         let* result =
-                          apply ~db ~now ~channel_id ~user_id ~source o
+                          apply ~db ~now ?message ~channel_id ~user_id ~source o
                         in
-                        let code =
-                          match result with
-                          | Paused _ -> "paused"
-                          | Withdrawn _ -> "withdrawn"
-                          | Already_paused _ -> "already_paused"
-                          | Not_active _ -> "inactive"
-                          | _ -> "refused"
-                        in
-                        (* The outcome is durable before ANY notification I/O. *)
-                        (match result with
-                        | Paused _ | Withdrawn _ | Already_paused _
-                        | Not_active _ ->
-                            Option.iter
-                              (fun m -> Journal.outcome db o m code)
-                              message
-                        | Refused _ | Not_found _ | Unreadable _ -> ());
                         let* () =
                           match result with
                           | Paused { order; _ } ->

@@ -327,6 +327,22 @@ let begin_scan db ~(order : T.order) ~owner ~mode ~gap ~oldest ~latest ~now =
       else (
         (* Incomplete scans resume their SAME bounds, including after takeover.
            A changed gap invalidates cursors but never discards candidates. *)
+        (* Thread completion has the pass's fixed epoch (via owner generation),
+           bounds and gap identity. Invalidate it in the SAME transaction that
+           publishes new coverage; a crash cannot pair new bounds with old work. *)
+        Sql.exec db
+          "DELETE FROM slack_standing_order_thread_work WHERE order_id=? AND \
+           EXISTS(SELECT 1 FROM slack_standing_order_recovery_passes WHERE \
+           order_id=? AND (gap_generation<>? OR (phase IN ('idle','complete') \
+           AND (oldest IS NOT ? OR latest IS NOT ?))))"
+          Sql.
+            [
+              text order.id;
+              text order.id;
+              int gap.gap_generation;
+              text oldest;
+              text latest;
+            ];
         Sql.exec db
           "UPDATE slack_standing_order_recovery_passes SET oldest=CASE WHEN \
            phase IN ('idle','complete') OR gap_generation<>? THEN ? ELSE \

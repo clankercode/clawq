@@ -62,84 +62,108 @@ let record_failure db (order : T.order) ~owner resume_unit failure =
   if R.replay_fenced db ~order ~owner ~now:(Store.now ()) then
     S.status db ~order_id:order.T.id ~method_ ~code ~resume_unit
 
-let active_fence ~ctx ~db ~manager ~config ~owner (order : T.order) () =
-  if
-    ctx.Ctx.accepting ()
-    && Session.get_config manager == config
-    && R.fenced db ~order_id:order.id ~owner ~now:(ctx.now ())
-  then Ok ()
-  else Error SO.Dispatch_refused
+let active_fence ~ctx ~db ~manager ~config ~owner (order : T.order) =
+  let gap = Sql.guard (fun () -> Ok (R.pass_token db order.id)) in
+  fun () ->
+    if
+      R.attempt_bool (fun () ->
+          ctx.Ctx.accepting ()
+          && Session.get_config manager == config
+          && Result.fold
+               ~ok:(fun gap -> R.current_gap db gap ~connected:true)
+               ~error:(fun _ -> false)
+               gap
+          && R.fenced db ~order_id:order.id ~owner ~now:(ctx.now ()))
+    then Ok ()
+    else Error SO.Dispatch_refused
 
-let pause_fence ~ctx ~db ~manager ~config ~owner ~order () =
-  if
-    ctx.Ctx.accepting ()
-    && Session.get_config manager == config
-    && R.replay_fenced db ~order ~owner ~now:(ctx.now ())
-  then Ok ()
-  else Error SO.Dispatch_refused
+let pause_fence ~ctx ~db ~manager ~config ~owner ~(order : T.order) =
+  let gap = Sql.guard (fun () -> Ok (R.pass_token db order.id)) in
+  fun () ->
+    if
+      ctx.Ctx.accepting ()
+      && Session.get_config manager == config
+      && Result.fold
+           ~ok:(fun gap -> R.current_gap db gap ~connected:true)
+           ~error:(fun _ -> false)
+           gap
+      && R.replay_fenced db ~order ~owner ~now:(ctx.now ())
+    then Ok ()
+    else Error SO.Dispatch_refused
 
 let scoped ~check ~priority call method_ params =
   match check () with
   | Error e -> Lwt.return (Error e)
   | Ok () -> SO.with_policy ~check ~priority (fun () -> call method_ params)
 
-let page ~call ~method_ ~params ~seen ~remaining =
+let page ~check ~call ~method_ ~params ~seen ~remaining =
   let* response = call method_ params in
-  match response with
-  | Error e -> Lwt.return (Error (Grant_failure (P.grant_failure ~method_ e)))
-  | Ok json ->
-      Lwt.return
-        (match (Pages.messages json, Pages.next ~seen ~remaining json) with
-        | Ok messages, Ok next -> Ok (messages, next)
-        | Error code, _ | _, Error code ->
-            Error (Page_incomplete { method_; code }))
+  if check () <> Ok () then Lwt.return (Error Lease_lost)
+  else
+    match response with
+    | Error e -> Lwt.return (Error (Grant_failure (P.grant_failure ~method_ e)))
+    | Ok json ->
+        Lwt.return
+          (match (Pages.messages json, Pages.next ~seen ~remaining json) with
+          | Ok messages, Ok next -> Ok (messages, next)
+          | Error code, _ | _, Error code ->
+              Error (Page_incomplete { method_; code }))
 
 let cursor_params cursor =
   if cursor = "" then [] else [ ("cursor", `String cursor) ]
 
-let protect ~db ~(order : T.order) ~owner ~unit work =
+let protect ~check ~db ~(order : T.order) ~owner ~unit work =
   Lwt.catch
     (fun () ->
       let* result = work () in
-      (match result with
-      | Error f -> (
-          (match f with
-          | Root_failure _ -> ()
-          | _ -> record_failure db order ~owner unit f);
-          match f with
-          | Grant_failure failure
-            when failure.cls = Grant.Hard
-                 && R.fenced db ~order_id:order.id ~owner ~now:(Store.now ())
-            -> (
-              match
-                Sql.in_tx db ~on_error:Fun.id (fun () ->
-                    if R.fenced db ~order_id:order.id ~owner ~now:(Store.now ())
-                    then
-                      Store.suspend_if_epoch_in_tx db ~order_id:order.id
-                        ~epoch:order.epoch
-                        ~reason:(Grant.reason_code failure.reason)
-                        ~now:(Store.now ())
-                    else Ok false)
-              with
-              | Ok true -> ()
-              | _ ->
-                  Logs.warn (fun m ->
-                      m "standing-order reconcile suspension fence lost"))
-          | _ -> ())
-      | Ok () -> ());
-      Lwt.return result)
+      (* A committed pause can finish with its barrier closed even when a
+         notification's config is revoked. Only errors can mutate status here. *)
+      if Result.is_error result && check () <> Ok () then
+        Lwt.return (Error Lease_lost)
+      else (
+        (match result with
+        | Error f -> (
+            (match f with
+            | Root_failure _ | Lease_lost -> ()
+            | _ -> record_failure db order ~owner unit f);
+            match f with
+            | Grant_failure failure
+              when failure.cls = Grant.Hard
+                   && R.fenced db ~order_id:order.id ~owner ~now:(Store.now ())
+              -> (
+                match
+                  Sql.in_tx db ~on_error:Fun.id (fun () ->
+                      if
+                        R.fenced db ~order_id:order.id ~owner
+                          ~now:(Store.now ())
+                      then
+                        Store.suspend_if_epoch_in_tx db ~order_id:order.id
+                          ~epoch:order.epoch
+                          ~reason:(Grant.reason_code failure.reason)
+                          ~now:(Store.now ())
+                      else Ok false)
+                with
+                | Ok true -> ()
+                | _ ->
+                    Logs.warn (fun m ->
+                        m "standing-order reconcile suspension fence lost"))
+            | _ -> ())
+        | Ok () -> ());
+        Lwt.return result))
     (function
       | Lwt.Canceled -> Lwt.fail Lwt.Canceled
       | exn when Sql.is_db_error exn ->
-          let failure =
-            Page_incomplete
-              { method_ = "conversations.history"; code = Pages.Store_failed }
-          in
-          (* A failed status write is still a typed failure, never completion. *)
-          (try record_failure db order ~owner unit failure
-           with exn when Sql.is_db_error exn ->
-             Logs.warn (fun m -> m "standing-order scan status write failed"));
-          Lwt.return (Error failure)
+          if check () <> Ok () then Lwt.return (Error Lease_lost)
+          else
+            let failure =
+              Page_incomplete
+                { method_ = "conversations.history"; code = Pages.Store_failed }
+            in
+            (* A failed status write is still a typed failure, never completion. *)
+            (try record_failure db order ~owner unit failure
+             with exn when Sql.is_db_error exn ->
+               Logs.warn (fun m -> m "standing-order scan status write failed"));
+            Lwt.return (Error failure)
       | exn -> Lwt.fail exn)
 
 let collect ~db ~(order : T.order) ~oldest ~latest ~parent messages =
@@ -164,7 +188,9 @@ let collect ~db ~(order : T.order) ~oldest ~latest ~parent messages =
     messages
 
 let sweep_internal ~db ~manager ~ctx ~owner ~(order : T.order) ~snapshot ~call =
-  protect ~db ~order ~owner ~unit:"pause" (fun () ->
+  let config = Session.get_config manager in
+  let replay_check = pause_fence ~ctx ~db ~manager ~config ~owner ~order in
+  protect ~check:replay_check ~db ~order ~owner ~unit:"pause" (fun () ->
       if
         not
           (ctx.Ctx.accepting ()
@@ -175,7 +201,6 @@ let sweep_internal ~db ~manager ~ctx ~owner ~(order : T.order) ~snapshot ~call =
         Journal.ensure_schema db;
         S.status db ~order_id:order.id ~method_:"conversations.history"
           ~code:"pause_incomplete" ~resume_unit:"pause";
-        let config = Session.get_config manager in
         let check = active_fence ~ctx ~db ~manager ~config ~owner order in
         let call =
           scoped ~check ~priority:Slack_read_limiter.Maintenance call
@@ -208,7 +233,8 @@ let sweep_internal ~db ~manager ~ctx ~owner ~(order : T.order) ~snapshot ~call =
             let add_threads roots = List.for_all add_thread roots in
             let rec history remaining seen cursor =
               let*! messages, next =
-                page ~call ~method_:"conversations.history" ~seen ~remaining
+                page ~check ~call ~method_:"conversations.history" ~seen
+                  ~remaining
                   ~params:
                     ([
                        ("channel", `String order.channel_id);
@@ -268,7 +294,8 @@ let sweep_internal ~db ~manager ~ctx ~owner ~(order : T.order) ~snapshot ~call =
             in
             let rec thread root remaining seen cursor =
               let*! messages, next =
-                page ~call ~method_:"conversations.replies" ~seen ~remaining
+                page ~check ~call ~method_:"conversations.replies" ~seen
+                  ~remaining
                   ~params:
                     ([
                        ("channel", `String order.channel_id);
@@ -317,9 +344,6 @@ let sweep_internal ~db ~manager ~ctx ~owner ~(order : T.order) ~snapshot ~call =
             in
             let*! () = threads (S.thread_work db ~order_id:order.id ~owner) in
             (* Collect all pages before replay so pagination order never reorders commands. *)
-            let replay_check =
-              pause_fence ~ctx ~db ~manager ~config ~owner ~order
-            in
             let replay_failure = ref None in
             let replay_call method_ params =
               let+ result =
@@ -464,10 +488,19 @@ let sweep_with_grant ~db ~manager ~ctx ~owner ~(validated : Grant.validated)
     ~call:validated.call
 
 let discover ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
-  protect ~db ~order ~owner ~unit:"history" (fun () ->
+  let config = Session.get_config manager in
+  let check = active_fence ~ctx ~db ~manager ~config ~owner order in
+  let result_check = pause_fence ~ctx ~db ~manager ~config ~owner ~order in
+  (* The resolver's entire inspection, including post-response local writes,
+     belongs to this captured pass/gap/config, not just its HTTP dispatch. *)
+  let resolver_ctx =
+    { ctx with Ctx.accepting = (fun () -> check () = Ok ()) }
+  in
+  protect ~check:result_check ~db ~order ~owner ~unit:"history" (fun () ->
+      let*! () =
+        if check () = Ok () then ok else Lwt.return (Error Lease_lost)
+      in
       S.ensure_schema db;
-      let config = Session.get_config manager in
-      let check = active_fence ~ctx ~db ~manager ~config ~owner order in
       let validated_call = call in
       let call = scoped ~check ~priority:Slack_read_limiter.Maintenance call in
       match R.load_coverage db ~order_id:order.T.id with
@@ -483,7 +516,8 @@ let discover ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
           in
           let validated = { validated with Grant.call } in
           let inspect root =
-            if S.done_unit db order coverage "root" root then ok
+            if check () <> Ok () then Lwt.return (Error Lease_lost)
+            else if S.done_unit db order coverage "root" root then ok
             else
               match S.previous_outcome db order root with
               | Some (("no_notes" | "ineligible") as outcome) ->
@@ -497,13 +531,18 @@ let discover ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
                   Q.reopen_for_inspection ~db ~key:(Q.key order root)
                     ~now:(ctx.now ());
                   let* result =
-                    Fetch.resolve_with_grant ~ctx ~db ~manager ~validated ~root
-                      order
+                    Fetch.resolve_with_grant ~ctx:resolver_ctx ~db ~manager
+                      ~validated ~root order
                   in
                   match result with
+                  | Error Fetch.Lost_fence ->
+                      Lwt.return (Error (Root_failure Fetch.Lost_fence))
                   | Error failure ->
-                      record_failure db order ~owner root (Root_failure failure);
+                      if result_check () = Ok () then
+                        record_failure db order ~owner root
+                          (Root_failure failure);
                       Lwt.return (Error (Root_failure failure))
+                  | Ok _ when check () <> Ok () -> Lwt.return (Error Lease_lost)
                   | Ok outcome ->
                       let name =
                         match outcome with
@@ -529,7 +568,8 @@ let discover ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
           in
           let rec history remaining seen cursor =
             let*! messages, next =
-              page ~call ~method_:"conversations.history" ~seen ~remaining
+              page ~check ~call ~method_:"conversations.history" ~seen
+                ~remaining
                 ~params:
                   ([
                      ("channel", `String order.channel_id);
@@ -574,7 +614,8 @@ let discover ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
                 |> List.sort_uniq P.compare_ts
               in
               let*! () = inspect_all roots in
-              if
+              if check () <> Ok () then Lwt.return (Error Lease_lost)
+              else if
                 not
                   (R.save_page db ~order_id:order.id ~owner
                      ~coverage:
@@ -595,7 +636,9 @@ let discover ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
               coverage.history_cursor
           in
           let*! () = inspect_all (S.pending_roots db order) in
-          if R.complete_history db ~order_id:order.id ~owner ~now:(ctx.now ())
+          if check () <> Ok () then Lwt.return (Error Lease_lost)
+          else if
+            R.complete_history db ~order_id:order.id ~owner ~now:(ctx.now ())
           then (
             S.status db ~order_id:order.id ~method_:"conversations.history"
               ~code:"discovery_complete" ~resume_unit:"";

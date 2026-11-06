@@ -115,32 +115,35 @@ let inspect_candidate ~ctx ~db ~manager ~validated ~root (order : T.order) =
         ~priority:Slack_read_limiter.Maintenance
         (fun () ->
           let+ response = validated.Grant.call method_ params in
-          match response with
-          | Error _ -> response
-          | Ok json -> (
-              let bad code =
-                malformed := Some (Incomplete { method_; code });
-                Error SO.Transport
-              in
-              match method_ with
-              | "conversations.history" -> (
-                  match
-                    (Pages.messages json, Pages.next ~seen:[] ~remaining:1 json)
-                  with
-                  | Ok [ m ], Ok "" when P.field "ts" m <> root ->
-                      bad Pages.Wrong_root
-                  | Ok _, Ok "" -> response
-                  | Error code, _ | _, Error code -> bad code
-                  | _ -> bad Pages.Truncated)
-              | "files.info" -> (
-                  match P.get "file" json with
-                  | `Assoc _ -> response
-                  | _ -> bad Pages.Malformed)
-              | "canvases.getContent" -> (
-                  match P.get "content" json with
-                  | `String _ -> response
-                  | _ -> bad Pages.Malformed)
-              | _ -> response))
+          if not (valid ()) then Error SO.Dispatch_refused
+          else
+            match response with
+            | Error _ -> response
+            | Ok json -> (
+                let bad code =
+                  malformed := Some (Incomplete { method_; code });
+                  Error SO.Transport
+                in
+                match method_ with
+                | "conversations.history" -> (
+                    match
+                      ( Pages.messages json,
+                        Pages.next ~seen:[] ~remaining:1 json )
+                    with
+                    | Ok [ m ], Ok "" when P.field "ts" m <> root ->
+                        bad Pages.Wrong_root
+                    | Ok _, Ok "" -> response
+                    | Error code, _ | _, Error code -> bad code
+                    | _ -> bad Pages.Truncated)
+                | "files.info" -> (
+                    match P.get "file" json with
+                    | `Assoc _ -> response
+                    | _ -> bad Pages.Malformed)
+                | "canvases.getContent" -> (
+                    match P.get "content" json with
+                    | `String _ -> response
+                    | _ -> bad Pages.Malformed)
+                | _ -> response))
   in
   let* result = inspect ~call ~channel:order.channel_id ~root_ts:root in
   if not (valid ()) then Lwt.return (Error Lost_fence)
@@ -335,20 +338,25 @@ let resolve_with_grant ~ctx ~db ~manager ~validated ~root order =
               let* result =
                 inspect_candidate ~ctx ~db ~manager ~validated ~root order
               in
-              let saved =
-                match result with
-                | Ok outcome ->
-                    Q.finish_resolution ~db ~lease ~now:(ctx.now ())
-                      ~outcome:
-                        (match outcome with
-                        | Live _ -> Q.Live
-                        | Not_ready _ -> Q.Ended
-                        | _ -> Q.Settled)
-                | Error failure ->
-                    Q.fail_resolution ~db ~lease ~now:(ctx.now ())
-                      ~failure:(failure_for_schedule failure)
-              in
-              Lwt.return (if saved then result else Error Lost_fence))
+              if
+                (not (current ~ctx ~db ~manager ~validated order))
+                || result = Error Lost_fence
+              then Lwt.return (Error Lost_fence)
+              else
+                let saved =
+                  match result with
+                  | Ok outcome ->
+                      Q.finish_resolution ~db ~lease ~now:(ctx.now ())
+                        ~outcome:
+                          (match outcome with
+                          | Live _ -> Q.Live
+                          | Not_ready _ -> Q.Ended
+                          | _ -> Q.Settled)
+                  | Error failure ->
+                      Q.fail_resolution ~db ~lease ~now:(ctx.now ())
+                        ~failure:(failure_for_schedule failure)
+                in
+                Lwt.return (if saved then result else Error Lost_fence))
   in
   Lwt.catch run (function
     | Lwt.Canceled -> Lwt.fail Lwt.Canceled

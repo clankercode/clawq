@@ -918,3 +918,4 @@ let suite =
       S.case "pause membership preserves missing_scope class"
         test_pause_scope_failure;
     ]
+  @ Test_slack_standing_order_scan_fences.suite

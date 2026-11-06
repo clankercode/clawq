@@ -338,6 +338,7 @@
   test_slack_standing_order_reconcile_scan
   test_slack_standing_order_scan_support
   test_slack_standing_order_scan_replay
+  test_slack_standing_order_scan_fences
   test_slack_standing_order_receipt_import
   test_slack_standing_order_schedule
   test_slack_standing_order_resolution
