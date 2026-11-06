@@ -187,16 +187,42 @@ let finish_handler db ticket ~success =
                     h.params))))
     ticket
 
+let valid_boot boot =
+  String.length boot = 36
+  && String.for_all
+       (function '0' .. '9' | 'a' .. 'f' | '-' -> true | _ -> false)
+       boot
+  && List.for_all (fun i -> boot.[i] = '-') [ 8; 13; 18; 23 ]
+  && String.fold_left (fun n c -> if c = '-' then n + 1 else n) 0 boot = 4
+
+(* Linux starttime is an unsigned decimal clock-tick count, not a free-form
+   session identifier. Reject noncanonical and overflowing stored proof. *)
+let valid_start start =
+  let n = String.length start in
+  n > 0 && n <= 20
+  && String.for_all (function '0' .. '9' -> true | _ -> false) start
+  && (n = 1 || start.[0] <> '0')
+  && (n < 20 || String.compare start "18446744073709551615" <= 0)
+
+let valid_pid pid = pid > 0 && Int64.of_int pid <= Int64.of_int32 Int32.max_int
+
 let demonstrably_dead ~id ~host ~boot ~pid ~start =
-  if host <> Unix.gethostname () || boot = "" || start = "" then false
+  if Hashtbl.mem active_handlers id then false
+  else if
+    host <> Unix.gethostname ()
+    || (not (valid_boot boot))
+    || (not (valid_pid pid))
+    || not (valid_start start)
+  then false
   else
     let current_boot = boot_id () in
-    if current_boot = "" then false
+    if not (valid_boot current_boot) then false
     else if current_boot <> boot then true
-    else if pid = Unix.getpid () then not (Hashtbl.mem active_handlers id)
     else
       match Session_host_direct.proc_start_token pid with
-      | Some current -> current <> start
+      | Some current when valid_start current ->
+          current <> start || pid = Unix.getpid ()
+      | Some _ -> false
       | None -> (
           try
             Unix.kill pid 0;
@@ -204,6 +230,11 @@ let demonstrably_dead ~id ~host ~boot ~pid ~start =
           with
           | Unix.Unix_error (Unix.ESRCH, _, _) -> true
           | Unix.Unix_error _ -> false)
+
+let owner_pid = function
+  | Sqlite3.Data.INT n when n > 0L && n <= Int64.of_int32 Int32.max_int ->
+      Int64.to_int n
+  | _ -> 0
 
 (* Called only inside verified full-gap completion's transaction. No timeout
    guesses that a running handler is dead. Unknown owners and old metadata hold. *)
@@ -216,7 +247,7 @@ let replay_abandoned db ~team ~app ~channel ~generation ~oldest ~latest =
       ( Sql_util.text_column s 0,
         Sql_util.text_column s 1,
         Sql_util.text_column s 2,
-        Sql_util.int_column s 3,
+        owner_pid (Sqlite3.column s 3),
         Sql_util.text_column s 4 ))
   |> List.iter (fun (id, host, boot, pid, start) ->
       if demonstrably_dead ~id ~host ~boot ~pid ~start then
@@ -244,6 +275,49 @@ let replay_abandoned db ~team ~app ~channel ~generation ~oldest ~latest =
      i.channel=d.channel AND i.identity=d.identity AND i.pause=0 AND \
      i.applied=1)"
     params
+
+(* Must run in the caller's transaction when invalidating scan state. A failed
+   intent INSERT rolls back the reset, leaving the original durable bounds as
+   the retry obligation. This is independent of report transport/authority. *)
+let preserve_gap_interval db ~order_id ~last_success ~latest =
+  let interval_end = latest -. 172800. in
+  if interval_end > last_success then (
+    if not (Rollout.table_exists db "slack_order_gap_report_intents") then
+      ensure_schema db;
+    let watermark = Printf.sprintf "%.6f" last_success in
+    let prior =
+      Sql.query db
+        "SELECT last FROM slack_order_gap_report_intents WHERE order_id=? AND \
+         watermark=? ORDER BY CAST(last AS REAL) DESC LIMIT 1"
+        Sql.[ text order_id; text watermark ]
+        (fun s -> Sql_util.text_column s 0)
+      |> Sql.first
+    in
+    let segment_start = Option.value prior ~default:watermark in
+    if float_of_string segment_start < interval_end then
+      Sql.exec db
+        "INSERT OR IGNORE INTO slack_order_gap_report_intents VALUES(?,?,?,?)"
+        Sql.
+          [
+            text order_id;
+            text watermark;
+            text segment_start;
+            text (Printf.sprintf "%.6f" interval_end);
+          ])
+
+let preserve_incomplete_gap db ~order_id =
+  Sql.query db
+    "SELECT last_success,latest FROM slack_standing_order_recovery_passes \
+     WHERE order_id=? AND phase NOT IN ('idle','complete') AND last_success IS \
+     NOT NULL AND latest IS NOT NULL"
+    [ Sql.text order_id ]
+    (fun s -> (Sql.opt_float_column s 0, Sql_util.text_column s 1))
+  |> List.iter (fun (last, latest) ->
+      Option.iter
+        (fun last_success ->
+          preserve_gap_interval db ~order_id ~last_success
+            ~latest:(float_of_string latest))
+        last)
 
 let due db order_id now =
   Sql.query db

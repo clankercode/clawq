@@ -238,6 +238,13 @@ let claim db ~order_id ~owner_id ~now =
                       Sql_util.int_column s 1,
                       Sql_util.text_column s 2 ))
               in
+              if
+                Sql.int_query db
+                  "SELECT count(*) FROM slack_standing_order_recovery_passes \
+                   WHERE order_id=? AND epoch<>? AND until<=?"
+                  Sql.[ text order_id; int o.epoch; f now ]
+                = 1
+              then Admission.preserve_incomplete_gap db ~order_id;
               Sql.exec db
                 "INSERT INTO \
                  slack_standing_order_recovery_passes(order_id,owner,generation,until,epoch,team,app,channel) \
@@ -359,6 +366,13 @@ let begin_scan db ~(order : T.order) ~owner ~mode ~gap ~oldest ~latest ~now =
         || gap.channel_id <> order.channel_id
       then false
       else (
+        if
+          Sql.int_query db
+            "SELECT count(*) FROM slack_standing_order_recovery_passes WHERE \
+             order_id=? AND gap_generation<>?"
+            Sql.[ text order.id; int gap.gap_generation ]
+          = 1
+        then Admission.preserve_incomplete_gap db ~order_id:order.id;
         (* Incomplete scans resume their SAME bounds, including after takeover.
            A changed gap invalidates cursors but never discards candidates. *)
         (* Thread completion has the pass's fixed epoch (via owner generation),
@@ -732,6 +746,10 @@ let recover_startup db ~now =
            IS NULL AND state IN ('detected','fetching','uploading') AND \
            (claim_owner IS NULL OR lease_until<=?)"
           [ f now ];
+        Sql.query db "SELECT order_id FROM slack_standing_order_recovery_passes"
+          [] (fun s -> Sql_util.text_column s 0)
+        |> List.iter (fun order_id ->
+            Admission.preserve_incomplete_gap db ~order_id);
         Sql.exec db
           "UPDATE slack_standing_order_recovery_passes SET until=0,phase='idle'"
           [];

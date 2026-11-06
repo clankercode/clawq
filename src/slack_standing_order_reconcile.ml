@@ -100,33 +100,13 @@ let record_gap db (order : T.order) previous now =
         ~resume_unit:""
   | Some last ->
       Option.iter
-        (fun (interval_start, interval_end) ->
+        (fun (interval_start, _) ->
           (* Intent commits separately from report insertion. A restart must
              invalidate scan authority without losing the original interval.
              A later window adds only its uncovered tail, never a replacement. *)
           A.transaction db (fun () ->
-              let watermark = Scan.timestamp interval_start in
-              let prior =
-                Sql.query db
-                  "SELECT last FROM slack_order_gap_report_intents WHERE \
-                   order_id=? AND watermark=? ORDER BY CAST(last AS REAL) DESC \
-                   LIMIT 1"
-                  Sql.[ text order.id; text watermark ]
-                  (fun s -> Sql_util.text_column s 0)
-                |> Sql.first
-              in
-              let segment_start = Option.value prior ~default:watermark in
-              if float_of_string segment_start < interval_end then
-                Sql.exec db
-                  "INSERT OR IGNORE INTO slack_order_gap_report_intents \
-                   VALUES(?,?,?,?)"
-                  Sql.
-                    [
-                      text order.id;
-                      text watermark;
-                      text segment_start;
-                      text (Scan.timestamp interval_end);
-                    ]);
+              A.preserve_gap_interval db ~order_id:order.id
+                ~last_success:interval_start ~latest:now);
           Sql.query db
             "SELECT first,last FROM slack_order_gap_report_intents WHERE \
              order_id=? ORDER BY CAST(first AS REAL)"

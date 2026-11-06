@@ -860,3 +860,4 @@ let suite =
     ]
 
 let suite = suite @ Test_slack_standing_order_reconcile_recovery.suite
+let suite = suite @ Test_slack_standing_order_reconcile_fix2.suite
