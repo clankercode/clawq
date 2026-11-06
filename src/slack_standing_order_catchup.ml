@@ -180,13 +180,37 @@ let ensure_notice ~(ctx : Ctx.t) ~db ~manager ?http ?http_response
                           ~count:(R.batch_count db ~batch_id:b.id)
                           ~release_at:advertised
                       in
-                      let before_send () =
+                      let local_failure = ref None in
+                      let authorize () =
                         match check () with
+                        | Error _ as e -> e
+                        | Ok () ->
+                            let subject = Grant.subject_of_order order in
+                            let local =
+                              let ( let* ) = Result.bind in
+                              let* () =
+                                match config.channels.slack with
+                                | None -> Error Grant.Feature_disabled
+                                | Some sc -> Grant.grantor_policy ~db sc subject
+                              in
+                              Result.map ignore
+                                (Grant.stage_rows db ~now:(ctx.now ())
+                                   ~stage:(Grant.Reconcile { reconcile_id })
+                                   subject)
+                            in
+                            Result.map_error
+                              (fun reason ->
+                                local_failure := Some (Grant.failure reason);
+                                SO.Dispatch_refused)
+                              local
+                      in
+                      let before_send () =
+                        match authorize () with
                         | Error _ as e -> e
                         | Ok () ->
                             if
                               R.reserve_notice
-                                ~check:(fun () -> check () = Ok ())
+                                ~check:(fun () -> authorize () = Ok ())
                                 ~advertised db ~batch_id:b.id ~owner
                                 ~now:(ctx.now ())
                             then Ok ()
@@ -206,13 +230,14 @@ let ensure_notice ~(ctx : Ctx.t) ~db ~manager ?http ?http_response
                       in
                       if check () <> Ok () then Lwt.return_unit
                       else
-                        match result with
-                        | Ok json
+                        match (!local_failure, result) with
+                        | Some failure, _ -> refuse failure
+                        | None, Ok json
                           when Pages.field "channel" json = order.channel_id
                                && T.valid_slack_ts (Pages.field "ts" json) ->
                             confirm (Pages.field "ts" json);
                             Lwt.return_unit
-                        | Error error
+                        | None, Error error
                           when (Slack_standing_order_provenance.grant_failure
                                   ~method_:"chat.postMessage" error)
                                  .Grant.cls = Grant.Hard ->

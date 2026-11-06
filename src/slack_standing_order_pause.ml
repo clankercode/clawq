@@ -269,7 +269,7 @@ let lookup db ~team_id ~app_id ~channel_id = function
 
 (* The privacy transition, pre-dispatch sweep and replay decision commit once.
    Membership/notification I/O stays outside this synchronous transaction. *)
-let apply ~db ~now ?message ~channel_id ~user_id ~source (o : T.order) =
+let apply ~db ~now ?message ?guard ~channel_id ~user_id ~source (o : T.order) =
   let settled (o : T.order) =
     match o.state with T.Paused -> Already_paused o | _ -> Not_active o
   in
@@ -296,11 +296,17 @@ let apply ~db ~now ?message ~channel_id ~user_id ~source (o : T.order) =
         | None ->
             let fresh = Option.value (Store.find db o.id) ~default:o in
             let result =
-              match fresh.state with
-              | T.Pending_confirmation ->
-                  deactivate fresh (Store.Withdraw user_id)
-              | T.Active -> deactivate fresh (Store.Pause user_id)
-              | T.Paused | T.Suspended | T.Cancelled -> Ok (settled fresh)
+              if
+                Option.fold ~none:false
+                  ~some:(fun check -> not (check fresh))
+                  guard
+              then Ok (Refused (Grant.Member_indeterminate "catchup_binding"))
+              else
+                match fresh.state with
+                | T.Pending_confirmation ->
+                    deactivate fresh (Store.Withdraw user_id)
+                | T.Active -> deactivate fresh (Store.Pause user_id)
+                | T.Paused | T.Suspended | T.Cancelled -> Ok (settled fresh)
             in
             Result.map
               (fun outcome ->
@@ -333,8 +339,8 @@ let apply ~db ~now ?message ~channel_id ~user_id ~source (o : T.order) =
       | _ -> ());
       Lwt.return result
 
-let run ~manager ?now ?replay ?message ~team_id ~app_id ~channel_id ~user_id
-    ~target ~source () =
+let run ~manager ?now ?replay ?message ?guard ~team_id ~app_id ~channel_id
+    ~user_id ~target ~source () =
   let now = match now with Some t -> t | None -> Store.now () in
   let n = match target with `Display n -> n | `Order _ -> 0 in
   match Session.get_db manager with
@@ -424,7 +430,8 @@ let run ~manager ?now ?replay ?message ~team_id ~app_id ~channel_id ~user_id
                           (Refused (Grant.Member_indeterminate "replay_fence"))
                     | Ok () ->
                         let* result =
-                          apply ~db ~now ?message ~channel_id ~user_id ~source o
+                          apply ~db ~now ?message ?guard ~channel_id ~user_id
+                            ~source o
                         in
                         let* () =
                           match result with

@@ -197,3 +197,243 @@ let suite =
           ("initial zero HTTP capability denial " ^ kind)
           (test_initial_deny kind))
       [ "content"; "huddles"; "fire" ]
+
+let test_local_notice_policy kind e =
+  let admin = kind = "revoked_admin" || kind = "still_admin" in
+  if admin then (
+    Session.update_config e.manager (S.config ~creator:So_creator_admin ());
+    Sql.exec e.other
+      "INSERT INTO channel_admins(channel,sender_id) VALUES('slack','U123')" []);
+  Sql.exec e.other "UPDATE slack_standing_orders SET expires_at=? WHERE id=?"
+    [
+      Sql.text
+        (Time_util.sql_datetime_utc
+           ~t:(!(e.clock) +. if kind = "expired" then 10. else 300.)
+           ());
+      Sql.text e.order.id;
+    ];
+  let f = fire e 1 in
+  let b = prepare e [ f ] in
+  Sql.exec e.other "CREATE TABLE test_notice_attempts(batch_id TEXT)" [];
+  Sql.exec e.other
+    "CREATE TRIGGER record_notice_attempt AFTER UPDATE OF status ON \
+     slack_standing_order_recovery_batches WHEN NEW.status='notice_attempted' \
+     BEGIN INSERT INTO test_notice_attempts VALUES(NEW.id); END"
+    [];
+  let captured = Session.get_config e.manager in
+  let blocked, wake = Lwt.task () in
+  let waiting = ref false in
+  let limiter =
+    Slack_read_limiter.create_with
+      ~now:(fun () -> !(e.clock))
+      ~wait:(fun ~seconds ->
+        if !waiting then (
+          advance e seconds;
+          Lwt.return_unit)
+        else (
+          waiting := true;
+          blocked))
+  in
+  Slack_read_limiter.note_retry_after limiter ~key:"T123:A123:chat.postMessage"
+    17.;
+  let ctx = { e.ctx with Ctx.limiter = Some limiter } in
+  let task = ensure ~ctx e b in
+  check "real post cooldown reached after Grant reads" true !waiting;
+  eq "five Grant reads before cooldown" 5 (List.length !(e.calls));
+  eq "no notice while waiting" 0 (List.length (notices e));
+  check "no reservation while waiting" true (status e b = "pending");
+  advance e 200.;
+  if kind = "revoked_admin" then
+    check "second handle removes admin" true
+      (Admin.remove_admin ~db:e.other ~channel:"slack" ~sender_id:"U123");
+  check "same config publication during cooldown" true
+    (Session.get_config e.manager == captured);
+  check "same live recovery owner" true
+    (R.fenced e.other ~order_id:e.order.id ~owner:e.owner ~now:!(e.clock));
+  Lwt.wakeup wake ();
+  let* () = task in
+  let denied = kind = "expired" || kind = "revoked_admin" in
+  eq "current local policy gates actual notice post"
+    (if denied then 0 else 1)
+    (List.length (notices e));
+  let after = batch e b in
+  let card = Store.find_card e.other b.id |> Option.get in
+  eq "observed durable attempt transitions"
+    (if denied then 0 else 1)
+    (Sql.int_query e.other "SELECT count(*) FROM test_notice_attempts" []);
+  if denied then (
+    check "denied notice never reserves an attempt" true
+      (after.release_at = None);
+    check "denied notice no batch binding" true (after.notice_ts = None);
+    check "denied notice no card binding" true (card.message_ts = None);
+    if admin then (
+      let order = Store.find e.other e.order.id |> Option.get in
+      check "admin refusal suspends atomically" true
+        (order.state = T.Suspended
+        && order.suspended_reason = Some "grantor_not_admin");
+      check "suspension cancels batch" true (status e b = "cancelled"))
+    else
+      check "expiry stays pending without attempt" true (status e b = "pending"))
+  else (
+    check "successful notice confirms" true (status e b = "confirmed");
+    check "successful notice binds exact card" true
+      (after.notice_ts <> None && after.notice_ts = card.message_ts));
+  Lwt.return_unit
+
+let test_inflight_pause kind e =
+  Session.update_config e.manager
+    (S.with_allow_users (Session.get_config e.manager) [ "U123" ]);
+  let f = fire e 1 in
+  let b = prepare e [ f ] in
+  let* () = ensure e b in
+  if kind = "released" then (
+    advance e 600.;
+    check "released notice control" true (release e b));
+  let card_id, message_ts =
+    if kind = "ordinary" then
+      let card =
+        Sql.query e.other
+          "SELECT id FROM slack_standing_order_cards WHERE id<>?"
+          [ Sql.text b.id ]
+          (fun s -> Sql_util.text_column s 0)
+        |> List.hd |> Store.find_card e.other |> Option.get
+      in
+      (Some card.id, card.message_ts)
+    else (None, None)
+  in
+  let base = !(e.answer) in
+  let blocked, wake = Lwt.task () in
+  let waiting = ref false in
+  (e.answer :=
+     fun m p ->
+       let* response = base m p in
+       if m = "conversations.members" then (
+         waiting := true;
+         let* () = blocked in
+         Lwt.return response)
+       else Lwt.return response);
+  let task = click e b ?card_id ?message_ts () in
+  check "actual Slack ingress awaits membership HTTP" true !waiting;
+  let active = Store.find e.other e.order.id |> Option.get in
+  check "click has not paused before membership" true (active.state = T.Active);
+  let pending =
+    if kind = "resumed" || kind = "ordinary" then (
+      ignore
+        (Store.deactivate e.other ~order_id:e.order.id (Store.Pause "U123")
+           ~now:!(e.clock)
+        |> ok);
+      let paused = Store.find e.other e.order.id |> Option.get in
+      let resumed =
+        Store.resume e.other ~order_id:e.order.id ~expected_epoch:paused.epoch
+          ~active_since:"1700000200.000001" ~bot_user_id:"UBOT" ~bot_id:"BOWN"
+          ~now:!(e.clock)
+        |> ok
+      in
+      eq "resume advances twice" (e.order.epoch + 2) resumed.epoch;
+      e.clock := !(e.clock) +. 121.;
+      let gap =
+        R.close_gap e.other ~team_id:resumed.team_id ~app_id:resumed.api_app_id
+          ~channel_id:resumed.channel_id ~cause:"resumed" ~now:!(e.clock)
+        |> ok
+      in
+      check "new epoch connected" true (R.mark_connected e.other ~token:gap);
+      let owner =
+        R.claim e.other ~order_id:resumed.id ~owner_id:"resumed-owner"
+          ~now:!(e.clock)
+        |> Option.get
+      in
+      check "new epoch scan" true
+        (R.begin_scan e.other ~order:resumed ~owner ~mode:R.Gap_recovery ~gap
+           ~oldest:"1700000200.000001" ~latest:"1700000221.000000"
+           ~now:!(e.clock));
+      check "new epoch pause sweep" true
+        (R.complete_pause e.other ~order_id:resumed.id ~owner ~now:!(e.clock));
+      check "new epoch history" true
+        (R.complete_history e.other ~order_id:resumed.id ~owner ~now:!(e.clock));
+      check "new epoch complete" true
+        (R.finish_scan e.other ~order_id:resumed.id ~owner ~now:!(e.clock));
+      check "new epoch verified" true
+        (R.verify_gap e.other ~token:gap ~owner ~through:"1700000221.000000"
+           ~now:!(e.clock));
+      R.record_root ~recovery:true e.other ~order:resumed
+        ~root_ts:"1700000201.000001" ~room_id:"RNEW" ~date_start:"1700000201"
+        ~fire_id:None;
+      let nf =
+        Store.insert_fire e.other ~order:resumed ~root_ts:"1700000201.000001"
+          ~room_id:"RNEW" ~date_start:"1700000201" ~now:!(e.clock) ()
+        |> ok |> Option.get
+      in
+      let nb =
+        C.prepare ~db:e.other ~order:resumed ~fire_ids:[ nf.id ] ~now:!(e.clock)
+      in
+      check "new batch is pending before old response" true
+        (status e nb = "pending");
+      Some (resumed, nf, nb, Store.runtime e.other ~fire_id:nf.id))
+    else None
+  in
+  (match kind with
+  | "batch_message" ->
+      Sql.exec e.other
+        "UPDATE slack_standing_order_recovery_batches SET notice_ts=? WHERE \
+         id=?"
+        [ Sql.text "1700000100.999999"; Sql.text b.id ]
+  | "card_message" ->
+      Store.set_card_message_ts e.other ~card_id:b.id "1700000100.999999"
+  | "missing_batch" ->
+      Sql.exec e.other
+        "DELETE FROM slack_standing_order_recovery_batches WHERE id=?"
+        [ Sql.text b.id ]
+  | _ -> ());
+  Lwt.wakeup wake ();
+  let* () = task in
+  (match pending with
+  | None when List.mem kind [ "batch_message"; "card_message"; "missing_batch" ]
+    ->
+      check "changed notice binding cannot pause current epoch" true
+        (Store.find e.other e.order.id = Some active)
+  | Some (resumed, nf, nb, _) when kind = "ordinary" ->
+      let paused = Store.find e.other e.order.id |> Option.get in
+      check "ordinary activation button remains epoch flexible" true
+        (paused.state = T.Paused && paused.epoch = resumed.epoch + 1);
+      check "ordinary pause sweeps new batch" true (status e nb = "cancelled");
+      check "ordinary pause sweeps new fire" true
+        ((Store.runtime e.other ~fire_id:nf.id |> Option.get).fire.state
+       = T.Skipped_inactive)
+  | None ->
+      check "same member and notice really pause without race" true
+        ((Store.find e.other e.order.id |> Option.get).state = T.Paused);
+      check "successful pause cancels original batch" true
+        (status e b = "cancelled");
+      check "successful pause sweeps fire" true
+        ((Store.runtime e.other ~fire_id:f.id |> Option.get).fire.state
+       = T.Skipped_inactive)
+  | Some (resumed, nf, nb, before) ->
+      check "stale inflight click preserves resumed order" true
+        (Store.find e.other e.order.id = Some resumed);
+      check "stale click preserves new pending batch" true
+        (status e nb = "pending");
+      check "stale click preserves exact new fire runtime" true
+        (Store.runtime e.other ~fire_id:nf.id = before);
+      check "old batch remains cancelled" true (status e b = "cancelled"));
+  Lwt.return_unit
+
+let suite =
+  suite
+  @ List.map
+      (fun kind ->
+        case
+          ("local notice policy after cooldown " ^ kind)
+          (test_local_notice_policy kind))
+      [ "expired"; "unexpired"; "revoked_admin"; "still_admin" ]
+  @ List.map
+      (fun kind ->
+        case ("inflight catch-up pause " ^ kind) (test_inflight_pause kind))
+      [
+        "resumed";
+        "current";
+        "ordinary";
+        "released";
+        "batch_message";
+        "card_message";
+        "missing_batch";
+      ]

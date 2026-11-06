@@ -213,7 +213,7 @@ let with_transport e work =
   Slack_transport.with_http transport work
 
 let click e b ?(user = "U456") ?(team = "T123") ?(app = "A123")
-    ?(channel = "C123") ?message_ts () =
+    ?(channel = "C123") ?message_ts ?card_id () =
   let ts =
     Option.value message_ts ~default:(Option.get (batch e b).notice_ts)
   in
@@ -221,7 +221,7 @@ let click e b ?(user = "U456") ?(team = "T123") ?(app = "A123")
     obj
       [
         ("action_id", str Render.action_pause);
-        ("value", str b.R.id);
+        ("value", str (Option.value card_id ~default:b.R.id));
         ("action_ts", str "1700000101.000001");
       ]
   in

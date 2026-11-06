@@ -556,9 +556,11 @@ let resume c =
 let pause c =
   let o = c.order in
   let* outcome =
-    Pause.run ~manager:c.manager ~now:c.now ~team_id:c.card.team_id
-      ~app_id:c.card.app_id ~channel_id:c.card.channel_id ~user_id:c.clicker
-      ~target:(`Order o.id) ~source:Pause.Button ()
+    Pause.run ~manager:c.manager ~now:c.now
+      ?guard:(Slack_standing_order_card_store.catchup_pause_guard c.db c.card)
+      ~team_id:c.card.team_id ~app_id:c.card.app_id
+      ~channel_id:c.card.channel_id ~user_id:c.clicker ~target:(`Order o.id)
+      ~source:Pause.Button ()
   in
   let outcome =
     match outcome with
