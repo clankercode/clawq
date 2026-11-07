@@ -440,9 +440,10 @@ verification** with the signing secret and a 5-minute timestamp window.
 - **Voice transcription** --- audio file attachments are automatically
   transcribed via the configured STT provider with progress messages.
   Music files are skipped; size limit: 25 MB.
-- **No ambient connector-history capture** --- Slack delivers relevant messages
-  through the normal bot event path; `/inject_connector_history` is currently
-  for Teams and Discord group chats only.
+- **Optional connector-history capture** --- with `connector_history.enabled`
+  and an active room profile binding, Slack records room-scoped messages for
+  the `inject_connector_history` builtin. The legacy Slack
+  `/inject_connector_history` slash command still returns an unsupported reply.
 
 ### Agent threads and native task UX
 
