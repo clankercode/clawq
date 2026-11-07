@@ -90,6 +90,10 @@ type outcome =
 
 let store_refusal = Grant.Member_indeterminate "standing_order_store"
 let store_refused = Refused store_refusal
+let replay_refused = Refused (Grant.Member_indeterminate "replay_fence")
+
+let replay_current replay =
+  Option.fold ~none:true ~some:(fun r -> r.check ()) replay
 
 let order_of_outcome = function
   | Paused { order; _ }
@@ -269,7 +273,8 @@ let lookup db ~team_id ~app_id ~channel_id = function
 
 (* The privacy transition, pre-dispatch sweep and replay decision commit once.
    Membership/notification I/O stays outside this synchronous transaction. *)
-let apply ~db ~now ?message ?guard ~channel_id ~user_id ~source (o : T.order) =
+let apply ~db ~now ?message ?guard ?replay ~channel_id ~user_id ~source
+    (o : T.order) =
   let settled (o : T.order) =
     match o.state with T.Paused -> Already_paused o | _ -> Not_active o
   in
@@ -291,53 +296,84 @@ let apply ~db ~now ?message ?guard ~channel_id ~user_id ~source (o : T.order) =
     Sql.in_tx db ~on_error:Fun.id (fun () ->
         (* Another event/sweep may have committed while membership awaited.
            Recheck under the write lock, including after a later resume. *)
-        match Option.bind message (Journal.completed_outcome db o) with
-        | Some _ -> Ok (remembered_outcome db o message)
-        | None ->
-            let fresh = Option.value (Store.find db o.id) ~default:o in
-            let result =
-              if
-                Option.fold ~none:false
-                  ~some:(fun check -> not (check fresh))
-                  guard
-              then Ok (Refused (Grant.Member_indeterminate "catchup_binding"))
-              else
-                match fresh.state with
-                | T.Pending_confirmation ->
-                    deactivate fresh (Store.Withdraw user_id)
-                | T.Active -> deactivate fresh (Store.Pause user_id)
-                | T.Paused | T.Suspended | T.Cancelled -> Ok (settled fresh)
-            in
-            Result.map
-              (fun outcome ->
-                let code =
-                  match outcome with
-                  | Paused _ -> "paused"
-                  | Withdrawn _ -> "withdrawn"
-                  | Already_paused _ -> "already_paused"
-                  | Not_active _ -> "inactive"
-                  | _ -> "refused"
-                in
-                Option.iter (fun m -> Journal.outcome db o m code) message;
-                outcome)
-              result)
+        if not (replay_current replay) then Ok replay_refused
+        else
+          match Option.bind message (Journal.completed_outcome db o) with
+          | Some _ -> Ok (remembered_outcome db o message)
+          | None ->
+              let fresh = Option.value (Store.find db o.id) ~default:o in
+              let result =
+                if
+                  Option.fold ~none:false
+                    ~some:(fun check -> not (check fresh))
+                    guard
+                then Ok (Refused (Grant.Member_indeterminate "catchup_binding"))
+                else
+                  match fresh.state with
+                  | T.Pending_confirmation ->
+                      deactivate fresh (Store.Withdraw user_id)
+                  | T.Active -> deactivate fresh (Store.Pause user_id)
+                  | T.Paused | T.Suspended | T.Cancelled -> Ok (settled fresh)
+              in
+              Result.map
+                (fun outcome ->
+                  let code =
+                    match outcome with
+                    | Paused _ -> "paused"
+                    | Withdrawn _ -> "withdrawn"
+                    | Already_paused _ -> "already_paused"
+                    | Not_active _ -> "inactive"
+                    | _ -> "refused"
+                  in
+                  Option.iter (fun m -> Journal.outcome db o m code) message;
+                  (match outcome with
+                  | Paused { order; _ } | Withdrawn order ->
+                      ledger ~db ~channel_id ~actor:user_id
+                        ~event_type:
+                          (match outcome with
+                          | Withdrawn _ -> "standing_order_withdrawn"
+                          | _ -> "standing_order_paused")
+                        [
+                          ("order", `String (T.display_name order));
+                          ("source", `String (source_to_string source));
+                        ]
+                  | _ -> ());
+                  outcome)
+                result)
   in
-  match result with
-  | Error e -> failed e
-  | Ok result ->
-      (match result with
-      | Paused { order; _ } | Withdrawn order ->
-          ledger ~db ~channel_id ~actor:user_id
-            ~event_type:
-              (match result with
-              | Withdrawn _ -> "standing_order_withdrawn"
-              | _ -> "standing_order_paused")
-            [
-              ("order", `String (T.display_name order));
-              ("source", `String (source_to_string source));
-            ]
-      | _ -> ());
-      Lwt.return result
+  match result with Error e -> failed e | Ok result -> Lwt.return result
+
+let settle_refusal ~db ?message ?replay ~channel_id ~user_id ~source
+    (o : T.order) r =
+  match
+    Sql.in_tx db ~on_error:Fun.id (fun () ->
+        (* Recheck after acquiring the writer lock: a successor may have
+           taken ownership since the membership response was accepted. *)
+        if not (replay_current replay) then Ok replay_refused
+        else
+          match Option.bind message (Journal.completed_outcome db o) with
+          | Some _ -> Ok (remembered_outcome db o message)
+          | None ->
+              (match r with
+              | Grant.Member_indeterminate _ | Member_egress _ -> ()
+              | _ ->
+                  Option.iter
+                    (fun m -> Journal.outcome db o m (refusal_code r))
+                    message);
+              ledger ~db ~channel_id ~actor:user_id
+                ~event_type:"standing_order_pause_refused"
+                [
+                  ("order", `String (T.display_name o));
+                  ("source", `String (source_to_string source));
+                  ("reason", `String (refusal_code r));
+                ];
+              Ok (Refused r))
+  with
+  | Ok outcome -> Lwt.return outcome
+  | Error e ->
+      Logs.warn (fun m ->
+          m "standing-order pause refusal of %s not recorded: %s" o.id e);
+      Lwt.return store_refused
 
 let run ~manager ?now ?replay ?message ?guard ~team_id ~app_id ~channel_id
     ~user_id ~target ~source () =
@@ -406,44 +442,29 @@ let run ~manager ?now ?replay ?message ?guard ~team_id ~app_id ~channel_id
                       Grant.check_member ~call ~config ~team_id ~channel_id
                         ~user_id ~require_allowlist:false
                     in
-                    match checked with
-                    | Error r ->
-                        (match r with
-                        | Grant.Member_indeterminate _ | Member_egress _ -> ()
-                        | _ ->
-                            Option.iter
-                              (fun m -> Journal.outcome db o m (refusal_code r))
-                              message);
-                        ledger ~db ~channel_id ~actor:user_id
-                          ~event_type:"standing_order_pause_refused"
-                          [
-                            ("order", `String (T.display_name o));
-                            ("source", `String (source_to_string source));
-                            ("reason", `String (refusal_code r));
-                          ];
-                        Lwt.return (Refused r)
-                    | Ok ()
-                      when Option.fold ~none:false
-                             ~some:(fun r -> not (r.check ()))
-                             replay ->
-                        Lwt.return
-                          (Refused (Grant.Member_indeterminate "replay_fence"))
-                    | Ok () ->
-                        let* result =
-                          apply ~db ~now ?message ?guard ~channel_id ~user_id
-                            ~source o
-                        in
-                        let* () =
-                          match result with
-                          | Paused { order; _ } ->
-                              notify_grantor ~manager ?replay ?message order
-                                ~user_id (Render.Paused_by user_id)
-                          | Withdrawn order ->
-                              notify_grantor ~manager ?replay ?message order
-                                ~user_id (Render.Cancelled_by user_id)
-                          | _ -> Lwt.return_unit
-                        in
-                        Lwt.return result))
+                    if not (replay_current replay) then
+                      Lwt.return replay_refused
+                    else
+                      match checked with
+                      | Error r ->
+                          settle_refusal ~db ?message ?replay ~channel_id
+                            ~user_id ~source o r
+                      | Ok () ->
+                          let* result =
+                            apply ~db ~now ?message ?guard ?replay ~channel_id
+                              ~user_id ~source o
+                          in
+                          let* () =
+                            match result with
+                            | Paused { order; _ } ->
+                                notify_grantor ~manager ?replay ?message order
+                                  ~user_id (Render.Paused_by user_id)
+                            | Withdrawn order ->
+                                notify_grantor ~manager ?replay ?message order
+                                  ~user_id (Render.Cancelled_by user_id)
+                            | _ -> Lwt.return_unit
+                          in
+                          Lwt.return result))
               (function
                 | Lwt.Canceled -> Lwt.fail Lwt.Canceled
                 | exn ->

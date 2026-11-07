@@ -345,6 +345,7 @@
   test_slack_standing_order_reconcile_scan
   test_slack_standing_order_broadcast_pause
   test_slack_standing_order_pause_notifications
+  test_slack_standing_order_pause_settlement
   test_slack_standing_order_reconcile
   test_slack_standing_order_reconcile_edges
   test_slack_standing_order_reconcile_ingress
