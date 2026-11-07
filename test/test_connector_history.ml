@@ -309,8 +309,215 @@ let test_parse_utc_datetime_roundtrip () =
   check_roundtrip 1751000000.0 (* 2025-06-27 (northern summer) *);
   check_roundtrip 1735000000.0 (* 2024-12-23 (northern winter) *)
 
+let history_tool_name = "inject_connector_history"
+
+let history_config enabled =
+  let config = Runtime_config.default in
+  {
+    config with
+    prompt =
+      {
+        config.prompt with
+        dynamic_enabled = true;
+        include_tools_section = true;
+        include_workspace_section = false;
+        include_runtime_section = false;
+        include_datetime_section = false;
+        include_project_docs = false;
+        workspace_files = [];
+      };
+    connector_history = { config.connector_history with enabled };
+    security = { config.security with tools_enabled = true };
+  }
+
+let with_history_registry enabled f =
+  Test_helpers.with_temp_home (fun _ ->
+      Test_helpers.with_memory_store (fun db ->
+          reset_buffers ();
+          Fun.protect ~finally:reset_buffers (fun () ->
+              let config = history_config enabled in
+              let registry = Tool_registry.create () in
+              let manager =
+                Session.create ~config ~db ~tool_registry:registry ()
+              in
+              Tools_builtin.register_all ~config
+                ~sandbox:(Daemon_util.make_sandbox config)
+                ~db:(Some db) ~session_mgr:(Some manager) registry;
+              f db config registry manager)))
+
+let assert_history_visibility enabled registry agent =
+  let contains = Test_helpers.string_contains in
+  Alcotest.(check bool)
+    "registry registration" enabled
+    (Option.is_some (Tool_registry.find registry history_tool_name));
+  List.iter
+    (fun search_enabled ->
+      agent.Agent.config <-
+        {
+          agent.Agent.config with
+          agent_defaults =
+            {
+              agent.Agent.config.agent_defaults with
+              tool_search_enabled = search_enabled;
+            };
+        };
+      let payload =
+        Agent.tools_json agent |> Option.get |> Yojson.Safe.to_string
+      in
+      Alcotest.(check bool)
+        "provider advertisement" enabled
+        (contains payload history_tool_name))
+    [ false; true ];
+  let search =
+    Agent.resolve_tool_search agent
+      {
+        Provider.id = "search";
+        function_name = "tool_search";
+        arguments = {|{"query":"inject_connector_history"}|};
+      }
+  in
+  Alcotest.(check bool)
+    "tool search advertisement" enabled
+    (contains search.content history_tool_name);
+  ignore (Agent.build_messages agent);
+  Alcotest.(check bool)
+    "system prompt advertisement" enabled
+    (contains agent.Agent.system_prompt history_tool_name)
+
+let test_history_registration enabled () =
+  with_history_registry enabled (fun _db config registry _manager ->
+      let agent = Agent.create ~config ~tool_registry:registry () in
+      assert_history_visibility enabled registry agent)
+
+let test_history_reload () =
+  with_history_registry false (fun db config registry manager ->
+      let key = "teams:B850:bound" in
+      Session.register_connector_capabilities manager ~key
+        Connector_capabilities.teams;
+      Connector_history.record ~persist:false ~key ~channel_type:"teams" ~max:50
+        ~sender_name:"Alice" ~sender_id:"u1" ~text:"history reload sentinel" ();
+      let agent, _, _ = Session.get_or_create_locked manager ~key in
+      let template : Agent_template.t =
+        {
+          name = "history-fixture";
+          description = "";
+          role = Coder;
+          goal = "";
+          backstory = "";
+          system_prompt = "";
+          model = None;
+          max_tool_iterations = None;
+          allowed_tools = [ history_tool_name ];
+          disallowed_tools = [];
+          tool_search_enabled = None;
+          reasoning_effort = None;
+          cwd = None;
+          source = Builtin;
+          metadata = [];
+        }
+      in
+      let filtered = Agent_template.filter_tool_registry registry template in
+      let template_agent =
+        Agent.create ~config ~tool_registry:filtered ~agent_template:template ()
+      in
+      Hashtbl.replace manager.sessions "teams:B850:template"
+        (template_agent, Lwt_mutex.create (), ref None);
+      let current_config = ref config
+      and sandbox = ref (Daemon_util.make_sandbox config) in
+      let context = { Tool.default_context with session_key = Some key } in
+      let retained_tool =
+        Tools_builtin.inject_connector_history ~config ~db ~session_mgr:manager
+          ()
+      in
+      let enabled_tool = ref None in
+      let reload enabled =
+        let next = history_config enabled in
+        let result =
+          Daemon_config_reload.apply_runtime_config_reload ~source:"B850-test"
+            ~current_config ~session_manager:manager ~sandbox ~db:(Some db)
+            ~tool_registry:(Some registry) ~new_config:next ()
+        in
+        Alcotest.(check bool) "reload succeeds" true (Result.is_ok result);
+        assert_history_visibility enabled registry agent;
+        assert_history_visibility enabled filtered template_agent;
+        let out = Lwt_main.run (retained_tool.invoke ~context (`Assoc [])) in
+        Alcotest.(check bool)
+          "retained closure uses current enablement" enabled
+          (Test_helpers.string_contains out "history reload sentinel");
+        if enabled then begin
+          let tool =
+            Option.get (Tool_registry.find registry history_tool_name)
+          in
+          enabled_tool := Some tool;
+          let out = Lwt_main.run (tool.invoke ~context (`Assoc [])) in
+          Alcotest.(check bool)
+            "reloaded tool supports capable bound room" true
+            (Test_helpers.string_contains out "history reload sentinel")
+        end
+        else begin
+          Alcotest.(check bool)
+            "disabled execution refusal remains actionable" true
+            (Test_helpers.string_contains out
+               "connector_history.enabled is false");
+          let out =
+            Lwt_main.run
+              ((Option.get !enabled_tool).invoke ~context (`Assoc []))
+          in
+          Alcotest.(check bool)
+            "previously enabled closure refuses after disable" true
+            (Test_helpers.string_contains out
+               "connector_history.enabled is false");
+          Lwt_main.run
+            (Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
+               ~session_key:(Some key)
+               [
+                 {
+                   Provider.id = "stale-history-call";
+                   function_name = history_tool_name;
+                   arguments = "{}";
+                 };
+               ]);
+          Alcotest.(check bool)
+            "stale model call cannot invoke hidden history" true
+            (List.exists
+               (fun (m : Provider.message) ->
+                 m.is_error
+                 && Test_helpers.string_contains m.content
+                      "not in the frozen turn catalog")
+               agent.Agent.history)
+        end
+      in
+      reload true;
+      reload false;
+      reload true;
+      let result =
+        Daemon_config_reload.apply_runtime_config_reload
+          ~source:"B850-rollback-test" ~current_config ~session_manager:manager
+          ~sandbox ~db:(Some db) ~tool_registry:(Some registry)
+          ~after_publish:(fun () ->
+            failwith "injected late history reload failure")
+          ~new_config:(history_config false) ()
+      in
+      Alcotest.(check bool)
+        "late reload failure is reported" true (Result.is_error result);
+      assert_history_visibility true registry agent;
+      assert_history_visibility true filtered template_agent;
+      let out =
+        Lwt_main.run ((Option.get !enabled_tool).invoke ~context (`Assoc []))
+      in
+      Alcotest.(check bool)
+        "rollback restores retained tool execution" true
+        (Test_helpers.string_contains out "history reload sentinel"))
+
 let tests =
   [
+    Alcotest.test_case "disabled history tool is hidden" `Quick
+      (test_history_registration false);
+    Alcotest.test_case "enabled history tool is advertised" `Quick
+      (test_history_registration true);
+    Alcotest.test_case
+      "history enable-disable reload refreshes all advertisements" `Quick
+      test_history_reload;
     Alcotest.test_case "record and get round-trip" `Quick test_record_and_get;
     Alcotest.test_case "parse_utc_datetime UTC round-trip" `Quick
       test_parse_utc_datetime_roundtrip;

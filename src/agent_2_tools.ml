@@ -88,7 +88,7 @@ let canvas_log_marker = "[slack canvas content redacted]"
 
 (* Raw provider batches may contain a sensitive sibling, even when the failing
    structured call is ordinary. Unknown shapes fail closed for diagnostics. *)
-let raw_batch_safe ~is_canvas raw =
+let raw_batch_classification ~is_canvas raw =
   let unique fields =
     let keys = List.map fst fields in
     List.length keys = List.length (List.sort_uniq String.compare keys)
@@ -98,7 +98,7 @@ let raw_batch_safe ~is_canvas raw =
   in
   let named fields =
     match List.assoc_opt "name" fields with
-    | Some (`String name) when name <> "" -> not (is_canvas name)
+    | Some (`String name) when name <> "" -> true
     | _ -> false
   in
   let string_arguments fields =
@@ -146,21 +146,42 @@ let raw_batch_safe ~is_canvas raw =
         | _ -> false)
     | _ -> false
   in
+  let classify_call call =
+    if not (classify call) then `Unknown
+    else
+      let open Yojson.Safe.Util in
+      let name =
+        match call |> member "function" with
+        | `Assoc fields -> List.assoc "name" fields |> to_string
+        | _ -> call |> member "name" |> to_string
+      in
+      if is_canvas name then `Canvas else `Safe
+  in
   try
     match Yojson.Safe.from_string raw with
-    | `List (_ :: _ as calls) -> List.for_all classify calls
-    | _ -> false
-  with _ -> false
+    | `List (_ :: _ as calls) ->
+        List.fold_left
+          (fun batch call ->
+            match (batch, classify_call call) with
+            | `Canvas, _ | _, `Canvas -> `Canvas
+            | `Unknown, _ | _, `Unknown -> `Unknown
+            | `Safe, `Safe -> `Safe)
+          `Safe calls
+    | _ -> `Unknown
+  with _ -> `Unknown
 
-let log_raw_tool_call_failure sk_tag ?raw_tool_calls_json ~suppress
+let unknown_batch_log_marker = "[tool-call data redacted: unclassified batch]"
+
+let log_raw_tool_call_failure sk_tag ?raw_tool_calls_json ~redaction_marker
     (tc : Provider.tool_call) ~reason =
   let raw, reason =
-    if suppress then (canvas_log_marker, canvas_log_marker)
-    else
-      ( (match raw_tool_calls_json with
-        | Some raw when String.trim raw <> "" -> raw
-        | _ -> normalized_tool_call_json tc),
-        reason )
+    match redaction_marker with
+    | Some marker -> (marker, marker)
+    | None ->
+        ( (match raw_tool_calls_json with
+          | Some raw when String.trim raw <> "" -> raw
+          | _ -> normalized_tool_call_json tc),
+          reason )
   in
   Logs.warn (fun m ->
       m "%sRaw model tool-call data for failed %s (id=%s, reason=%s): %s" sk_tag
@@ -284,14 +305,20 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
     in
     canonical = "slack_canvas_create"
   in
-  let sensitive_batch =
-    List.exists
-      (fun (tc : Provider.tool_call) -> is_canvas tc.function_name)
-      calls
-    ||
-    match raw_tool_calls_json with
-    | None -> false
-    | Some raw -> not (raw_batch_safe ~is_canvas raw)
+  let batch_redaction_marker =
+    if
+      List.exists
+        (fun (tc : Provider.tool_call) -> is_canvas tc.function_name)
+        calls
+    then Some canvas_log_marker
+    else
+      match raw_tool_calls_json with
+      | None -> None
+      | Some raw -> (
+          match raw_batch_classification ~is_canvas raw with
+          | `Safe -> None
+          | `Canvas -> Some canvas_log_marker
+          | `Unknown -> Some unknown_batch_log_marker)
   in
   let log_arguments (tc : Provider.tool_call) =
     if is_canvas tc.function_name then canvas_log_marker else tc.arguments
@@ -302,8 +329,8 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
       Lwt.catch thunk (fun exn ->
           Logs.warn (fun m ->
               m "Notification error: %s"
-                (if sensitive_batch then canvas_log_marker
-                 else Printexc.to_string exn));
+                (Option.value batch_redaction_marker
+                   ~default:(Printexc.to_string exn)));
           Lwt.return_unit)
       :: !notification_promises
   in
@@ -662,7 +689,7 @@ let execute_tools agent ~db ~audit_enabled ~session_key ?raw_tool_calls_json
             Logs.warn (fun m ->
                 m "%sTool error: %s -> %s" sk_tag tc.function_name preview);
             log_raw_tool_call_failure sk_tag ?raw_tool_calls_json
-              ~suppress:sensitive_batch tc ~reason:preview
+              ~redaction_marker:batch_redaction_marker tc ~reason:preview
           end;
           (* B598: when the model opts in via "forward_to_user": true in the
              tool call args, emit the full result as a ToolOutputDelta first
