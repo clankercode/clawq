@@ -43,6 +43,8 @@ The following tools are registered in `src/tools_builtin.ml` and are available t
 | `skill_list` | List all available skills (SKILL.md and legacy JSON) | Low |
 | `change_working_dir` | Change the agent's effective working directory for subsequent tool operations. Relative paths resolve from the current effective CWD. Optionally wipe conversation history to reduce context noise after initial navigation. Restricted by `security.allowed_cwd_patterns` glob list. | Medium |
 
+The `inject_connector_history` builtin is registered only when connector history is enabled and a database is available. Successful daemon config reloads refresh its availability without a restart; execution still checks the current configuration and connector capability.
+
 Additional tools may be registered from MCP servers or skill definitions at session startup.
 
 ### Slack huddle tools

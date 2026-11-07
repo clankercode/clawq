@@ -811,8 +811,9 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
       Tool_registry.register registry (Plan_pipeline.list_tool ~db);
       Tool_registry.register registry (Plan_pipeline.logs_tool ~db);
       Tool_registry.register registry (Plan_pipeline.cancel_tool ~db);
-      Tool_registry.register registry
-        (inject_connector_history ~config ~db ?session_mgr ());
+      if config.connector_history.enabled then
+        Tool_registry.register registry
+          (inject_connector_history ~config ~db ?session_mgr ());
       Debate.init_schema db;
       Tool_registry.register registry (debate_tool ~config ~db);
       (* B679: send_to_session requires session_mgr and db *)

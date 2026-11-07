@@ -373,8 +373,118 @@ let test_raw_only streaming () =
                   {|[{"function":{"name":"ordinary","arguments":"{}"}}]|};
                 ])))
 
+let test_failure_labels streaming () =
+  let reason =
+    "Error: connector_history.enabled is false. Enable it in config."
+  in
+  List.iter
+    (fun (label, raw, marker) ->
+      let registry = Tool_registry.create () in
+      Tool_registry.register registry
+        {
+          Tool.name = "inject_connector_history";
+          description = "";
+          parameters_schema = `Assoc [];
+          invoke = (fun ?context:_ _ -> Lwt.return reason);
+          invoke_stream = None;
+          risk_level = Low;
+          deferred = false;
+        };
+      let agent =
+        Agent.create ~config:Test_phase3.default_config ~tool_registry:registry
+          ()
+      in
+      with_logs (fun logs ->
+          let calls =
+            [
+              {
+                Provider.id = "history";
+                function_name = "inject_connector_history";
+                arguments = "{}";
+              };
+            ]
+          in
+          Lwt_main.run
+            (if streaming then
+               Agent.execute_tool_calls_stream agent ~db:None
+                 ~audit_enabled:false ~session_key:None ?raw_tool_calls_json:raw
+                 ~on_chunk:(fun _ -> Lwt.return_unit)
+                 calls
+             else
+               Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
+                 ~session_key:None ?raw_tool_calls_json:raw calls);
+          let diagnostics =
+            List.filter (fun s -> contains s "Raw model tool-call data") !logs
+            |> String.concat "\n"
+          in
+          check (label ^ " has failure diagnostic") true (diagnostics <> "");
+          check
+            (label ^ " canvas label requires canvas evidence")
+            (marker = Some "[slack canvas content redacted]")
+            (contains diagnostics "[slack canvas content redacted]");
+          check
+            (label ^ " safe reason remains usable")
+            (marker = None)
+            (contains diagnostics reason);
+          Option.iter
+            (fun marker ->
+              check
+                (label ^ " correct redaction marker")
+                true
+                (contains diagnostics marker))
+            marker;
+          check
+            (label ^ " raw secrets stay redacted")
+            false
+            (contains diagnostics raw_secret)))
+    [
+      ("no raw", None, None);
+      ( "known ordinary",
+        Some {|[{"name":"inject_connector_history","arguments":"{}"}]|},
+        None );
+      ( "unknown",
+        Some ("[" ^ raw_secret),
+        Some "[tool-call data redacted: unclassified batch]" );
+      ( "unknown shape",
+        Some (Printf.sprintf {|[{"type":"mystery","payload":"%s"}]|} raw_secret),
+        Some "[tool-call data redacted: unclassified batch]" );
+      ( "blank raw",
+        Some "  ",
+        Some "[tool-call data redacted: unclassified batch]" );
+      ( "ambiguous duplicate name",
+        Some
+          (Printf.sprintf
+             {|[{"name":"inject_connector_history","name":"slack_canvas_create","arguments":"%s"}]|}
+             raw_secret),
+        Some "[tool-call data redacted: unclassified batch]" );
+      ( "unknown plus known canvas",
+        Some
+          (Printf.sprintf
+             {|[{"type":"mystery","payload":"%s"},{"type":"tool_use","name":"slack_canvas_create","input":{}}]|}
+             raw_secret),
+        Some "[slack canvas content redacted]" );
+      ( "known canvas plus unknown",
+        Some
+          (Printf.sprintf
+             {|[{"type":"function_call","name":"slack_canvas_create","arguments":"{}"},{"type":"mystery","payload":"%s"}]|}
+             raw_secret),
+        Some "[slack canvas content redacted]" );
+      ( "raw canvas sibling",
+        Some
+          (Printf.sprintf
+             {|[{"name":"inject_connector_history","arguments":"{}"},{"name":"slack_canvas_create","arguments":"%s"}]|}
+             raw_secret),
+        Some "[slack canvas content redacted]" );
+    ]
+
 let suite =
   [
+    ( "buffered failure diagnostics classify redaction",
+      `Quick,
+      test_failure_labels false );
+    ( "streaming failure diagnostics classify redaction",
+      `Quick,
+      test_failure_labels true );
     ( "executor redacts canvas arguments in buffered calls",
       `Quick,
       test_executor false );

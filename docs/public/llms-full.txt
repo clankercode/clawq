@@ -529,6 +529,8 @@ To encrypt API keys at rest: set `security.encrypt_secrets` to true, set `CLAWQ_
 
 ## Your Tools
 
+`inject_connector_history` is registered only when `connector_history.enabled` is true and a database is available. Daemon config reloads refresh its availability in existing sessions without restart; retained calls recheck current config and connector capability before reading history.
+
 Built-in tool availability depends on runtime configuration and wiring. Core help, file, shell, HTTP, browser, git, model, usage, document, and background-shell tools are normally registered; web search, Z.ai web tools, send/poll/file tools, transcription, memory/history tools, task-tree tools, native subagent tools, `background_finalize`, plan-pipeline tools, connector-history injection, and debate are registered only when their required runtime dependencies are present.
 
 | Tool | Description |

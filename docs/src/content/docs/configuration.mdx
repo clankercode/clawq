@@ -449,7 +449,10 @@ the builtin injects that room-scoped history. The legacy Slack
 | `max_age_days` | Retention window used by DB cleanup when persistence is enabled; entries older than this are deleted |
 
 Use `/inject_connector_history [N]` or the `inject_connector_history` tool from a
-Teams or Discord group session to load recent captured messages into context.
+Teams or Discord group session to load recent captured messages into context. The
+builtin is absent while `enabled` is false. Successful daemon config reloads
+refresh tool availability in existing sessions without restarting Clawq; a stale
+tool call still checks the current configuration before reading history.
 
 ### db_retention
 

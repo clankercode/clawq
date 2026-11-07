@@ -888,7 +888,10 @@ let transcribe ~(config : Runtime_config.t) =
 let bg_shell_tools = Tools_bg_shell.tools
 
 let inject_connector_history ~(config : Runtime_config.t) ~db ?session_mgr () =
-  let connector_history_allowed ~key =
+  let current_config () =
+    match session_mgr with Some mgr -> Session.get_config mgr | None -> config
+  in
+  let connector_history_allowed ~(config : Runtime_config.t) ~key =
     match session_mgr with
     | Some mgr -> (
         match Session.find_connector_capabilities mgr ~key with
@@ -926,6 +929,7 @@ let inject_connector_history ~(config : Runtime_config.t) ~db ?session_mgr () =
         ];
     invoke =
       (fun ?context args ->
+        let config = current_config () in
         let open Yojson.Safe.Util in
         let count =
           try
@@ -939,7 +943,7 @@ let inject_connector_history ~(config : Runtime_config.t) ~db ?session_mgr () =
               Lwt.return
                 "Error: connector_history.enabled is false. Enable it in \
                  config to capture unaddressed group messages."
-            else if not (connector_history_allowed ~key) then
+            else if not (connector_history_allowed ~config ~key) then
               Lwt.return
                 "Error: this connector does not support connector history \
                  capture. Use /inject_connector_history in Teams or Discord \
