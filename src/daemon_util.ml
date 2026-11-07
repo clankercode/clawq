@@ -239,12 +239,17 @@ let refresh_runtime_bound_tools ?send_file_runtime ~(config : Runtime_config.t)
     (Tools_builtin.models_tool ~config ~session_mgr:session_manager ());
   (match Session.get_db session_manager with
   | Some db ->
+      refresh_optional "inject_connector_history"
+        ~configured:config.connector_history.enabled (fun () ->
+          Tools_builtin.inject_connector_history ~config ~db
+            ~session_mgr:session_manager ());
       Tool_registry.replace registry
         (Subagent_tool.result_tool ~config ~db ~session_mgr:session_manager ());
       List.iter
         (Tool_registry.replace registry)
         (Github_room_tools.runtime_tools ~db ~config)
   | None ->
+      Tool_registry.remove registry "inject_connector_history";
       List.iter
         (Tool_registry.remove registry)
         Github_room_tools.runtime_tool_names);
