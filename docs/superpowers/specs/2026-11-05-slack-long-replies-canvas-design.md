@@ -21,7 +21,7 @@ Final answers only: progress, thinking, notices, receipts, cards and standing-or
 
 ## Final routing and current code
 
-`Slack_thread_runs.open_stream` sends `Working…`; maintenance rotates status and `finish` stops it. This checkout has no answer `chat.appendStream` calls. `Status_update.make_handler` ignores answer deltas. Keep answers buffered in every mode, including `off`: finish status/progress, then send one final presentation. Provider streaming is not Slack answer streaming.
+`Slack_thread_runs.open_stream` sends `Working…`; maintenance rotates status and `finish` stops it. Status-only stream messages are deleted on rotation and completion; completed control cards are cleared and deleted, while stopped tasks retain their stop receipt. Cleanup uses current authorization and is best effort: denied or failed cleanup may leave temporary UI visible without suppressing the final answer. This checkout has no answer `chat.appendStream` calls. `Status_update.make_handler` ignores answer deltas. Keep answers buffered in every mode, including `off`: finish status/progress, then send one final presentation. Provider streaming is not Slack answer streaming.
 
 | Producer | Final-only hook |
 | --- | --- |
@@ -89,7 +89,7 @@ Overflow is `code_points(original_body) > threshold`; equality stays in chat. Co
 
 For summary extraction only, normalize CRLF/CR to LF and trim. Take the first non-empty run of lines ending at a blank/spaces-only line outside a backtick/tilde fence (at least three matching characters, closed by the same character with sufficient length). Leading headings, lists or code belong to this opening block. Join line breaks with spaces. Cap at 600 scalars including `…`: take 599, right-trim, append ellipsis. Without a paragraph break, cap the whole-body prefix. Empty extraction uses `Full answer`. Escape Slack `<`, `>` and `&` after measuring; disable mention expansion. Append a trusted labelled `Read full answer` link separately.
 
-Canvas Markdown is unchanged except outside fenced code: `<@U…>` → `![](@U…)`, `<#C…|label>` → `![](#C…)`, `<url|label>` → `[label](url)`; render `<!here>`, `<!channel>`, `<!everyone>` inert (e.g. `&lt;!here&gt;`). No HTML, heading-depth or table-cell validation. Slack rejection selects the file. File/full-text content is always the entire original bytes, including its opening paragraph. No image fetching, extra history or hidden metadata. Automatic title is `Clawq answer` plus source timestamp when available; explicit title is trimmed, valid UTF-8, non-empty and at most 120 scalars.
+Canvas Markdown is unchanged except outside fenced code: `<@U…>` → `![](@U…)`, `<#C…|label>` → `![](#C…)`, `<url|label>` → `[label](url)`; render `<!here>`, `<!channel>`, `<!everyone>` inert (e.g. `&lt;!here&gt;`). No HTML, heading-depth or table-cell validation. Slack rejection selects the file. File content preserves the entire original bytes, including its opening paragraph. Plain chat finals and full-text fallback adapt Markdown emphasis, headings and links to Slack mrkdwn once at the final sender, preserving fenced and inline code. Overflow selection and canvas preparation receive the original Markdown. Formatting uses a whole-answer linear work budget and bounded recursion; exhaustion sends the complete answer as escaped literal text. No image fetching, extra history or hidden metadata. Automatic title is `Clawq answer` plus source timestamp when available; explicit title is trimmed, valid UTF-8, non-empty and at most 120 scalars.
 
 ## Delivery and failures
 

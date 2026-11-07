@@ -425,10 +425,10 @@ Optional capture of unaddressed group-chat messages for connectors that support
 ambient history capture. Persistent entries are stored with room scope,
 connector type, and timestamp so cleanup and future history queries can filter
 by room, connector, and time range. The capture and injection paths are gated by
-both this configuration and the connector capability matrix. Teams and Discord
-currently support ambient capture; Slack does not, because Slack messages are
-already delivered through the normal channel flow and no separate
-ambient-history capture path is implemented.
+both this configuration and the connector capability matrix. Teams, Discord and bound Slack rooms support ambient capture. Slack records
+messages in a room with an active room profile binding when capture is enabled;
+the builtin injects that room-scoped history. The legacy Slack
+`/inject_connector_history` slash command still returns an unsupported reply.
 
 ```json
 {

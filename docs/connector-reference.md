@@ -288,6 +288,8 @@ aggregate native `status` may differ from this app's `agent_status` when other
 agents are working. Custom tool progress and final messages remain ordinary
 messages in the originating thread.
 
+Native stream messages contain status only; final answers are buffered. Rotation and completion delete owned placeholders, and successful completion clears and deletes the Stop card. Stopped tasks retain their stop receipt. Cleanup respects current credentials and policy; denied or failed cleanup may leave temporary UI visible without suppressing the answer. Plain chat finals adapt Markdown emphasis, headings and links to Slack mrkdwn once, preserving fenced and inline code; file payloads keep original bytes and canvas preparation receives original Markdown.
+
 Slack streams have a ten-minute maximum lifetime; processing status expires
 after an hour without a refresh. While its run still owns the root, Clawq
 closes and replaces the marker every nine minutes and refreshes processing.

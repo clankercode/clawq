@@ -440,9 +440,10 @@ verification** with the signing secret and a 5-minute timestamp window.
 - **Voice transcription** --- audio file attachments are automatically
   transcribed via the configured STT provider with progress messages.
   Music files are skipped; size limit: 25 MB.
-- **No ambient connector-history capture** --- Slack delivers relevant messages
-  through the normal bot event path; `/inject_connector_history` is currently
-  for Teams and Discord group chats only.
+- **Optional connector-history capture** --- with `connector_history.enabled`
+  and an active room profile binding, Slack records room-scoped messages for
+  the `inject_connector_history` builtin. The legacy Slack
+  `/inject_connector_history` slash command still returns an unsupported reply.
 
 ### Agent threads and native task UX
 
@@ -557,6 +558,8 @@ instead of channel-only membership/privacy fields. Optional `is_user_deleted`
 may be absent; supplied deletion or malformed values are denied. They still
 require configured private access: under the default `deny` policy, add the
 `D...` conversation to both `allow_channels` and `allow_private_channels`, or use `allow_if_listed` with `allow_channels`.
+
+Final answers are buffered and ordinary chat finals convert Markdown emphasis, headings and links to Slack mrkdwn once, preserving fenced and inline code. Canvas preparation receives the original Markdown; file payloads preserve its bytes. Status-only stream placeholders are deleted on rotation and completion. Successful completion clears and deletes the control card; stopped tasks keep their stop receipt. Cleanup uses current credentials and policy and is best effort: denied or failed cleanup can leave temporary UI visible without suppressing the final answer.
 
 Clawq rotates owned stream markers every nine minutes, before Slack's ten-minute
 limit, and refreshes processing status so work longer than an hour remains
