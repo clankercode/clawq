@@ -166,6 +166,15 @@ let protect ~check ~db ~(order : T.order) ~owner ~unit work =
             Lwt.return (Error failure)
       | exn -> Lwt.fail exn)
 
+(* History and replies can contain the same broadcast. Its original thread
+   must be identical in both journal entries and in the late receipt. *)
+let pause_thread ~parent message =
+  match P.get "thread_ts" message with
+  | `String root when Pages.valid_ts root -> Some root
+  | `Null when P.get "subtype" message = `Null ->
+      Some (Option.value parent ~default:(P.field "ts" message))
+  | _ -> None
+
 let collect ~db ~(order : T.order) ~oldest ~latest ~parent messages =
   let within ts = P.compare_ts ts oldest >= 0 && P.compare_ts ts latest <= 0 in
   List.iter
@@ -176,13 +185,16 @@ let collect ~db ~(order : T.order) ~oldest ~latest ~parent messages =
         && Slack_config_types.valid_id "UW" user
         && user <> "USLACKBOT"
         && P.get "bot_id" message = `Null
-        && P.get "subtype" message = `Null
+        && List.mem (P.get "subtype" message)
+             [ `Null; `String "thread_broadcast" ]
         && P.get "edited" message = `Null
         && P.same_channel order.channel_id message
       then
-        match Pause.parse_command (P.field "text" message) with
-        | Some n when n = order.display_no -> (
-            let thread_ts = Option.value parent ~default:ts in
+        match
+          ( Pause.parse_command (P.field "text" message),
+            pause_thread ~parent message )
+        with
+        | Some n, Some thread_ts when n = order.display_no -> (
             let applied =
               Sql.int_query db
                 "SELECT count(*) FROM slack_order_ingress WHERE installation=? \
