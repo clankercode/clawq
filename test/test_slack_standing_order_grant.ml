@@ -72,9 +72,9 @@ let test_pass () =
   check_bool "members are paged by 200" true
     (params_of e "conversations.members"
     = [ `Assoc [ ("channel", `String "C123"); ("limit", `Int 200) ] ]);
-  check_bool "egress audit rows name the fire unit" true
+  check_bool "egress audit rows name the exact persisted fire unit" true
     (Egress_audit.query ~db:e.db
-       ~tool_name:("standing_order:" ^ order.id ^ ":fire")
+       ~tool_name:("standing_order:" ^ order.id ^ ":fire:" ^ fire_id ^ ":fire")
        ()
     <> []);
   match Lwt_main.run (v.call "users.info" [ ("user", `String "U123") ]) with

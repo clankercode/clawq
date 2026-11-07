@@ -301,9 +301,11 @@ let post_once ~(ctx : Ctx.t) ~db ~manager ?http ?http_response ?reconcile_id
                     ~audit:
                       (SO.audit_label ~order_id:(Some o.id)
                          ~unit_label:
-                           (Option.fold ~none:"report"
-                              ~some:(fun id -> "reconcile:" ^ id)
-                              reconcile_id))
+                           (match (fire_id, reconcile_id) with
+                           | Some id, _ -> "fire:" ^ id ^ ":report"
+                           | None, Some id -> "reconcile:" ^ id
+                           | None, None ->
+                               "reconcile:report:" ^ key ^ ":" ^ period))
                     ?http ?http_response ~limit ~before_send ()
                 in
                 let* result =

@@ -524,12 +524,11 @@ let test_egress () =
         (fun (a : Egress_audit.event) ->
           check "Denied audit access key" true
             (a.session_key = Some "slack:C123");
-          check "Denied audit order label" true
-            (List.mem a.tool_name
-               [
-                 Some ("standing_order:" ^ e.order.id ^ ":fire");
-                 Some ("standing_order:" ^ e.order.id ^ ":report");
-               ]);
+          check "Denied audit order and durable report identity" true
+            (a.tool_name
+            = Some
+                ("standing_order:" ^ e.order.id
+               ^ ":reconcile:report:reply_delayed:once"));
           check "Denied audit persisted order snapshot" true
             (Option.fold ~none:false
                ~some:(fun id ->

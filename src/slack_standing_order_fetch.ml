@@ -83,8 +83,8 @@ let transport_limit ~ctx ~channel_id () =
     let* () = ctx.limit ~channel_id in
     if ctx.accepting () then Lwt.return_unit else Lwt.fail Lwt.Canceled
 
-let evaluate ~ctx ~db ~manager ?http ?http_response ?before_send ~stage
-    (order : T.order) =
+let evaluate ~ctx ~db ~manager ?http ?http_response ?before_send
+    ?(unit_label = "fire") ~stage (order : T.order) =
   let before_send () =
     if not (ctx.Ctx.accepting ()) then Error SO.Dispatch_refused
     else Option.fold ~none:(Ok ()) ~some:(fun check -> check ()) before_send
@@ -93,7 +93,7 @@ let evaluate ~ctx ~db ~manager ?http ?http_response ?before_send ~stage
     ~current_config:(fun () -> Session.get_config manager)
     ?http ?http_response ~before_send
     ~limit:(transport_limit ~ctx ~channel_id:order.T.channel_id)
-    ~now:(ctx.now ()) ~stage ~unit_label:"fire"
+    ~now:(ctx.now ()) ~stage ~unit_label
     (Grant.subject_of_order order)
 
 let save ~ctx ~db ~lease ~(before : Store.fire_runtime) ~after =
@@ -278,6 +278,7 @@ let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
   (* Share only this pass's read validation across due roots. Fire and every
      write still validate independently; a config publication discards this. *)
   let validation = ref None in
+  let unit_label = "reconcile:" ^ Store.new_id ~prefix:"resolve" in
   let validate ~ctx ~before_send =
     let* result =
       match !validation with
@@ -285,7 +286,7 @@ let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
           Lwt.return (Ok v)
       | _ ->
           evaluate ~ctx ~db ~manager ?http ?http_response ~before_send
-            ~stage:Grant.Resolve order
+            ~unit_label ~stage:Grant.Resolve order
     in
     match result with
     | Error _ -> Lwt.return result
@@ -296,7 +297,7 @@ let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
           SO.make ~capability_fence:true ~db
             ~current_config:(fun () -> Session.get_config manager)
             ~snapshot:v.snapshot ~channel_id:order.channel_id
-            ~audit:(SO.audit_label ~order_id:(Some order.id) ~unit_label:"fire")
+            ~audit:(SO.audit_label ~order_id:(Some order.id) ~unit_label)
             ?http ?http_response ?limiter:ctx.Ctx.limiter ~team_id:order.team_id
             ~app_id:order.api_app_id
             ~limit:(transport_limit ~ctx ~channel_id:order.channel_id)

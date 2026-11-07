@@ -352,6 +352,15 @@
   test_slack_standing_order_reconcile_fix2
   test_slack_standing_order_reconcile_acceptance
   test_slack_standing_order_reconcile_support
+  slack_standing_order_fault_support
+  test_slack_standing_order_faults
+  test_slack_standing_order_fault_process
+  test_slack_standing_order_fault_identity
+  test_slack_standing_order_fault_security
+  test_slack_standing_order_fault_admission
+  test_slack_standing_order_fault_races
+  test_slack_standing_order_fault_matrix
+  test_slack_standing_order_fault_budgets
   test_slack_standing_order_scan_support
   test_slack_standing_order_scan_replay
   test_slack_standing_order_scan_fences

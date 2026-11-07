@@ -746,6 +746,8 @@ let evaluate ~db ~current_config ?http ?http_response ?limiter ?priority ?limit
         let unit_label =
           match stage with
           | Reconcile { reconcile_id } -> "reconcile:" ^ reconcile_id
+          | Fire { fire_id; _ } | Track { fire_id } ->
+              "fire:" ^ fire_id ^ ":" ^ unit_label
           | _ -> unit_label
         in
         let order_ref =

@@ -674,7 +674,8 @@ let reconcile ~ctx ~db ~manager ?http ?http_response ?upload_http
     let* first_absent =
       if
         first.relay_ts = None
-        && ((r.current_attempt = 0 && r.fire.state = T.Posting_unknown)
+        && (r.current_attempt = 0
+            && List.mem r.fire.state T.[ Posting; Posting_unknown ]
            || r.current_attempt = 1 && r.fire.state = T.Uploading
               && (attempt r).dispatched_at = None)
       then (
@@ -684,7 +685,10 @@ let reconcile ~ctx ~db ~manager ?http ?http_response ?upload_http
             r
         in
         match result with
-        | Proven_absent -> Lwt.return true
+        | Proven_absent ->
+            (* Posting is eligible only for read-only adoption. Reposting
+               still requires the durable unknown-completion path. *)
+            Lwt.return (r.fire.state <> T.Posting)
         | Ambiguous -> raise Stop
         | Shared ts ->
             let r = current db fire_id in
