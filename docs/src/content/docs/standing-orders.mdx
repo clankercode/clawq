@@ -209,24 +209,55 @@ reviewed executable from the remote build, with its hash verified before use:
 _build/default/scripts/import_huddle_relay_receipts.exe --db OFFLINE_DB --manifest REVIEWED_JSON
 ```
 
-Default preview opens the DB **READONLY**, never initializes evidence and never
-calls Slack. After reviewed P4 initialization
-has stayed closed, stop all daemon DB writers and preserve fresh verified DB
-and unit backups. Construct the complete reviewed metadata manifest against
-that actual DB's immutable installation UUID, version/bootstrap inventory
-scope, current installation identity and real order activation boundaries.
-Do not copy a rehearsal UUID, invent activation timestamps or treat one
-channel's inventory as the whole installation.
+Default preview opens the DB **READONLY**, never initializes evidence and
+never calls Slack. After P4 initialization has kept new legacy relays closed,
+verify that all daemon DB writers have exited and exclude competing CLI/admin
+writers throughout manifest generation, review, preview, apply and reopened
+verification. Preserve fresh verified DB and unit backups. Construct the
+complete reviewed metadata manifest against that actual DB's immutable
+installation UUID, version/bootstrap inventory scope, current installation
+identity and real order activation boundaries. Do not copy a rehearsal UUID,
+invent activation timestamps or treat one channel's inventory as the whole
+installation.
 
-Preview every suppress/link/complete-scope disposition first. Only the reviewed
-complete manifest may be applied offline with explicit `--apply`; preserve its
-audit receipt, reopen and verify completion/idempotency and exact suppression
-before restart/recovery. Delivery suppression does not fabricate an automatic
-attempt, nonce, pickup or cap debit. A changed epoch/identity or expired
-observation does not erase suppression. This is a coordinator rollout procedure,
-not an automatic setup requirement for fresh installations or permission to
-mutate a running DB. Whole-branch review, final merged-tree gates, backups,
-quiet-turn checks and live rollout remain coordinator work.
+Preview every suppress/link/complete-scope disposition first, review the
+apply-only cross-document constraints, and freeze the complete reviewed document
+and its canonical inventory digest (`manifest_digest`). Apply only that document
+offline with explicit `--apply` and preserve the audit receipt.
+
+Preview omits some cross-document apply checks, including equality of
+delivered dispositions and supplied receipts. Repeat READONLY preview proves
+neither durable completion nor repeat-apply idempotency. After apply, close
+and reopen the DB READONLY. The importer has no verification command; use a
+separately reviewed verification helper calling
+`Slack_standing_order_receipt_import.verify_rollout db ~manifest_digest` and
+`Slack_standing_order_rollout_store.rollout_readiness db ~order_id` for each
+relevant order, checking its expected readiness without activating inactive
+orders. Compare exact stored suppression identities and receipt digests,
+automatic-attempt links and both retained attempts against the reviewed
+evidence; save the verifier results before restart/recovery. Any deliberate
+exact repeat apply requires the same frozen reviewed document and digest; a
+changed document is not incremental completion. On failure or an ambiguous
+outcome, leave writers stopped and reopen to determine committed state.
+
+Delivery suppression does not fabricate an automatic attempt, nonce, pickup or
+cap debit. A changed epoch/identity or expired observation does not erase
+suppression. This is a coordinator rollout procedure, not an automatic setup
+requirement for fresh installations or permission to mutate a running DB.
+Whole-branch review, final merged-tree gates, backups, quiet-turn checks and
+live rollout remain coordinator work.
+
+For rollback, preserve the latest DB, immutable import manifest/audit,
+suppression, both attempts (including reservations and relay timestamps),
+notice decisions and cleanup progress together with binary/unit receipts.
+Initial inventory-pending startup can already track retained work, send
+reports and perform cleanup in Slack while new relays remain closed; define
+the rollback cut point before that startup too. After any external effect, do
+not restore an older DB or resume a downgraded writer until actual Slack
+metadata is reconciled and a bounded review confirms that writer enforces P4
+recovery/suppression barriers. A binary that decodes `Standing_order` safely
+can still predate those barriers. Leave writers stopped on uncertainty; never
+erase proof or delivery history to make readiness green.
 
 ## Source cleanup and privacy
 

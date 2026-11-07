@@ -1235,7 +1235,36 @@ Slack `show`'s `recovery.readiness` and CLI **Recovery readiness** use the same 
 
 A fresh unused order surface is automatically proven/bound by ordinary setup and confirmation, without import or an empty-inventory receipt ceremony. Fresh proof is only an inventory prerequisite, never grant authority. Existing used/ambiguous surfaces stay legacy-pending until a reviewed complete inventory is validated. Config publication, including failed-reload rollback, can conservatively hold relays until current credentials/policy/coverage/grant reverify. Identity changes cannot mint freshness or remove suppression; this does not make startup-structural connector changes hot-reloadable.
 
-Before legacy catch-up, the coordinator must account for all known manual receipts and automatic attempts, suppress verified already-delivered instances and explicitly disposition out-of-scope entries. The offline helper source is `scripts/import_huddle_relay_receipts.ml`; invoke its reviewed remote-built executable as `_build/default/scripts/import_huddle_relay_receipts.exe --db PATH --manifest PATH`. It defaults to READONLY preview, with no Slack calls or schema bootstrap. After closed P4 initialization, stop DB writers and preserve fresh verified DB/unit backups. Build the reviewed complete manifest from that actual DB's immutable installation UUID, version/bootstrap inventory scope, current installation identity and real order activation boundaries; never copy rehearsal IDs or invent timestamps. Review every suppress/link/complete-scope change before explicit offline `--apply`, save the audit receipt, reopen and verify completion, exact suppression and idempotency before restart/recovery. Import fabricates no executor attempt, nonce, pickup or cap debit. Suppression survives epochs, identity changes and observation expiry. Fresh installs need none of this legacy ceremony. Whole-branch review, merged-tree gates and live rollout remain coordinator work; do not mutate a running DB or manually relay uncertain work.
+Before legacy catch-up, the coordinator must account for all known manual receipts and automatic attempts, suppress verified already-delivered instances and explicitly disposition out-of-scope entries. The offline helper source is `scripts/import_huddle_relay_receipts.ml`; invoke its reviewed remote-built executable as `_build/default/scripts/import_huddle_relay_receipts.exe --db PATH --manifest PATH`. It defaults to READONLY preview, with no Slack calls or schema bootstrap. After P4 initialization has kept new legacy relays closed, verify that all daemon DB writers have exited and exclude competing CLI/admin writers throughout manifest generation, review, preview, apply and reopened verification. Preserve fresh verified DB/unit backups. Build the reviewed complete manifest from that actual DB's immutable installation UUID, version/bootstrap inventory scope, current installation identity and real order activation boundaries; never copy rehearsal IDs or invent timestamps. Preview every suppress/link/complete-scope disposition first, review the apply-only cross-document constraints, and freeze the complete reviewed document and its canonical inventory digest (`manifest_digest`). Apply only that document offline with explicit `--apply` and preserve the audit receipt.
+
+Preview omits some cross-document apply checks, including equality of
+delivered dispositions and supplied receipts. Repeat READONLY preview proves
+neither durable completion nor repeat-apply idempotency. After apply, close
+and reopen the DB READONLY. The importer has no verification command; use a
+separately reviewed verification helper calling
+`Slack_standing_order_receipt_import.verify_rollout db ~manifest_digest` and
+`Slack_standing_order_rollout_store.rollout_readiness db ~order_id` for each
+relevant order, checking its expected readiness without activating inactive
+orders. Compare exact stored suppression identities and receipt digests,
+automatic-attempt links and both retained attempts against the reviewed
+evidence; save the verifier results before restart/recovery. Any deliberate
+exact repeat apply requires the same frozen reviewed document and digest; a
+changed document is not incremental completion. On failure or an ambiguous
+outcome, leave writers stopped and reopen to determine committed state.
+
+Import fabricates no executor attempt, nonce, pickup or cap debit. Suppression survives epochs, identity changes and observation expiry. Fresh installs need none of this legacy ceremony. Whole-branch review, merged-tree gates and live rollout remain coordinator work; do not mutate a running DB or manually relay uncertain work.
+
+For rollback, preserve the latest DB, immutable import manifest/audit,
+suppression, both attempts (including reservations and relay timestamps),
+notice decisions and cleanup progress together with binary/unit receipts.
+Initial inventory-pending startup can already track retained work, send
+reports and perform cleanup in Slack while new relays remain closed; define
+the rollback cut point before that startup too. After any external effect, do
+not restore an older DB or resume a downgraded writer until actual Slack
+metadata is reconciled and a bounded review confirms that writer enforces P4
+recovery/suppression barriers. A binary that decodes `Standing_order` safely
+can still predate those barriers. Leave writers stopped on uncertainty; never
+erase proof or delivery history to make readiness green.
 
 #### P4 source retention and cleanup
 
