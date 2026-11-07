@@ -598,11 +598,16 @@ the fallback when the native API is unavailable.
 
 ### Step 2: Configure Bot Permissions
 
-Under **OAuth & Permissions**, add these Bot Token Scopes:
+Under **OAuth & Permissions**, add this complete Bot Token Scope set,
+checked against `Setup_slack.bot_scopes`:
+
+<!-- slack-canonical:setup:scopes:begin -->
+
 - `app_mentions:read`
-- `chat:write`
+- `assistant:write`
 - `channels:history`
 - `channels:read`
+- `chat:write`
 - `groups:history`
 - `groups:read`
 - `im:history`
@@ -611,12 +616,14 @@ Under **OAuth & Permissions**, add these Bot Token Scopes:
 - `mpim:history`
 - `mpim:read`
 - `users:read`
-- `assistant:write`
-- `reactions:write`
-- `files:write`
 - `files:read`
+- `files:write`
 - `canvases:read`
 - `canvases:write`
+- `reactions:read`
+- `reactions:write`
+
+<!-- slack-canonical:setup:scopes:end -->
 
 Long-answer canvases need these canvas/file scopes plus the normal metadata and
 chat scopes above. Reinstall the app after changing scopes.
@@ -629,7 +636,11 @@ chat scopes above. Reinstall the app after changing scopes.
 
 ### Step 4: Configure Event Subscriptions
 
-Under **Event Subscriptions**, subscribe to:
+Under **Event Subscriptions**, subscribe to the complete bot event set
+checked against `Setup_slack.bot_events`:
+
+<!-- slack-canonical:setup:events:begin -->
+
 - `app_mention`
 - `message.channels`
 - `message.groups`
@@ -637,6 +648,11 @@ Under **Event Subscriptions**, subscribe to:
 - `agent_session_stopped`
 - `app_home_opened`
 - `app_context_changed`
+- `reaction_added`
+- `member_joined_channel`
+- `channel_shared`
+
+<!-- slack-canonical:setup:events:end -->
 
 For the current agent experience, declare
 `features.agent_view.agent_description` in the app manifest. Enable
@@ -646,6 +662,23 @@ Events API callbacks. Native status and rename require `chat:write`; context
 events require `assistant:write`. Reinstall the app after changing scopes.
 Legacy `assistant_view` events are not implemented. Standalone browsing context
 does not grant access or select a thread for execution.
+
+`Setup_slack.manifest_json ~socket_mode` builds either manifest from those same
+constants, including `features.bot_user`, `features.app_home` and current
+`features.agent_view`, OAuth bot scopes, events and Interactivity. The HTTP
+manifest uses **editable examples** `https://example.invalid/slack/events` for
+both request URLs; replace both with your actual signed public endpoint before
+installation. Socket Mode enables the transport without an HTTP URL. Neither
+manifest contains credentials. App-level `connections:write` stays separate.
+The required bot set preserves native agent/DM and I065 canvas support;
+feature-specific scope explanations outside the blocks are optional feature
+subsets, not additional required grants. `file_deleted` awaits matched source
+evidence, and `message.mpim` is deliberately not subscribed.
+
+For deterministic huddle relays and safe legacy recovery, see
+[Standing orders](https://clawq.org/standing-orders). A fresh install needs no
+manual inventory ceremony; an upgraded used order surface stays held for a
+reviewed complete inventory.
 
 ### Step 5: Install to Workspace
 

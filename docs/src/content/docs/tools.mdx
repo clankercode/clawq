@@ -79,6 +79,20 @@ turns. Strict egress policy also requires an explicit allow for GET requests to
 `slack.com/api/*`.
 Scope and rate-limit failures return repair guidance without automatic retry.
 
+## Slack standing orders
+
+The full daemon registers `slack_standing_order_create`, `_list`, `_show`,
+`_pause`, `_resume`, `_cancel` and `_change` for verified Slack requests in the
+current channel. Create/change/resume require bound confirmation cards;
+`pause SO-n` and Pause buttons provide a deterministic fail-safe path outside
+chat `allow_users`. See [standing orders](/standing-orders) for grants, held
+recovery, source cleanup and the [operator CLI](/cli-reference#slack-standing-orders).
+
+`slack_standing_order_fire` is a **capability**, not an invokable LLM tool.
+Profiles must independently allow it, `slack_huddles` and
+`slack_huddle_content` as well as the intended management tool names. No LLM
+turn holds grant authority; meeting data stays outside Clawq's LLM in this path.
+
 ## Tool Risk Levels
 
 Each tool carries a risk level used to gate execution under certain security policies:
