@@ -13,20 +13,55 @@ type send =
    Keep conversion local to plain finals; overflow receives original Markdown. *)
 let escape = Slack_long_reply_policy.escape
 
-let starts_at text offset prefix =
-  let n = String.length prefix in
-  offset + n <= String.length text && String.sub text offset n = prefix
+exception Work_limit
 
-let run_end text offset c =
+(* One budget for the entire answer, including recursive copies. Units cover
+   loop steps or bytes in a linear primitive (escape can expand at most 5x).
+   Exhaustion discards partial formatting; the outer adapter escapes all input. *)
+let work_budget length =
+  ref
+    (if length > (max_int - 1024) / 128 then max_int else 1024 + (128 * length))
+
+let charge work amount =
+  if amount > !work then raise Work_limit;
+  work := !work - amount
+
+let copy work text offset length =
+  charge work length;
+  String.sub text offset length
+
+let linear work f text =
+  charge work (String.length text);
+  f text
+
+let add work out text =
+  charge work (String.length text);
+  Buffer.add_string out text
+
+let add_slice work out text offset length =
+  charge work length;
+  Buffer.add_substring out text offset length
+
+let contents work out =
+  charge work (Buffer.length out);
+  Buffer.contents out
+
+let starts_at work text offset prefix =
+  let n = String.length prefix in
+  offset + n <= String.length text && copy work text offset n = prefix
+
+let run_end work text offset c =
   let rec loop i =
+    charge work 1;
     if i < String.length text && text.[i] = c then loop (i + 1) else i
   in
   loop offset
 
-let find_from text offset pattern =
+let find_from work text offset pattern =
   let rec loop i =
+    charge work 1;
     if i + String.length pattern > String.length text then None
-    else if starts_at text i pattern then Some i
+    else if starts_at work text i pattern then Some i
     else loop (i + 1)
   in
   loop offset
@@ -53,28 +88,34 @@ let soften_label label =
     label;
   Buffer.contents out
 
-let safe_link_target target =
-  let lower = String.lowercase_ascii target in
+let safe_link_target work target =
+  let lower = linear work String.lowercase_ascii target in
   target <> ""
   && (not
-        (String.exists
-           (fun c -> Char.code c <= 32 || c = '<' || c = '>' || c = '"')
+        (linear work
+           (String.exists (fun c ->
+                Char.code c <= 32 || c = '<' || c = '>' || c = '"'))
            target))
-  && (List.exists (starts_at lower 0)
+  && (List.exists (starts_at work lower 0)
         [ "https://"; "http://"; "mailto:"; "slack://" ]
-     || (target.[0] = '/' && not (starts_at target 0 "//")))
+     || (target.[0] = '/' && not (starts_at work target 0 "//")))
 
-let escape_target target =
+let escape_target work target =
+  (* Split/concat and escaping are linear, with at most 5x output expansion. *)
+  charge work (String.length target);
   String.split_on_char '|' target |> String.concat "%7C" |> escape
 
-let rec render_inline text =
+let rec render_inline work depth text =
+  if depth >= 32 then raise Work_limit;
   let len = String.length text in
+  charge work len;
   let out = Buffer.create len in
   let literal start finish =
-    Buffer.add_string out (escape (String.sub text start (finish - start)))
+    add work out (linear work escape (copy work text start (finish - start)))
   in
   let matching_close start opening closing =
     let rec loop i depth =
+      charge work 1;
       if i >= len then None
       else if text.[i] = '\\' && i + 1 < len then loop (i + 2) depth
       else if text.[i] = opening then loop (i + 1) (depth + 1)
@@ -86,18 +127,27 @@ let rec render_inline text =
   in
   (* An emphasis closer inside inline code belongs to that code span. *)
   let rec emphasis_close i delimiter =
+    charge work 1;
     if i >= len then None
     else if text.[i] = '\\' && i + 1 < len then emphasis_close (i + 2) delimiter
     else if text.[i] = '`' then
-      let next = run_end text i '`' in
-      let ticks = String.sub text i (next - i) in
-      match find_from text next ticks with
+      let next = run_end work text i '`' in
+      let ticks = copy work text i (next - i) in
+      match find_from work text next ticks with
       | Some close -> emphasis_close (close + String.length ticks) delimiter
       | None -> emphasis_close next delimiter
-    else if starts_at text i delimiter then Some i
+    else if starts_at work text i delimiter then Some i
     else emphasis_close (i + 1) delimiter
   in
+  let angle_close start =
+    let rec scan i =
+      charge work 1;
+      if i >= len then None else if text.[i] = '>' then Some i else scan (i + 1)
+    in
+    scan start
+  in
   let rec loop i =
+    charge work 1;
     if i >= len then ()
     else
       match text.[i] with
@@ -105,27 +155,26 @@ let rec render_inline text =
           literal (i + 1) (i + 2);
           loop (i + 2)
       | '`' -> (
-          let next = run_end text i '`' in
-          let delimiter = String.sub text i (next - i) in
-          match find_from text next delimiter with
+          let next = run_end work text i '`' in
+          let delimiter = copy work text i (next - i) in
+          match find_from work text next delimiter with
           | Some close ->
-              Buffer.add_substring out text i
-                (close + String.length delimiter - i);
+              add_slice work out text i (close + String.length delimiter - i);
               loop (close + String.length delimiter)
           | None ->
               literal i next;
               loop next)
       | '<' -> (
-          match String.index_from_opt text (i + 1) '>' with
+          match angle_close (i + 1) with
           | Some close ->
-              let token = String.sub text (i + 1) (close - i - 1) in
+              let token = copy work text (i + 1) (close - i - 1) in
               let url =
-                match String.index_opt token '|' with
+                match linear work (fun s -> String.index_opt s '|') token with
                 | None -> token
-                | Some n -> String.sub token 0 n
+                | Some n -> copy work token 0 n
               in
-              if safe_link_target url then (
-                Buffer.add_substring out text i (close - i + 1);
+              if safe_link_target work url then (
+                add_slice work out text i (close - i + 1);
                 loop (close + 1))
               else (
                 literal i (i + 1);
@@ -141,9 +190,10 @@ let rec render_inline text =
                 match matching_close (bracket + 2) '(' ')' with
                 | Some close ->
                     let target =
-                      String.sub text (bracket + 2) (close - bracket - 2)
+                      copy work text (bracket + 2) (close - bracket - 2)
                     in
-                    if safe_link_target target then Some (bracket, close, target)
+                    if safe_link_target work target then
+                      Some (bracket, close, target)
                     else None
                 | None -> None)
             | _ -> None
@@ -151,11 +201,12 @@ let rec render_inline text =
           match link with
           | Some (bracket, close, target) ->
               Buffer.add_char out '<';
-              Buffer.add_string out (escape_target target);
+              add work out (escape_target work target);
               Buffer.add_char out '|';
-              Buffer.add_string out
-                (escape
-                   (soften_label (String.sub text (i + 1) (bracket - i - 1))));
+              add work out
+                (linear work escape
+                   (linear work soften_label
+                      (copy work text (i + 1) (bracket - i - 1))));
               Buffer.add_char out '>';
               loop (close + 1)
           | None ->
@@ -163,7 +214,7 @@ let rec render_inline text =
               loop (i + 1))
       | ('*' | '_' | '~') as marker -> (
           let width =
-            if starts_at text i (String.make 2 marker) then 2 else 1
+            if starts_at work text i (String.make 2 marker) then 2 else 1
           in
           let next = i + width in
           let delimiter = String.make width marker in
@@ -187,8 +238,9 @@ let rec render_inline text =
                 if marker = '~' then '~' else if width = 2 then '*' else '_'
               in
               Buffer.add_char out slack_marker;
-              Buffer.add_string out
-                (render_inline (String.sub text next (close - next)));
+              add work out
+                (render_inline work (depth + 1)
+                   (copy work text next (close - next)));
               Buffer.add_char out slack_marker;
               loop (close + width)
           | _ ->
@@ -199,13 +251,14 @@ let rec render_inline text =
           loop (i + 1)
   in
   loop 0;
-  Buffer.contents out
+  contents work out
 
 (* Adapt prose only. Canvas/file Markdown and code bytes never pass through
    this conversion. Line separators and fence language tags remain intact. *)
-let to_mrkdwn text =
+let convert work text =
   let prose line =
     let rec heading_end i =
+      charge work 1;
       if i < String.length line && line.[i] = '#' then heading_end (i + 1)
       else i
     in
@@ -215,23 +268,28 @@ let to_mrkdwn text =
       && hashes < String.length line
       && (line.[hashes] = ' ' || line.[hashes] = '\t')
     then
-      Format_adapter.bold Slack
-        (render_inline
-           (String.trim
-              (String.sub line (hashes + 1) (String.length line - hashes - 1))))
-    else render_inline line
+      linear work
+        (Format_adapter.bold Slack)
+        (render_inline work 0
+           (linear work String.trim
+              (copy work line (hashes + 1) (String.length line - hashes - 1))))
+    else render_inline work 0 line
   in
   let fence = ref None in
   let out = Buffer.create (String.length text) in
   List.iter
     (fun (line, separator) ->
+      charge work (1 + String.length line);
       let next = Slack_long_reply_policy.next_fence !fence line in
-      Buffer.add_string out
-        (if !fence <> None || next <> None then line else prose line);
-      Buffer.add_string out separator;
+      add work out (if !fence <> None || next <> None then line else prose line);
+      add work out separator;
       fence := next)
-    (Slack_long_reply_policy.lines text);
-  Buffer.contents out
+    (linear work Slack_long_reply_policy.lines text);
+  contents work out
+
+let to_mrkdwn text =
+  try convert (work_budget (String.length text)) text
+  with Work_limit -> escape text
 
 (* [destination] is a server-owned binding for explicit legacy parents and
    queued follow-ups without a live ingress cell. It never supplies authority;

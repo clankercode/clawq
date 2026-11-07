@@ -615,38 +615,114 @@ let test_cleanup_policy_reload () =
         (not (Lwt.is_sleeping r.done_));
       Lwt.return_unit)
 
-let suite =
+let adversarial_inline =
   [
-    ( "cleanup rechecks egress after an admitted stop",
-      `Quick,
-      test_cleanup_policy_reload );
-    ( "Markdown prose preserves code and link regions",
-      `Quick,
-      test_markdown_regions );
-    ("queued final converts Markdown once", `Quick, test_queued_markdown);
-    ("DM file final preserves original Markdown", `Quick, test_dm_markdown_file);
-    ("cleanup failures preserve final delivery", `Quick, test_cleanup_failure);
-    ("cleanup observes disabled connector", `Quick, test_cleanup_policy);
-    ( "native final retires UI and converts Markdown",
-      `Quick,
-      test_native_presentation );
-    ( "long canvas and full-text fallback retire UI",
-      `Quick,
-      test_long_presentation );
-    ( "rotated streams and control are removed once",
-      `Quick,
-      test_rotation_cleanup );
-    ( "superseded cleanup leaves successor status alone",
-      `Quick,
-      test_superseded_cleanup );
-    ( "stopped run removes Working and keeps stop receipt",
-      `Quick,
-      test_stopped_cleanup );
-    ("legacy final converts Markdown exactly once", `Quick, test_legacy_markdown);
-    ("final text checks HTTP and Slack ok", `Quick, test_checked);
-    ("trusted legacy exception is redacted", `Quick, test_trusted);
-    ( "explicit legacy parent binds without live ingress",
-      `Quick,
-      test_explicit_legacy_parent );
-    ("native final binds parent and uses checked API", `Quick, test_native);
+    ("unmatched brackets", String.make 40000 '[');
+    ("unmatched angles", String.make 5000 '<');
+    ("invalid angle targets", String.make 5000 '<' ^ ">");
+    ("overlapping link targets", String.make 5000 '[' ^ "](https://bad target)");
+    ( "unclosed code runs",
+      "x "
+      ^ String.concat "x" (List.init 140 (fun n -> String.make (140 - n) '`'))
+    );
+    ( "unmatched link parentheses",
+      String.concat "" (List.init 5000 (fun _ -> "[x](")) );
+    ( "emphasis scans code runs",
+      "**x "
+      ^ String.concat "x" (List.init 140 (fun n -> String.make (140 - n) '`'))
+    );
   ]
+
+let adversarial_body token =
+  "**keep full prefix** & <@U123>\r\n" ^ token
+  ^ "\r\n\
+     `<code>&`\r\n\
+     ```md\r\n\
+     **fenced** &\r\n\
+     ```\r\n\
+     last byte: \240\159\166\128"
+
+let test_adversarial_inline (name, token) () =
+  let body = adversarial_body token in
+  check_bool
+    (name ^ " falls back to complete escaped original")
+    true
+    (Slack_final_text.to_mrkdwn body = Slack_long_reply_policy.escape body)
+
+let test_adversarial_delivery off (name, token) () =
+  Test_slack_threads.with_ingress (fun base calls handler _ provider run ->
+      Test_slack_reply_paths.artifacts handler;
+      Test_slack_reply_paths.mode base
+        (if off then Slack_config_types.Off else Slack_config_types.File);
+      let body = adversarial_body token in
+      (provider :=
+         fun ~model ~messages:_ ->
+           Lwt.return (Test_slack_empty_reply.answer body ~model));
+      let* _ = run (Test_slack_threads.message "adversarial final") in
+      check_retired calls;
+      Test_slack_reply_paths.check_count calls "canvases.create" 0;
+      Test_slack_reply_paths.check_count calls "files.getUploadURLExternal"
+        (if off then 0 else 1);
+      let finals =
+        List.filter_map
+          (fun (m, p) ->
+            if m = "chat.postMessage" && get "blocks" p = `Null then
+              Some (Slack_huddles.field "text" p)
+            else None)
+          !calls
+      in
+      check_bool
+        (name ^ " delivers one complete escaped final")
+        true
+        (finals = [ Slack_long_reply_policy.escape body ]);
+      Lwt.return_unit)
+
+let suite =
+  List.concat_map
+    (fun ((name, _) as input) ->
+      [
+        (name ^ " uses full fallback", `Quick, test_adversarial_inline input);
+        (name ^ " off final", `Quick, test_adversarial_delivery true input);
+        ( name ^ " failed file final",
+          `Quick,
+          test_adversarial_delivery false input );
+      ])
+    adversarial_inline
+  @ [
+      ( "cleanup rechecks egress after an admitted stop",
+        `Quick,
+        test_cleanup_policy_reload );
+      ( "Markdown prose preserves code and link regions",
+        `Quick,
+        test_markdown_regions );
+      ("queued final converts Markdown once", `Quick, test_queued_markdown);
+      ( "DM file final preserves original Markdown",
+        `Quick,
+        test_dm_markdown_file );
+      ("cleanup failures preserve final delivery", `Quick, test_cleanup_failure);
+      ("cleanup observes disabled connector", `Quick, test_cleanup_policy);
+      ( "native final retires UI and converts Markdown",
+        `Quick,
+        test_native_presentation );
+      ( "long canvas and full-text fallback retire UI",
+        `Quick,
+        test_long_presentation );
+      ( "rotated streams and control are removed once",
+        `Quick,
+        test_rotation_cleanup );
+      ( "superseded cleanup leaves successor status alone",
+        `Quick,
+        test_superseded_cleanup );
+      ( "stopped run removes Working and keeps stop receipt",
+        `Quick,
+        test_stopped_cleanup );
+      ( "legacy final converts Markdown exactly once",
+        `Quick,
+        test_legacy_markdown );
+      ("final text checks HTTP and Slack ok", `Quick, test_checked);
+      ("trusted legacy exception is redacted", `Quick, test_trusted);
+      ( "explicit legacy parent binds without live ingress",
+        `Quick,
+        test_explicit_legacy_parent );
+      ("native final binds parent and uses checked API", `Quick, test_native);
+    ]
