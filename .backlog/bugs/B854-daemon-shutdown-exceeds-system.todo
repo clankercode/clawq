@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-11-07T08:45:44Z"
+depends_on: []
+estimate_hours: 1
+id: B854
+priority: high
+status: pending
+tags: []
+title: Daemon shutdown exceeds systemd stop timeout during live P4 rollout
+updated_at: "2026-11-07T08:45:44Z"
+---
+Observed 2026-11-07 19:25:57-19:26:27 AEDT on reviewed binary clawq-231323bd. After SIGTERM the daemon logged shutdown, stopped the EC process and cancelled Telegram, but cloudflared restarted and systemd killed the control group after TimeoutStopSec=30. MainPID became 0 and no observable same-UID DB openers remained; DB online backup quick_check passed. Preserve current DB and external-side-effect history when reproducing. Inspect gateway/tunnel and standing-order reconciler/executor shutdown waits; determine whether preexisting or a P4 regression before changing behavior. Evidence: .superpowers/sdd/2026-11-06-huddle-orders-p4-recovery live rollout receipts and systemd journal; P4 restarted successfully after verified import.
