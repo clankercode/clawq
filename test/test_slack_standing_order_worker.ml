@@ -1,47 +1,10 @@
 open Lwt.Syntax
 open Test_slack_standing_order_exec_support
 module E = Slack_standing_order_exec
-module Ctx = Slack_standing_order_ctx
 
 let check = Alcotest.(check bool)
 
-let rec flush n =
-  if n = 0 then Lwt.return_unit
-  else
-    let* () = Lwt.pause () in
-    flush (n - 1)
-
-type timer = { due : float; promise : unit Lwt.t; wake : unit Lwt.u }
-type clock = { mutable now : float; mutable timers : timer list }
-
-let clock () =
-  let c = { now = Store.now (); timers = [] } in
-  (Store.clock := fun () -> c.now);
-  c
-
-let wait c ~seconds =
-  let promise, wake = Lwt.task () in
-  c.timers <- { due = c.now +. seconds; promise; wake } :: c.timers;
-  promise
-
-let pending c = List.filter (fun t -> Lwt.is_sleeping t.promise) c.timers
-
-let advance c seconds =
-  c.now <- c.now +. seconds;
-  List.iter
-    (fun t ->
-      if Lwt.is_sleeping t.promise && t.due <= c.now then Lwt.wakeup t.wake ())
-    c.timers;
-  c.timers <- pending c;
-  flush 20
-
-let context e c = { (ctx e) with Ctx.wait = wait c }
-
-let cleanup c =
-  let stranded = pending c in
-  List.iter (fun t -> Lwt.cancel t.promise) stranded;
-  Alcotest.(check int)
-    "no stranded timers before cleanup" 0 (List.length stranded)
+include Test_slack_standing_order_worker_support
 
 let test_due () =
   with_env (fun e ->
@@ -387,8 +350,417 @@ let test_pacing () =
          cleanup c;
          Lwt.return_unit))
 
+let observe_ready e ?(user = "USLACKBOT") ?(bot = `Null) () =
+  let message =
+    set "type" (str "message")
+      (set "user" (str user)
+         (set "bot_id" bot
+            (set "channel" (str "C123")
+               (set "thread_ts" (str root_ts) (set "ts" (str ready_ts) F.ready)))))
+  in
+  let envelope = Test_slack_event_fixtures.envelope message in
+  Slack_huddle_observer.observe_db ~db:e.db
+    ~watch:(Slack_huddle_watch.of_db e.db)
+    ~now:(Store.now ()) envelope
+
+let test_ready_wake () =
+  with_env (fun e ->
+      let c = clock () in
+      (* Keep provenance pending so this test counts fetch attempts, not delivery. *)
+      e.replies := F.page [ !(e.root) ];
+      Lwt_main.run
+        (Lwt.finalize
+           (fun () ->
+             E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager
+               ~http:e.mock.http ();
+             let fire =
+               S.fire e.db e.order ~room:"R123"
+                 ~date_start:(string_of_int start) ~state:T.Fetching ()
+             in
+             Slack_standing_order_sql.exec e.db
+               "UPDATE slack_standing_order_fires SET \
+                root_ts=?,reason='notes_not_ready',next_attempt_at=? WHERE \
+                id=?"
+               Sqlite3.Data.
+                 [ TEXT root_ts; FLOAT (c.now +. 300.); TEXT fire.id ];
+             observe_ready e ~user:"UHUMAN" ();
+             observe_ready e ~bot:(str "BOTHER") ();
+             let* () = flush 30 in
+             Alcotest.(check int)
+               "spoofs cannot wake fetch" 0
+               (count e "conversations.replies");
+             observe_ready e ();
+             observe_ready e ();
+             let* () = flush 100 in
+             Alcotest.(check int)
+               "one immediate worker fetch" 1
+               (count e "conversations.replies");
+             let r = runtime e fire.id in
+             Alcotest.(check int) "epoch unchanged" fire.epoch r.fire.epoch;
+             check "worker released lease" true (r.claim = None);
+             check "still notes backoff" true (r.next_attempt_at > Some c.now);
+             observe_ready e ();
+             let* () = advance c 5. in
+             Alcotest.(check int)
+               "duplicate hydration consumed once" 1
+               (count e "conversations.replies");
+             no_upload e;
+             Lwt.return_unit)
+           (fun () ->
+             let* () = E.stop () in
+             cleanup c;
+             Lwt.return_unit)))
+
+let test_live_budget () =
+  with_env (fun e ->
+      let c = clock () in
+      e.root :=
+        set "room"
+          (set "has_ended" (`Bool false)
+             (set "date_end" `Null (get "room" !(e.root))))
+          !(e.root);
+      Lwt_main.run
+        (Lwt.finalize
+           (fun () ->
+             E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager
+               ~http:e.mock.http ();
+             seen e;
+             E.wake ();
+             let* () = flush 40 in
+             let pickup =
+               Test_slack_event_fixtures.reaction ~user:"UCLAUDE"
+                 ~item:
+                   (obj
+                      [
+                        ("type", str "message");
+                        ("channel", str "C123");
+                        ("ts", str "1700000999.000100");
+                      ])
+                 ()
+             in
+             Slack_huddle_observer.observe_db ~db:e.db
+               ~watch:(Slack_huddle_watch.of_db e.db)
+               ~now:c.now
+               (Test_slack_event_fixtures.envelope pickup);
+             seen e;
+             E.wake ();
+
+             let rec ticks n =
+               if n = 0 then Lwt.return_unit
+               else
+                 let* () = advance c 5. in
+                 ticks (n - 1)
+             in
+             let* () = ticks 60 in
+             Alcotest.(check int)
+               "no artificial live fire" 0
+               (List.length (fires e));
+             List.iter
+               (fun method_ -> Alcotest.(check int) method_ 2 (count e method_))
+               [
+                 "auth.test";
+                 "bots.info";
+                 "conversations.info";
+                 "conversations.members";
+                 "users.list";
+                 "conversations.history";
+               ];
+             Alcotest.(check int)
+               "actual HTTP ceiling" 12
+               (List.length !(e.mock.calls));
+             no_upload e;
+             Printf.eprintf
+               "B853 healthy through 300s: six methods each=2; total=12; \
+                content=0; upload=0\n\
+                %!";
+             Lwt.return_unit)
+           (fun () ->
+             let* () = E.stop () in
+             cleanup c;
+             Lwt.return_unit)))
+
+let histogram e =
+  S.methods_called e.mock
+  |> List.sort_uniq String.compare
+  |> List.map (fun name -> (name, count e name))
+
+let print_histogram label e =
+  Printf.eprintf "%s actual HTTP: %s\n%!" label
+    (histogram e
+    |> List.map (fun (name, n) -> name ^ "=" ^ string_of_int n)
+    |> String.concat ", ")
+
+let test_resolution_failures () =
+  with_env (fun e ->
+      let c = clock () in
+      S.override e.mock "conversations.history" (fun _ -> (503, S.ok []));
+      Lwt_main.run
+        (Lwt.finalize
+           (fun () ->
+             E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager
+               ~http:e.mock.http ();
+             seen e;
+             E.wake ();
+             let* () = flush 40 in
+             let rec ticks n =
+               if n = 0 then Lwt.return_unit
+               else
+                 let* () = advance c 5. in
+                 ticks (n - 1)
+             in
+             let* () = ticks 120 in
+             List.iter
+               (fun method_ -> Alcotest.(check int) method_ 3 (count e method_))
+               [
+                 "auth.test";
+                 "bots.info";
+                 "conversations.info";
+                 "conversations.members";
+                 "users.list";
+                 "conversations.history";
+               ];
+             Alcotest.(check int)
+               "failed roots do not spin" 18
+               (List.length !(e.mock.calls));
+             Alcotest.(check int) "no invented fire" 0 (List.length (fires e));
+             print_histogram "B853 failure through 600s" e;
+             Lwt.return_unit)
+           (fun () ->
+             let* () = E.stop () in
+             cleanup c;
+             Lwt.return_unit)))
+
+let test_local_deny () =
+  with_env (fun e ->
+      let c = clock () in
+      e.root :=
+        set "room"
+          (set "has_ended" (`Bool false)
+             (set "date_end" `Null (get "room" !(e.root))))
+          !(e.root);
+      Lwt_main.run
+        (Lwt.finalize
+           (fun () ->
+             E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager
+               ~http:e.mock.http ();
+             seen e;
+             E.wake ();
+             let* () = flush 40 in
+             Alcotest.(check int)
+               "initial resolution" 6
+               (List.length !(e.mock.calls));
+             Session.update_config e.manager
+               (S.profile (S.config ()) ~denied:[ "slack_huddle_content" ] ());
+             let* () = advance c 5. in
+             Alcotest.(check int)
+               "local denial without fallback or HTTP" 6
+               (List.length !(e.mock.calls));
+             check "suspended immediately" true
+               ((Option.get (Store.find e.db e.order.id)).state = T.Suspended);
+             Lwt.return_unit)
+           (fun () ->
+             let* () = E.stop () in
+             cleanup c;
+             Lwt.return_unit)))
+
+let test_feature_reenable () =
+  with_env (fun e ->
+      let c = clock () in
+      e.root :=
+        set "room"
+          (set "has_ended" (`Bool false)
+             (set "date_end" `Null (get "room" !(e.root))))
+          !(e.root);
+      (* Leave notes pending after the verified end, avoiding relay writes. *)
+      e.replies := F.page [ !(e.root) ];
+      Lwt_main.run
+        (Lwt.finalize
+           (fun () ->
+             E.start ~ctx:(context e c) ~db:e.db ~manager:e.manager
+               ~http:e.mock.http ();
+             seen e;
+             E.wake ();
+             let* () = flush 40 in
+             Alcotest.(check int)
+               "initial live reads" 6
+               (List.length !(e.mock.calls));
+             Session.update_config e.manager (S.config ~enabled:false ());
+             let* () = advance c 5. in
+             e.root :=
+               set "room"
+                 (set "has_ended" (`Bool true)
+                    (set "date_end" (`Int 1700000030) (get "room" !(e.root))))
+                 !(e.root);
+             seen e;
+             observe_ready e ();
+             let* () = advance c 600. in
+             Alcotest.(check int)
+               "disabled end and ready cause zero HTTP" 6
+               (List.length !(e.mock.calls));
+             Alcotest.(check int)
+               "disabled creates no fire" 0
+               (List.length (fires e));
+             Session.update_config e.manager (S.config ());
+             let* () = advance c 5. in
+             Alcotest.(check int)
+               "reenabled worker creates eligible fire" 1
+               (List.length (fires e));
+             check "reenable performs fresh Grant and exact-root reads" true
+               (count e "auth.test" >= 2 && count e "conversations.history" >= 2);
+             let order = Option.get (Store.find e.db e.order.id) in
+             Alcotest.check S.state_t "temporary disable keeps order active"
+               T.Active order.state;
+             Alcotest.(check int)
+               "temporary disable keeps epoch" e.order.epoch order.epoch;
+             no_upload e;
+             Lwt.return_unit)
+           (fun () ->
+             let* () = E.stop () in
+             cleanup c;
+             Lwt.return_unit)))
+
+let test_ready_content ?(cooldown = 0.) () =
+  with_env (fun e ->
+      let c = clock () in
+      let config = Session.get_config e.manager in
+      let rule : Runtime_config.egress_rule =
+        {
+          host = "files.slack.com";
+          path = Some "/upload/*";
+          method_ = Some "POST";
+          action = Allow;
+          log_policy = No_log;
+        }
+      in
+      Session.update_config e.manager
+        {
+          config with
+          egress =
+            {
+              config.egress with
+              default_allowlist = rule :: config.egress.default_allowlist;
+            };
+        };
+      S.override e.mock "conversations.history" (fun p ->
+          ( 200,
+            S.ok
+              [
+                ( "messages",
+                  if get "limit" p = `Int 1 then `List [ !(e.root) ]
+                  else `List [] );
+                S.no_more;
+              ] ));
+      S.override e.mock "files.getUploadURLExternal" (fun _ ->
+          ( 200,
+            S.ok
+              [
+                ("file_id", str "FUPLOAD");
+                ("upload_url", str "https://files.slack.com/upload/fixture");
+              ] ));
+      let shares =
+        obj
+          [
+            ( "private",
+              obj
+                [ ("C123", `List [ obj [ ("ts", str "1700000100.000001") ] ]) ]
+            );
+          ]
+      in
+      S.override e.mock "files.completeUploadExternal" (fun _ ->
+          (200, S.ok [ ("files", `List [ obj [ ("shares", shares) ] ]) ]));
+      let limiter =
+        Slack_read_limiter.create_with ~now:(fun () -> c.now) ~wait:(wait c)
+      in
+      if cooldown > 0. then
+        Slack_read_limiter.note_retry_after limiter ~key:"T123:A123:auth.test"
+          cooldown;
+      let context = { (context e c) with Ctx.limiter = Some limiter } in
+      let uploads = ref 0 in
+      Lwt_main.run
+        (Lwt.finalize
+           (fun () ->
+             E.start ~ctx:context ~db:e.db ~manager:e.manager ~http:e.mock.http
+               ~upload_http:(fun _ ->
+                 incr uploads;
+                 Lwt.return
+                   Slack_standing_order_upload.
+                     { status = 200; headers = []; body = "" })
+               ();
+             cover_order e.db e.order;
+             let fire =
+               S.fire e.db e.order ~room:"R123"
+                 ~date_start:(string_of_int start) ~state:T.Fetching ()
+             in
+             Slack_standing_order_sql.exec e.db
+               "UPDATE slack_standing_order_fires SET \
+                root_ts=?,reason='notes_not_ready',next_attempt_at=? WHERE \
+                id=?"
+               Sqlite3.Data.
+                 [ TEXT root_ts; FLOAT (c.now +. 300.); TEXT fire.id ];
+             Slack_standing_order_recovery_store.record_root e.db ~order:e.order
+               ~root_ts ~room_id:"R123" ~date_start:(string_of_int start)
+               ~fire_id:(Some fire.id);
+             observe_ready e ();
+             observe_ready e ();
+             let rec until n =
+               if count e "files.completeUploadExternal" > 0 then
+                 Lwt.return_unit
+               else if n = 0 then
+                 Alcotest.fail "no share within sixty fake seconds"
+               else
+                 let* () = advance c 1. in
+                 until (n - 1)
+             in
+             let* () =
+               if cooldown = 0. then Lwt.return_unit
+               else
+                 let* () = advance c (cooldown -. 1.) in
+                 Alcotest.(check int)
+                   "ready cannot bypass shared Retry-After" 0
+                   (List.length !(e.mock.calls));
+                 Lwt.return_unit
+             in
+             let* () = until 59 in
+             let* () = flush 100 in
+             Alcotest.(check int)
+               "one verified content fetch" 1
+               (count e "canvases.getContent");
+             Alcotest.(check int) "one raw upload" 1 !uploads;
+             Alcotest.(check int)
+               "one share" 1
+               (count e "files.completeUploadExternal");
+             check "same epoch" true
+               ((runtime e fire.id).fire.epoch = e.order.epoch);
+             Alcotest.(check int)
+               "only real dispatch consumes cap" 1
+               (Store.dispatches_since e.db ~order_id:e.order.id ~since:0.);
+             print_histogram "B852 verified notes to first share" e;
+             Printf.eprintf
+               "B852 first share after %.0f fake seconds; raw_upload=%d\n%!"
+               (c.now -. (ended +. 10.))
+               !uploads;
+             Lwt.return_unit)
+           (fun () ->
+             let* () = E.stop () in
+             cleanup c;
+             Lwt.return_unit)))
+
 let suite =
   [
+    S.case "feature reenable resumes real worker after live end and ready"
+      test_feature_reenable;
+    S.case "ready hint wakes real worker across SQL due and retry guard"
+      test_ready_wake;
+    S.case "unchanged live root has twelve actual reads through 300 seconds"
+      test_live_budget;
+    S.case "notes wake verifies content and shares under sixty seconds"
+      (fun () -> test_ready_content ());
+    S.case "notes wake preserves shared transport Retry-After" (fun () ->
+        test_ready_content ~cooldown:17. ());
+    S.case "root failures back off through six hundred seconds"
+      test_resolution_failures;
+    S.case "local config denial suspends between fallback probes"
+      test_local_deny;
     S.case "worker wakes due work at five fake seconds" test_due;
     S.case "worker survives a failing tick" (fun () -> test_tick_failure ());
     S.case "worker survives unexpected cancellation" (fun () ->
@@ -412,3 +784,5 @@ let suite =
       test_hold;
     S.case "post pacing at least one second" test_pacing;
   ]
+
+let suite = suite @ Test_slack_standing_order_worker_suppression.suite

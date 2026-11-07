@@ -535,12 +535,12 @@ manage orders in natural language in that channel. Only a bound Block Kit
 click confirms, changes or resumes an order, and anyone in the channel can
 pause one.
 
-> **Status:** Phase 3 includes the deterministic daemon executor: verified
-> notes/transcript fetch, same-channel upload v2, pickup tracking, caps and
-> fixed failure reports. Restart the daemon after upgrading to run the new
-> executor. P4 recovery, shared 429/Retry-After limiter and source-deletion
-> propagation, and P5 live acceptance are still pending; P0-5 huddle captures
-> remain deferred. P3 does not catch up missed startup/reconnect history.
+P4 includes the shared 429/Retry-After limiter, durable startup/reconnect
+recovery, notice holds, scheduled notes wake/live polling and best-effort own-file
+source cleanup. P5 human/live acceptance and deferred P0-5 captures remain
+pending, including exact Claude notice wording: an uncaptured notice can count
+as pickup. SQLite cleanup and B849–B851 remain separate later work.
+See the [standing-orders guide](https://clawq.org/standing-orders).
 
 #### Config
 
@@ -598,15 +598,26 @@ and resuming an order also need the three capability names `slack_huddles`,
 `slack_huddle_content` and `slack_standing_order_fire`. Each is decided
 separately, deny wins, on a `standing_order` access snapshot keyed
 `slack:<channel_id>`, and all three must be allowed. A deny-list profile that
-denies any of them blocks orders in that room. A capability deny makes no Slack
-call for the check; on a click, the code-rendered refusal is the only Slack
-call.
+denies any of them blocks orders in that room. A local capability denial in
+grant/recovery execution makes zero HTTP,
+including fixed reports. Bound management clicks can still return their
+code-rendered refusal through the separate management response path.
+`slack_standing_order_fire` is a capability, not an invokable LLM tool.
 
 #### Egress
 
 Every Slack call an order makes is a method from this closed list. Each call is
 checked against the egress rules for `slack:<channel_id>` and audited under its
-snapshot:
+snapshot. Audit identifies the exact order/fire for validation and tracking;
+pending resolution has a distinct operation ID per pass. Fixed reports use
+fire/reconcile identity when available, otherwise fixed cause/period identity.
+Attribution identifies attempted work, not proven message delivery.
+Current Grant uses `conversations.members` and `users.list`, not
+`users.conversations`. `auth.test` and `canvases.getContent` are POST reads;
+`files.info` uses the narrow P0-verified, undocumented
+`include_transcription=true` exception only for verified transcripts:
+
+<!-- standing-order-egress:begin -->
 
 | Method | Verb |
 | --- | --- |
@@ -627,6 +638,14 @@ snapshot:
 | `files.completeUploadExternal` | POST |
 | `files.delete` | POST |
 
+Raw binary upload is separate from the Slack Web API methods:
+
+| Method | Verb | Destination and handling |
+| --- | --- | --- |
+| `upload` | POST | Raw binary: pinned `https://files.slack.com/`, no redirects or Authorization; capability URI redacted |
+
+<!-- standing-order-egress:end -->
+
 Under strict egress, allow GET `slack.com` `/api/*` (as for huddle reads) plus
 POST `slack.com` `/api/auth.test`, `/api/chat.postMessage`,
 `/api/chat.update`, `/api/canvases.getContent`,
@@ -641,10 +660,57 @@ Upload egress: allow POST to `https://files.slack.com/` (all paths); no redirect
 The raw upload is separate from the Slack API method table. It sends binary
 content headers without an Authorization header. Policy checks the actual
 upload capability URI, while logs, audit inputs and errors redact it. Every
-API call and raw upload requires a persisted order/fire snapshot and strict
-audit insertion before HTTP; an unavailable audit blocks the request. Allow
-`canvases:read`, `reactions:read`, `files:read` and `files:write` in addition to
-the channel/history/user scopes above, then reinstall the app after scope changes.
+API call and raw upload requires a persisted order/fire or reconcile snapshot
+and strict audit insertion before HTTP; an unavailable audit blocks the request.
+The complete bot scopes and events for standing orders, native UX and I065
+canvases are checked against Setup_slack below. App-level `connections:write`
+is separate. Optional feature-subset scope discussion stays outside these blocks.
+
+**Required Bot Token Scopes (canonical complete set):**
+
+<!-- slack-canonical:orders:scopes:begin -->
+
+- `app_mentions:read`
+- `assistant:write`
+- `channels:history`
+- `channels:read`
+- `chat:write`
+- `groups:history`
+- `groups:read`
+- `im:history`
+- `im:read`
+- `im:write`
+- `mpim:history`
+- `mpim:read`
+- `users:read`
+- `files:read`
+- `files:write`
+- `canvases:read`
+- `canvases:write`
+- `reactions:read`
+- `reactions:write`
+
+<!-- slack-canonical:orders:scopes:end -->
+
+**Required bot event subscriptions (canonical complete set):**
+
+<!-- slack-canonical:orders:events:begin -->
+
+- `app_mention`
+- `message.channels`
+- `message.groups`
+- `message.im`
+- `agent_session_stopped`
+- `app_home_opened`
+- `app_context_changed`
+- `reaction_added`
+- `member_joined_channel`
+- `channel_shared`
+
+<!-- slack-canonical:orders:events:end -->
+
+`file_deleted` awaits matched source-deletion evidence; no `message.mpim` event
+is added. Reinstall after a reviewed scope change.
 
 #### Executor delivery and pickup
 
@@ -700,12 +766,17 @@ Allocation and raw-upload transport/5xx failures retry preparation after 120 s.
 Timeouts and 5xx responses after completion dispatch, and unresolved shares,
 become `posting_unknown`.
 Reconciliation is read-only; never blindly retry an ambiguous completion or
-manually repeat a potentially billed relay. At most 1 re-post is allowed ever
-per order/huddle, only after proving no share occurred, or after a recognized
+manually repeat an uncertain relay. After a crash/lease loss, stored `posting`
+may read-only adopt an existing
+original share; it never authorizes a resend, even with proven absence. At most
+2 relay messages and 1 re-post are allowed ever per order/huddle, only after
+`posting_unknown` is proven to have had no share, or after a recognized
 rate-limit notice with no acknowledgement and a fixed 300 s wait. Re-posts
 count toward the rolling cap. Three consecutive `no_pickup`, `not_delivered`
 or `failed` fires auto-pause the order. Cap reports occur once per day;
-hard authority failures suspend the order. Management-thread failure reports
+hard authority failures suspend the order and may send their fixed management
+report under current gates; capability denial remains zero HTTP including
+reports. Management-thread failure reports
 use fixed ids/reasons and at-most-once write-ahead attempts per cause, with
 ambiguous report sends visible in `show`.
 Use list/show to inspect uncertain delivery and pause the order before any
@@ -715,6 +786,160 @@ Pause fences new uploads, completions and re-posts. A relay already dispatched
 can still arrive; the receipt reports in-flight work (or an unverifiable
 count). Read-only timestamp, pickup and notice tracking continues after pause
 or cancel. Resuming never replays huddles that became ready while paused.
+
+#### P4 recovery and readiness
+
+Reconciliation runs at startup, confirmed Socket hello and every 300 seconds.
+Discovery enumerates `[max(active_since, pass time − 48 hours), pass time]`,
+plus known unfinalised roots/threads outside it. Healthy maintenance handles
+changed threads incrementally without closing covered live admission. A real
+gap closes admission synchronously; a full pause sweep precedes release.
+Missing/limited/malformed pages, transient failures or unresolved exact pauses
+leave it held and never advance successful coverage.
+
+B852's matching notes-ready/hydration hints wake ordinary `notes_not_ready`
+backoff; B853's persistent root schedule bounds unchanged live inspection.
+Neither bypasses shared method-aware 429/Retry-After, current authority or
+write fences. Combined remote worker/reconciler fixtures verify the ready wake
+during 300-second SQL backoff, healthy first-share latency under 60 seconds and
+actual request budgets. Polling, outage, uncertainty and rate limits have no
+one-minute guarantee. Posts share a channel pacer with at least 1 second spacing.
+
+Catch-up gets a top-level notice with a bound Pause button and stays held at
+least 600 seconds after confirmed delivery or read-only adoption, no earlier
+than advertised. `notice_unknown` stays held unless one exact own notice can
+be adopted; no blind notice resend or timer-only release. Reconnect alone is
+not coverage. Acknowledgement is not application completion: both transports
+record applicable verified event progress before ACK. HTTP-only installations
+use signed ingress health, without requiring a Socket hello. Replay accounts
+for demonstrably abandoned ordinary metadata only inside verified coverage;
+live work, unresolved pauses and unknown/out-of-window obligations remain held.
+
+History cannot enumerate unknown older parent threads merely because they
+have recent replies. First coverage records `coverage_before_window_unknown`,
+never fabricated earlier coverage. A known gap beyond 48 hours reports the
+exact uncovered interval. The durable original interval survives restart,
+with later uncovered tails separately accounted; incomplete scans never erase it.
+
+Slack `show`'s `recovery.readiness` and CLI **Recovery readiness** use the same
+read-only `R.rollout_readiness` decision. They return `fresh_no_legacy_work` or
+`inventory_verified`, otherwise the exact denial: `inventory_pending`,
+`unbound_installation`, `missing_proof`, `invalid_proof`, `identity_mismatch`,
+`activation_unbound` or `storage_error`. The stored legacy state is
+`legacy_inventory_pending`; it renders denial `inventory_pending`. Missing or
+invalid proof never renders success or a reviewed empty inventory.
+
+`recovery.proof` contains version, installation UUID, evidence sequence, stored
+state, installation identity and optional inventory digest. Activation binds
+the installation to the order's epoch and Slack `active_since`; CLI show also
+prints Team, Enterprise when present, App, Epoch and Active since.
+`already_delivered` and `external_deliveries` expose permanent reviewed delivery
+suppression. `held_candidates`, `catchup_batches` (status, notice_ts, release_at),
+`scan` (method, code, resume_unit, coverage_limit) and `coverage_origin` expose
+held/uncertain work. The bounded limit is
+`unknown_older_threads_outside_bounded_history`. Null means absent, unknown or
+unavailable; zero counts do not prove admission. `report_statuses`/CLI Report
+lines expose fixed reports separately. Public fire fields are unchanged.
+
+A fresh unused order surface is automatically proven/bound by ordinary setup
+and confirmation, without import or an empty-inventory receipt ceremony.
+Fresh proof is only an inventory prerequisite, never grant authority. Existing
+used/ambiguous surfaces stay legacy-pending until a reviewed complete inventory
+is validated. Config publication, including failed-reload rollback, can
+conservatively hold relays until current credentials/policy/coverage/grant
+reverify. Identity changes cannot mint freshness or remove suppression; this
+does not make startup-structural connector changes hot-reloadable.
+
+Before legacy catch-up, the coordinator must account for all known manual
+receipts and automatic attempts, suppress verified already-delivered instances
+and explicitly disposition out-of-scope entries. The offline helper source is
+`scripts/import_huddle_relay_receipts.ml`; its
+reviewed remote-built executable runs as
+`_build/default/scripts/import_huddle_relay_receipts.exe --db PATH --manifest PATH`.
+It defaults to READONLY preview, with no Slack calls or schema bootstrap.
+After P4 initialization has kept new legacy relays closed, verify that all
+daemon DB writers have exited and exclude competing CLI/admin writers
+throughout manifest generation, review, preview, apply and reopened
+verification. Preserve fresh verified DB/unit backups. Build the reviewed
+complete manifest from that actual DB's immutable installation UUID,
+version/bootstrap inventory scope, current installation identity and real
+order activation boundaries; never copy rehearsal IDs or invent timestamps.
+Preview every suppress/link/complete-scope disposition first, review the
+apply-only cross-document constraints, and freeze the complete reviewed
+document and its canonical inventory digest (`manifest_digest`). Apply only
+that document offline with explicit `--apply` and preserve the audit receipt.
+
+Preview omits some cross-document apply checks, including equality of
+delivered dispositions and supplied receipts. Repeat READONLY preview proves
+neither durable completion nor repeat-apply idempotency. After apply, close
+and reopen the DB READONLY. The importer has no verification command; use a
+separately reviewed verification helper calling
+`Slack_standing_order_receipt_import.verify_rollout db ~manifest_digest` and
+`Slack_standing_order_rollout_store.rollout_readiness db ~order_id` for each
+relevant order, checking its expected readiness without activating inactive
+orders. Compare exact stored suppression identities and receipt digests,
+automatic-attempt links and both retained attempts against the reviewed
+evidence; save the verifier results before restart/recovery. Any deliberate
+exact repeat apply requires the same frozen reviewed document and digest; a
+changed document is not incremental completion. On failure or an ambiguous
+outcome, leave writers stopped and reopen to determine committed state.
+
+Import fabricates no executor attempt, nonce, pickup or cap debit. Suppression
+survives epochs, identity changes and observation expiry. Fresh installs need
+none of this legacy ceremony. Whole-branch review, merged-tree gates and live
+rollout remain coordinator work; do not mutate a running DB or manually relay
+uncertain work.
+
+For rollback, preserve the latest DB, immutable import manifest/audit,
+suppression, both attempts (including reservations and relay timestamps),
+notice decisions and cleanup progress together with binary/unit receipts.
+Initial inventory-pending startup can already track retained work, send
+reports and perform cleanup in Slack while new relays remain closed; define
+the rollback cut point before that startup too. After any external effect, do
+not restore an older DB or resume a downgraded writer until actual Slack
+metadata is reconciled and a bounded review confirms that writer enforces P4
+recovery/suppression barriers. A binary that decodes `Standing_order` safely
+can still predate those barriers. Leave writers stopped on uncertainty; never
+erase proof or delivery history to make readiness green.
+
+#### Source retention and cleanup
+
+Source checks are independent of active-order discovery, including paused,
+suspended and cancelled orders. They cover actual dispatch/share times in the
+last 30 days, at most one source poll per 300 seconds subject to backoff. This
+is a source-check window, not an automatic deletion deadline; outstanding
+cleanup identities/work survive restart and ordinary observation expiry.
+
+After verifying current installation identity and permissions, `file_not_found`
+is deletion evidence. Exact-ID objects with boolean deleted/is_deleted/
+is_tombstoned true or mode `tombstone` are also supported by synthetic tests;
+these are not proven live deletion-UI shapes. `missing_scope`, `no_permission`,
+inaccessible/malformed data, 429, 5xx and transport failures mean unknown and
+never trigger deletion. Empty/unavailable transcription is not deletion.
+Participant “Delete AI notes and transcription” remains a P5 evidence gap;
+P4 uses polling and does not depend on `file_deleted` events.
+
+Cleanup deletes only exact durable Clawq-uploaded IDs for both retained attempts,
+never the source canvas/transcript, other bots' files or IDs from editable text.
+Imported deliveries need proven own ownership and verified source association;
+a suppression receipt alone is insufficient. Cleanup remains eligible after
+grantor departure or target removal, without active grant/target allowlist,
+but needs current enabled config, all three capabilities, egress/audit and fresh
+team/app/enterprise/own-user/own-bot credential verification. Local config or
+capability refusal makes zero HTTP; mismatch/failure keeps cleanup pending.
+
+Deletion and fixed-note attempts are recorded before sending. Restart resumes
+unfinished deletes; an already-absent own file counts as removed. An ambiguous
+note is adopted only from one exact own-bot/fire marker after complete bounded
+thread scanning, never blindly resent. `recovery.retention` exposes job status,
+source_missing/checked_at and individual files/notes statuses. A note `unknown`
+is independent of catch-up `notice_unknown`. The fixed note reads:
+
+> Clawq removed its relay files because the source was deleted. Clawq cannot recall Anthropic's copy.
+
+This cannot retract Anthropic's copy or establish downstream erasure. CLI
+pause/cancel sends nothing itself; the daemon may later perform this limited
+verified cleanup without resuming the order.
 
 #### Cards, changes and pauses
 
@@ -774,8 +999,11 @@ or cancel. Resuming never replays huddles that became ready while paused.
   whose card can't be read is ignored and logged. In every store-read failure
   case the order is unchanged.
   Huddles that become ready while an order is paused are never relayed, even
-  after a resume. Pause messages sent while the daemon is down or shutting down
-  are not seen.
+  after a resume. Downtime pauses are replayed before recovery release within
+  the bounded history and known-thread coverage described above. An exact pause
+  in a verified event holds new channel relays while sender membership and the
+  committed/definitive-refused outcome are checked; transient membership failure
+  stays held. ACK is not confirmation that the pause was applied.
 
 Management replies, receipts and notices are fixed templates with ids and
 enumerated reasons. They never quote Slack error bodies, display names or file
@@ -903,32 +1131,76 @@ If you want the old behaviour where `allow_channels` alone controls access to pr
 
 Refusals are logged to the room activity ledger (`private_channel_refused` event) so misconfigurations are visible.
 
-> **Scope note:** The `conversations:read` Bot Token Scope is required for channel metadata lookups. This is already part of the recommended setup.
+> **Scope note:** Channel metadata uses `channels:read` / `groups:read`, included
+> in the complete canonical bot set below; there is no `conversations:read` scope.
 
 #### Slack App Setup Steps
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps).
 2. Click **Create New App** > **From scratch**.
-3. Under **OAuth & Permissions**, add Bot Token Scopes:
-   - `app_mentions:read`
-   - `chat:write`
-   - `channels:history`
-   - `groups:history`
-   - `im:history`
-   - `mpim:history`
-4. Install the app to your workspace.
-5. Copy the Bot User OAuth Token (xoxb-...).
+3. Under **OAuth & Permissions** and **Event Subscriptions**, use the complete
+   canonical bot sets below for either transport. They match the wizard and
+   both `Setup_slack.manifest_json ~socket_mode` modes.
 
-**For Socket Mode (recommended):**
-6. Navigate to **Settings** > **Socket Mode** and enable it.
-7. Generate an App-Level Token with `connections:write` scope.
-8. Copy the token (xapp-...).
-9. Under **Event Subscriptions**, subscribe to bot events:
-   `app_mention`, `message.channels`, `message.groups`, `message.im`.
+**Required Bot Token Scopes (canonical complete set):**
 
-**For Events API (HTTP):**
-6. Under **Event Subscriptions**, set the Request URL to your webhook endpoint.
-7. Copy the Signing Secret from **Basic Information**.
+<!-- slack-canonical:setup:scopes:begin -->
+
+- `app_mentions:read`
+- `assistant:write`
+- `channels:history`
+- `channels:read`
+- `chat:write`
+- `groups:history`
+- `groups:read`
+- `im:history`
+- `im:read`
+- `im:write`
+- `mpim:history`
+- `mpim:read`
+- `users:read`
+- `files:read`
+- `files:write`
+- `canvases:read`
+- `canvases:write`
+- `reactions:read`
+- `reactions:write`
+
+<!-- slack-canonical:setup:scopes:end -->
+
+**Required bot event subscriptions (canonical complete set):**
+
+<!-- slack-canonical:setup:events:begin -->
+
+- `app_mention`
+- `message.channels`
+- `message.groups`
+- `message.im`
+- `agent_session_stopped`
+- `app_home_opened`
+- `app_context_changed`
+- `reaction_added`
+- `member_joined_channel`
+- `channel_shared`
+
+<!-- slack-canonical:setup:events:end -->
+
+4. Declare `features.agent_view.agent_description`, enable bot/DM App Home tabs
+   and Interactivity for the native task and standing-order controls.
+5. Install the app and copy its Bot User OAuth Token into Clawq's setup wizard.
+
+**For Socket Mode (recommended):** enable Socket Mode and generate an app-level
+`connections:write` token, separately from bot scopes. No HTTP URL is required.
+
+**For Events API (HTTP):** set both Events and Interactivity Request URLs to
+your actual signed public endpoint, and configure the Signing Secret. The
+manifest's `https://example.invalid/slack/events` URLs are editable examples,
+not install-ready endpoints; neither manifest includes credentials.
+
+The complete set preserves native agent/DM and I065 canvas support. Other
+feature-specific scope explanations are optional subsets outside these blocks.
+`file_deleted` is absent pending matched huddle-source evidence and
+`message.mpim` is deliberately not subscribed. Reinstall after scope changes.
 
 ### Socket Mode
 

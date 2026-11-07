@@ -23,8 +23,10 @@ let unit_label : G.stage -> string = function
   | Replace _ -> "replace"
   | Resume -> "resume"
   | Resolve -> "resolve"
+  | Reconcile _ -> "reconcile"
   | Fire _ -> "fire"
   | Track _ -> "track"
+  | Cleanup _ -> "cleanup"
 
 (* ---- JSON edits ---- *)
 

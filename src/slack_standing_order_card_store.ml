@@ -111,3 +111,46 @@ let use_card db ~card_id ~now:_ =
      used_at IS NULL"
     [ text (stamp ()); text card_id ];
   Sqlite3.changes db = 1
+
+(* Ordinary activation buttons remain usable as before. A catch-up card may
+   pause only the epoch and exact notice it advertised, including after reclaim. *)
+let catchup_card_valid ?batch_id db (card : T.card) (order : T.order) =
+  let rows =
+    query db
+      "SELECT id,order_id,epoch,status,notice_ts FROM \
+       slack_standing_order_recovery_batches WHERE card_id=?"
+      [ text card.id ]
+      (fun s ->
+        ( Sql_util.text_column s 0,
+          Sql_util.text_column s 1,
+          Sql_util.int_column s 2,
+          Sql_util.text_column s 3,
+          Sql_util.opt_text_column s 4 ))
+  in
+  match rows with
+  | [] -> batch_id = None
+  | [ (id, order_id, epoch, status, ts) ] ->
+      Option.fold ~none:true ~some:(( = ) id) batch_id
+      && order_id = order.id && card.order_id = order.id && epoch = order.epoch
+      && card.order_epoch = epoch
+      && List.mem status [ "confirmed"; "released" ]
+      && ts <> None && ts = card.message_ts
+  | _ -> false
+
+(* Capture only whether this is a catch-up click, before membership I/O. The
+   predicate re-reads the exact binding under Pause's transition transaction;
+   deletion cannot turn a catch-up button into an ordinary activation button. *)
+let catchup_pause_guard db (card : T.card) =
+  match
+    query db
+      "SELECT id FROM slack_standing_order_recovery_batches WHERE card_id=?"
+      [ text card.id ]
+      (fun s -> Sql_util.text_column s 0)
+  with
+  | [] -> None
+  | [ batch_id ] ->
+      Some
+        (fun order ->
+          find_card db card.id = Some card
+          && catchup_card_valid ~batch_id db card order)
+  | _ -> Some (fun _ -> false)

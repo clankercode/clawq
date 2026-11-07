@@ -320,6 +320,33 @@ Telegram supports multiple named accounts under `channels.telegram.accounts`.
 | `app_token` | App-level token (`xapp-...`) for Socket Mode |
 | `signing_secret` | Signing secret for Events API HMAC verification |
 
+### Slack standing orders
+
+The existing `channels.slack.standing_orders` object defaults to:
+
+```json
+{"enabled": true, "allowed_targets": [], "creator_policy": "member"}
+```
+
+An **empty `allowed_targets` denies every new relay**. Add reviewed `app_id` /
+`label` target entries before creating an order. `creator_policy` accepts
+`member` or `admin`; member still requires a verified non-guest channel member
+who passes `allow_users`. This enables deterministic grants, not an LLM fire
+tool. Source cleanup has separate narrow authority and still requires current
+config, all three capabilities, permitted egress and verified own installation.
+See [standing orders](/standing-orders) for confirmation, defaults, privacy,
+[readiness](/standing-orders#readiness-and-inspection) and legacy inventory.
+
+A fresh unused order surface is initialized automatically through ordinary
+setup/confirmation, with no inventory ceremony. Legacy/ambiguous work stays
+held for a reviewed complete inventory; freshness is never grant authority.
+Config publication, including rollback after a failed reload, may temporarily
+hold relays until coverage, credentials and policy reverify, including after
+unrelated changes. Identity changes do not reset inventory/suppression. This
+does not make startup-structural transport wiring hot-reloadable.
+
+### Slack long replies
+
 Slack long-answer presentation uses `channels.slack.long_reply`:
 
 | Field | Default | Accepted values |

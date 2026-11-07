@@ -309,13 +309,34 @@ let all_suites =
       Test_slack_standing_order_dispatch_retry.suite );
     ("slack_standing_order_report", Test_slack_standing_order_report.suite);
     ("slack_standing_order_pickup", Test_slack_standing_order_pickup.suite);
+    ("slack_standing_order_faults", Test_slack_standing_order_faults.suite);
+    ( "slack_standing_order_retention",
+      Test_slack_standing_order_retention.suite
+      @ Test_slack_standing_order_retention_faults.suite
+      @ Test_slack_standing_order_retention_import.suite );
     ("slack_standing_order_exec", Test_slack_standing_order_exec.suite);
     ("slack_standing_order_worker", Test_slack_standing_order_worker.suite);
+    ( "slack_standing_order_receipt_import",
+      Test_slack_standing_order_receipt_import.suite );
+    ( "slack_standing_order_reconcile_scan",
+      Test_slack_standing_order_reconcile_scan.suite );
+    ( "slack_standing_order_broadcast_pause",
+      Test_slack_standing_order_broadcast_pause.suite );
+    ( "slack_standing_order_pause_notifications",
+      Test_slack_standing_order_pause_notifications.suite );
+    ( "slack_standing_order_pause_settlement",
+      Test_slack_standing_order_pause_settlement.suite );
+    ( "slack_standing_order_recovery_store",
+      Test_slack_standing_order_recovery_store.suite );
+    ("slack_standing_order_schedule", Test_slack_standing_order_schedule.suite);
+    ( "slack_standing_order_resolution",
+      Test_slack_standing_order_resolution.suite );
     ("slack_standing_order_final_fix", Test_slack_standing_order_final_fix.suite);
     ("slack_standing_order_config", Test_slack_standing_order_config.suite);
     ("slack_standing_order_store", Test_slack_standing_order_store.suite);
     ( "slack_standing_order_fire_store",
       Test_slack_standing_order_fire_store.suite );
+    ("slack_read_limiter", Test_slack_read_limiter.suite);
     ("slack_standing_order_slack", Test_slack_standing_order_slack.suite);
     ("slack_file_upload", Test_slack_file_upload.suite);
     ("slack_canvas", Test_slack_canvas.suite);
@@ -330,6 +351,8 @@ let all_suites =
     ("slack_standing_order_target", Test_slack_standing_order_target.suite);
     ("slack_standing_order_render", Test_slack_standing_order_render.suite);
     ("slack_standing_order_pause", Test_slack_standing_order_pause.suite);
+    ( "slack_standing_order_capability_regressions",
+      Test_slack_standing_order_capability_regressions.suite );
     ("slack_standing_order_tools", Test_slack_standing_order_tools.suite);
     ("slack_standing_order_cards", Test_slack_standing_order_cards.suite);
     ("slack_standing_order_change", Test_slack_standing_order_change.suite);
@@ -342,6 +365,8 @@ let all_suites =
     ("group_chat_filter", Test_group_chat_filter.suite);
     ("dot_dir", Test_dot_dir.suite);
     ("discord_gateway", Test_discord_gateway.suite);
+    ("daemon_config_reload", Test_daemon_config_reload.suite);
+    ("slack_standing_order_reconcile", Test_slack_standing_order_reconcile.suite);
     ("slack_socket", Test_slack_socket.suite);
     ("slash_commands", Test_slash_commands.suite);
     ("provider", Test_provider.suite);
@@ -510,6 +535,9 @@ let all_suites =
           Alcotest.test_case "real config.json not modified by tests" `Quick
             check_config_not_modified;
         ] );
+    ]
+  @ [
+      ("slack_standing_order_catchup", Test_slack_standing_order_catchup.suite);
     ]
 
 (* Alcotest still walks every registered suite and prints a skip line for each

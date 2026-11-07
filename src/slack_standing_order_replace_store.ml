@@ -10,7 +10,7 @@ let replace_in_tx db ~old_id ~expected_epoch ~new_id ~grantor_user_id
     ?principal_id ~action ~management_thread_ts ~active_since ~confirmed_by
     ~bot_user_id ~bot_id ~now () =
   guard (fun () ->
-      ensure_schema db;
+      Rollout.require_initialized db;
       let ( let* ) = Result.bind in
       let* () = check_install ~active_since ~bot_user_id ~bot_id in
       let* (old : T.order) =
@@ -68,10 +68,25 @@ let replace_in_tx db ~old_id ~expected_epoch ~new_id ~grantor_user_id
           card_version = T.current_card_version;
         }
       in
+      let verified_identity : Rollout.identity =
+        {
+          team_id = order.team_id;
+          app_id = order.api_app_id;
+          enterprise_id = order.enterprise_id;
+          own_user_id = bot_user_id;
+          own_bot_id = bot_id;
+        }
+      in
+      let _, _, _, bound, _, _ = Rollout.validate_proof db in
+      Rollout.bind_pending_in_tx db ~order
+        ?verified_identity:(Option.map (fun _ -> verified_identity) bound)
+        ();
       match insert_order db order with
       | Sqlite3.Rc.DONE -> (
           match find_raw db new_id with
-          | Some fresh -> Ok (change.after, fresh)
+          | Some fresh ->
+              Rollout.bind_activation_in_tx db fresh;
+              Ok (change.after, fresh)
           | None -> Error "the new order does not read back")
       | Sqlite3.Rc.CONSTRAINT ->
           Error "the new order conflicts with a live order"

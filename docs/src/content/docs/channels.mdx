@@ -388,7 +388,8 @@ Use the interactive wizard (`clawq setup slack`) or follow the manual steps:
 2. Enable Socket Mode in the app settings.
 3. Generate an **App-Level Token** (`xapp-...`) with the `connections:write` scope.
 4. Install the app to your workspace and copy the **Bot Token** (`xoxb-...`).
-5. Subscribe to `message.channels` and `message.im` events.
+5. Configure the complete [bot scopes and events below](#agent-threads-and-native-task-ux),
+   preserving native UX, canvases and standing-order support.
 6. Configure both tokens and start `clawq agent`.
 
 `slack_socket.ml` calls `apps.connections.open` to obtain a WSS URL, then
@@ -446,12 +447,65 @@ verification** with the signing secret and a 5-minute timestamp window.
 ### Agent threads and native task UX
 
 Slack uses the current `agent_view` manifest feature with an `agent_description`.
-Subscribe to `agent_session_stopped`, `app_home_opened`, `app_context_changed`
-and the normal mention/message events; enable Interactivity for run-specific
-Stop buttons. In HTTP mode, use the signed Events endpoint for Interactivity too.
-Add `chat:write`, `assistant:write`, `users:read`, the relevant conversation
-metadata scopes (`channels:read`, `groups:read`, `im:read`, `mpim:read`) and history
-scopes for conversations the app uses. Reinstall after changing scopes.
+Use the complete checked bot sets below for either transport. They preserve
+native agent/DM support, I065 canvases and standing-order pickup/posture events.
+Enable Interactivity for Stop/Pause/confirm buttons. In HTTP mode both request
+URLs use the signed Events endpoint; Socket Mode needs no HTTP URL. App-level
+`connections:write` is separate. Feature-specific scope discussions elsewhere
+are optional feature subsets outside these canonical blocks.
+
+**Required Bot Token Scopes (canonical complete set):**
+
+{/* slack-canonical:native:scopes:begin */}
+
+- `app_mentions:read`
+- `assistant:write`
+- `channels:history`
+- `channels:read`
+- `chat:write`
+- `groups:history`
+- `groups:read`
+- `im:history`
+- `im:read`
+- `im:write`
+- `mpim:history`
+- `mpim:read`
+- `users:read`
+- `files:read`
+- `files:write`
+- `canvases:read`
+- `canvases:write`
+- `reactions:read`
+- `reactions:write`
+
+{/* slack-canonical:native:scopes:end */}
+
+**Required bot event subscriptions (canonical complete set):**
+
+{/* slack-canonical:native:events:begin */}
+
+- `app_mention`
+- `message.channels`
+- `message.groups`
+- `message.im`
+- `agent_session_stopped`
+- `app_home_opened`
+- `app_context_changed`
+- `reaction_added`
+- `member_joined_channel`
+- `channel_shared`
+
+{/* slack-canonical:native:events:end */}
+
+`file_deleted` is absent pending matched huddle-source evidence;
+`message.mpim` is not subscribed merely because an MPDM scope exists.
+Reinstall after changing scopes. `Setup_slack.manifest_json ~socket_mode`
+generates the same sets; its HTTP URL `https://example.invalid/slack/events` is
+an editable example, not an install-ready endpoint. Manifests contain no credentials.
+
+See [Huddle standing orders](/standing-orders) for create/confirm, fail-safe
+Pause, fresh versus legacy readiness, held catch-up and
+[source-retention limits](/standing-orders#source-cleanup-and-privacy).
 
 Root mentions and all authorized followups share one workspace/app/channel/root
 session. Clawq retrieves bounded chronological thread context, labels its own

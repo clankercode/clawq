@@ -21,6 +21,7 @@ type cause =
   | Repeated_failures
   | Cap_hit
   | Transcript_unavailable
+  | Catchup_notice_unknown of string
   | Reconcile_gap of string
   | No_notes_hint
   | Reply_delayed
@@ -56,6 +57,17 @@ let checked_reason = function
       invalid_arg "standing-order report: invalid order number"
   | r -> r
 
+let batch_code s =
+  if
+    String.length s <= 128
+    && String.length s > 0
+    && String.for_all
+         (function
+           | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true | _ -> false)
+         s
+  then s
+  else invalid_arg "invalid catch-up batch identity"
+
 let cause_key = function
   | Missing_scope m -> "missing_scope:" ^ method_code m
   | Target_not_member -> "target_not_member"
@@ -66,6 +78,7 @@ let cause_key = function
   | Repeated_failures -> "repeated_failures"
   | Cap_hit -> "cap_hit"
   | Transcript_unavailable -> "transcript_unavailable"
+  | Catchup_notice_unknown id -> "catchup_notice_unknown:" ^ batch_code id
   | Reconcile_gap window -> "reconcile_gap:" ^ window_code window
   | No_notes_hint -> "no_notes_hint"
   | Reply_delayed -> "reply_delayed"
@@ -98,6 +111,9 @@ let text (o : T.order) cause =
     | Transcript_unavailable ->
         "transcript unavailable (Slack API change?); the configured notes-only \
          or skip policy applies."
+    | Catchup_notice_unknown id ->
+        "catch-up notice outcome is unknown for batch " ^ batch_code id
+        ^ "; its huddles remain held for operator inspection."
     | Reconcile_gap window ->
         "reconciliation did not cover " ^ window_code window ^ "."
     | No_notes_hint ->
@@ -188,8 +204,8 @@ let capabilities_allowed (config : Runtime_config.t) ~channel_id =
         | Tool_authz.Denied _ -> false)
       Grant.capability_names
 
-let post_once ~(ctx : Ctx.t) ~db ~manager ?http ?fire_id ?period
-    (order : T.order) cause =
+let post_once ~(ctx : Ctx.t) ~db ~manager ?http ?http_response ?reconcile_id
+    ?fire_id ?period (order : T.order) cause =
   init db;
   (* Reload the immutable management route and grantor from persistence. *)
   match Store.find db order.id with
@@ -280,11 +296,17 @@ let post_once ~(ctx : Ctx.t) ~db ~manager ?http ?fire_id ?period
                       ignore (fence ())
                 in
                 let call =
-                  SO.make ~db ~current_config ~snapshot
+                  SO.make ?limiter:ctx.Ctx.limiter ~db ~current_config ~snapshot
                     ~channel_id:o.management_channel_id
                     ~audit:
-                      (SO.audit_label ~order_id:(Some o.id) ~unit_label:"report")
-                    ?http ~limit ~before_send ()
+                      (SO.audit_label ~order_id:(Some o.id)
+                         ~unit_label:
+                           (match (fire_id, reconcile_id) with
+                           | Some id, _ -> "fire:" ^ id ^ ":report"
+                           | None, Some id -> "reconcile:" ^ id
+                           | None, None ->
+                               "reconcile:report:" ^ key ^ ":" ^ period))
+                    ?http ?http_response ~limit ~before_send ()
                 in
                 let* result =
                   call "chat.postMessage"

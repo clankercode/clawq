@@ -682,25 +682,33 @@ let check_recovered e id =
 
 let test_absence_migration_retry fixture () =
   with_rejected fixture (fun e lease r payload http ->
-      Store.exec e.db
-        "ALTER TABLE slack_standing_order_dispatches DROP COLUMN \
-         complete_rejected_before_share"
-        [];
-      Store.exec e.db
-        "CREATE TRIGGER fail_backfill BEFORE UPDATE ON \
-         slack_standing_order_dispatches BEGIN SELECT RAISE(FAIL,'injected \
-         backfill failure'); END"
-        [];
-      check "first backfill fails after column installation" true
-        (try
-           Store.ensure_schema e.db;
-           false
-         with exn when Store.is_db_error exn -> true);
-      Store.exec e.db "DROP TRIGGER fail_backfill" [];
+      (* Atomic legacy migration is covered by fire_store. Once the feature
+         marker commits, a missing component is corruption, never a migration
+         invitation. Roll back the test-only damage to resume safe repost. *)
+      Store.exec e.db "SAVEPOINT damaged_proof" [];
+      Fun.protect
+        ~finally:(fun () ->
+          Store.exec e.db "ROLLBACK TO damaged_proof" [];
+          Store.exec e.db "RELEASE damaged_proof" [])
+        (fun () ->
+          Store.exec e.db
+            "ALTER TABLE slack_standing_order_dispatches DROP COLUMN \
+             complete_rejected_before_share"
+            [];
+          check "versioned corruption is refused without repair" true
+            (try
+               Store.ensure_schema e.db;
+               false
+             with exn when Store.is_db_error exn -> true);
+          check "same proof denial for admission" true
+            (Slack_standing_order_recovery_store.rollout_readiness e.db
+               ~order_id:e.order.id
+            = Slack_standing_order_recovery_store.Denied
+                Slack_standing_order_recovery_store.Invalid_proof));
       Store.ensure_schema e.db;
       Store.ensure_schema e.db;
       let saved = E.runtime e r.fire.id in
-      check "retry restores definitive rejection" true
+      check "rollback retains definitive rejection" true
         (Option.get (Store.attempt saved 0)).complete_rejected_before_share;
       let first = Option.get (Store.attempt saved 0) in
       let repost () =

@@ -534,8 +534,27 @@ let test_effects_no_network () =
       Alcotest.(check int) "Provider calls" 0 (List.length !seen);
       Lwt.return_unit)
 
+let test_ready_schedule () =
+  with_db (fun db ->
+      ignore (S.seed db ~channel:"C0TEST" () : Slack_standing_order_types.order);
+      let count () =
+        Slack_standing_order_sql.int_query db
+          "SELECT COUNT(*) FROM slack_order_ready_hints" []
+      in
+      observe db (F.notes_ready ());
+      observe db (F.notes_ready ());
+      Alcotest.(check int) "ready and identical hydration coalesce" 1 (count ());
+      observe db (update (F.notes_ready ()) [ ("user", str "UHUMAN") ]);
+      observe db (update (F.notes_ready ()) [ ("bot_id", str "BOTHER") ]);
+      Slack_huddle_observer.observe_db ~db ~watch:(watch_all ()) ~now:1000.
+        (F.envelope ~app:"AOTHER" (F.notes_ready ()));
+      Alcotest.(check int)
+        "spoofs and other installation add no hint" 1 (count ()))
+
 let suite =
   [
+    S.case "classified ready hints persist without fire mutation"
+      test_ready_schedule;
     S.case "channel-less file reaction resolves through fire" test_file_reaction;
     S.case "own relay effect verifies stored bot id" test_own_bot;
     S.case "dispatched inactive orders track pickup without huddle hints"

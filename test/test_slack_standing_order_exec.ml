@@ -513,6 +513,8 @@ let test_egress () =
       let cfg = Session.get_config e.manager in
       Session.update_config e.manager
         { cfg with egress = { cfg.egress with default_allowlist = [] } };
+      (* Settled roots are no longer polled; supply pending audited work. *)
+      seed_report e Report.Reply_delayed;
       Lwt_main.run (pass ~http ~upload_http e);
       let denied =
         Egress_audit.query ~db:e.db ~decision:Egress_audit.Denied ()
@@ -522,12 +524,11 @@ let test_egress () =
         (fun (a : Egress_audit.event) ->
           check "Denied audit access key" true
             (a.session_key = Some "slack:C123");
-          check "Denied audit order label" true
-            (List.mem a.tool_name
-               [
-                 Some ("standing_order:" ^ e.order.id ^ ":fire");
-                 Some ("standing_order:" ^ e.order.id ^ ":report");
-               ]);
+          check "Denied audit order and durable report identity" true
+            (a.tool_name
+            = Some
+                ("standing_order:" ^ e.order.id
+               ^ ":reconcile:report:reply_delayed:once"));
           check "Denied audit persisted order snapshot" true
             (Option.fold ~none:false
                ~some:(fun id ->
@@ -583,6 +584,7 @@ let test_worker_drain () =
            (fun () ->
              E.start ~ctx:(W.context e c) ~db:e.db ~manager:e.manager ~http
                ~upload_http:raw ();
+             cover_order e.db e.order;
              seen e;
              ready e ();
              E.wake ();
@@ -704,7 +706,8 @@ let test_two_orders () =
       let target =
         { S.claude with T.user_id = "U456"; app_id = "A123"; bot_id = "BOWN" }
       in
-      let second = S.seed e.db ~target () in
+      let second = S.seed ~verified_identity:fixture_identity e.db ~target () in
+      cover_order e.db second;
       let card =
         Store.insert_card e.db ~kind:T.Pause_button ~order:second
           ~created_by:"U123" ~now:(Store.now ()) ()
@@ -766,6 +769,11 @@ let test_other_channel () =
           ~created_by:"U123" ~now:(Store.now ()) ()
       in
       Store.set_card_message_ts e.db ~card_id:card.id "1700000000.000300";
+      (* Resolution now requires queued roots rather than idle order polling. *)
+      seen e;
+      L.record_seen ~db:e.db ~team:other.team_id ~channel:other.channel_id
+        ~source:"event" ~now:(Store.now ()) ~root_ts ~file_ids:[]
+        (Option.get (Slack_huddle_classify.room_of_json (get "room" !(e.root))));
       let blocked, wake = Lwt.task () and calls = ref 0 in
       let http ~verb:_ ~token:_ ~method_:_ ~params:_ =
         incr calls;

@@ -1,12 +1,14 @@
 open Lwt.Syntax
 include Slack_standing_order_fetch
+module R = Slack_standing_order_recovery_store
 module Dispatch = Slack_standing_order_dispatch
 module Pickup = Slack_standing_order_pickup
 module Report = Slack_standing_order_report
+module Schedule = Slack_standing_order_schedule
 
-(* One budget per worker, shared by every read, relay, repost and report.
-   P3 conservatively paces all calls; P4 owns the shared 429-aware limiter. *)
-let context ?(wait = Ctx.default_wait) ~accepting () =
+(* Production supplies the process limiter; retain the legacy callback for
+   isolated callers that still exercise the old channel pacing seam. *)
+let context ?limiter ?(wait = Ctx.default_wait) ~accepting () =
   let next = Hashtbl.create 8 in
   let limit ~channel_id =
     let now = Store.now () in
@@ -16,7 +18,12 @@ let context ?(wait = Ctx.default_wait) ~accepting () =
     Hashtbl.replace next channel_id (due +. 1.);
     if due > now then wait ~seconds:(due -. now) else Lwt.return_unit
   in
-  Ctx.make ~wait ~limit ~accepting ()
+  let limit =
+    match limiter with
+    | Some _ -> fun ~channel_id:_ -> Lwt.return_unit
+    | None -> limit
+  in
+  Ctx.make ?limiter ~wait ~limit ~accepting ()
 
 let hard_reason code =
   let fixed =
@@ -61,7 +68,7 @@ let hard_reason code =
           (fun n -> if n > 0 then Some (Grant.Duplicate_order n) else None)
       else None
 
-let pending_reports ~ctx ~db ~manager ?http (order : T.order) =
+let pending_reports ~ctx ~db ~manager ?http ?http_response (order : T.order) =
   Report.init db;
   (* A pending row predating a reload can never regain permission on re-enable. *)
   if
@@ -124,11 +131,11 @@ let pending_reports ~ctx ~db ~manager ?http (order : T.order) =
         match decode key with
         | None -> Lwt.return_unit
         | Some cause ->
-            Report.post_once ~ctx ~db ~manager ?http ?fire_id ~period order
-              cause)
+            Report.post_once ~ctx ~db ~manager ?http ?http_response ?fire_id
+              ~period order cause)
       rows
 
-let report_order ~ctx ~db ~manager ?http (original : T.order) =
+let report_order ~ctx ~db ~manager ?http ?http_response (original : T.order) =
   match Store.find db original.id with
   | None -> Lwt.return_unit
   | Some order ->
@@ -137,7 +144,7 @@ let report_order ~ctx ~db ~manager ?http (original : T.order) =
         | Some code -> (
             match hard_reason code with
             | Some reason ->
-                Report.post_once ~ctx ~db ~manager ?http order
+                Report.post_once ~ctx ~db ~manager ?http ?http_response order
                   (Report.of_hard_reason reason)
             | None -> Lwt.return_unit)
         | None -> Lwt.return_unit
@@ -147,7 +154,7 @@ let report_order ~ctx ~db ~manager ?http (original : T.order) =
           order.state = T.Paused
           && Pickup.failure_streak ~db ~order_id:order.id >= 3
         then
-          Report.post_once ~ctx ~db ~manager ?http order
+          Report.post_once ~ctx ~db ~manager ?http ?http_response order
             Report.Repeated_failures
         else Lwt.return_unit
       in
@@ -170,10 +177,10 @@ let report_order ~ctx ~db ~manager ?http (original : T.order) =
             match Report.of_fire fire with
             | None -> Lwt.return_unit
             | Some cause ->
-                Report.post_once ~ctx ~db ~manager ?http ~fire_id:fire.id order
-                  cause)
+                Report.post_once ~ctx ~db ~manager ?http ?http_response
+                  ~fire_id:fire.id order cause)
       in
-      pending_reports ~ctx ~db ~manager ?http order
+      pending_reports ~ctx ~db ~manager ?http ?http_response order
 
 let local_gate ~db ~manager (order : T.order) ~now =
   match
@@ -206,10 +213,20 @@ let account ~db ~(order : T.order) ~now =
            ~by:"automatic_failures" ~now)
   | _ -> ()
 
-let process_fire ~ctx ~db ~manager ?http ?upload_http ?renew_wait ~allow_new
-    ?(poll = true) (fire : T.fire) =
+let process_fire ~ctx ~db ~manager ?http ?http_response ?upload_http ?renew_wait
+    ~allow_new ?(poll = true) (fire : T.fire) =
+  let allow_new =
+    allow_new
+    && not
+         (R.suppressed db ~order_id:fire.order_id ~root_ts:""
+            ~room_id:fire.room_id ~date_start:fire.date_start)
+  in
   with_lease ~ctx ~db ?renew_wait ~fire_id:fire.id (fun ctx lease ->
       let current () = Dispatch.current db fire.id in
+      if poll && ctx.Ctx.accepting () then
+        ignore
+          (Schedule.take_ready ~db ~fire_id:fire.id ~lease ~now:(ctx.now ()));
+
       let* () =
         if not (ctx.Ctx.accepting ()) then Lwt.return_unit
         else (
@@ -224,16 +241,25 @@ let process_fire ~ctx ~db ~manager ?http ?upload_http ?renew_wait ~allow_new
               ~some:(fun due -> due > ctx.now ())
               r.next_attempt_at
           then Lwt.return_unit
+          else if
+            Store.sources_mutable r
+            && R.suppressed db ~order_id:r.fire.order_id
+                 ~root_ts:(Option.value ~default:"" r.root_ts)
+                 ~room_id:r.fire.room_id ~date_start:r.fire.date_start
+          then Lwt.return_unit
           else if Store.sources_mutable r then
-            let* fetched = fetch ~ctx ~db ~manager ?http ~lease r in
+            let* fetched =
+              fetch ~ctx ~db ~manager ?http ?http_response ~lease r
+            in
             match fetched with
             | Ok (Some payload) when ctx.accepting () ->
                 let* () =
-                  Dispatch.deliver ~ctx ~db ~manager ?http ?upload_http ~lease
-                    (current ()) payload
+                  Dispatch.deliver ~ctx ~db ~manager ?http ?http_response
+                    ?upload_http ~lease (current ()) payload
                 in
                 if payload.transcript_unavailable then
-                  Report.post_once ~ctx ~db ~manager ?http ~fire_id:fire.id
+                  Report.post_once ~ctx ~db ~manager ?http ?http_response
+                    ~fire_id:fire.id
                     (Option.get (Store.find db fire.order_id))
                     Report.Transcript_unavailable
                 else Lwt.return_unit
@@ -248,7 +274,9 @@ let process_fire ~ctx ~db ~manager ?http ?upload_http ?renew_wait ~allow_new
                     next_attempt_at =
                       Some (ctx.now () +. Pickup.tracking_poll_seconds);
                   };
-            let* call = Dispatch.track ~ctx ~db ~manager ?http r order in
+            let* call =
+              Dispatch.track ~ctx ~db ~manager ?http ?http_response r order
+            in
             let* () =
               Pickup.confirm ~db ~call ~lease (current ()) ~now:(ctx.now ())
             in
@@ -257,8 +285,8 @@ let process_fire ~ctx ~db ~manager ?http ?upload_http ?renew_wait ~allow_new
               && List.mem (current ()).fire.state
                    T.[ Posted; Posting; Posting_unknown; Uploading ]
             then
-              Dispatch.reconcile ~ctx ~db ~manager ?http ?upload_http ~allow_new
-                ~lease (current ())
+              Dispatch.reconcile ~ctx ~db ~manager ?http ?http_response
+                ?upload_http ~allow_new ~lease (current ())
             else Lwt.return_unit)
           else Lwt.return_unit)
       in
@@ -277,14 +305,17 @@ let process_fire ~ctx ~db ~manager ?http ?upload_http ?renew_wait ~allow_new
       match cause with
       | None -> Lwt.return_unit
       | Some cause ->
-          Report.post_once ~ctx ~db ~manager ?http ~fire_id:fire.id
+          Report.post_once ~ctx ~db ~manager ?http ?http_response
+            ~fire_id:fire.id
             (Option.get (Store.find db fire.order_id))
             cause)
 
+let recovery_managed = ref false
+let on_gap : (cause:string -> unit) ref = ref (fun ~cause:_ -> ())
 let channel_locks = Hashtbl.create 8
 
-let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
-    ?roots_for_order ?(held = []) ?(read_only = []) () =
+let pass ~ctx ~db ~manager ?http ?http_response ?upload_http ?renew_wait ?orders
+    ?roots ?roots_for_order ?(held = []) ?(read_only = []) () =
   Pickup.init db;
   let orders =
     Option.value orders ~default:(Store.list db ~include_cancelled:true ())
@@ -297,6 +328,7 @@ let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
     Lwt.catch work (function
       | Lwt.Canceled | Dispatch.Stop -> Lwt.return_unit
       | _ ->
+          !on_gap ~cause:"executor_pass_failure";
           Logs.warn (fun m ->
               m "standing-order executor pass failed for %s" order.id);
           Lwt.return_unit)
@@ -336,23 +368,27 @@ let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
                       if
                         allowed order && order.state = T.Active
                         && roots <> Some []
-                      then resolve_pending ~ctx ~db ~manager ?http ?roots order
+                      then
+                        resolve_pending ~ctx ~db ~manager ?http ?http_response
+                          ?roots order
                       else Lwt.return_unit
                     in
                     Lwt_list.iter_s
                       (fun (r : Store.fire_runtime) ->
                         if ctx.accepting () && not (List.mem r.fire.id held)
                         then
-                          process_fire ~ctx ~db ~manager ?http ?upload_http
-                            ?renew_wait ~allow_new:false ~poll:false r.fire
+                          process_fire ~ctx ~db ~manager ?http ?http_response
+                            ?upload_http ?renew_wait ~allow_new:false
+                            ~poll:false r.fire
                         else Lwt.return_unit)
                       (Pickup.queued db ~order_id:order.id)))
               orders
           in
           (* One terminal poll for the whole channel job, after every order's
              relay-producing work. Store.due keeps fresh preparation first. *)
+          let hinted = Schedule.ready_fires ~db ~now:(ctx.now ()) in
           let due =
-            Store.due db ~now:(ctx.now ())
+            hinted @ Store.due db ~now:(ctx.now ())
             |> List.filter_map (fun (r : Store.fire_runtime) ->
                 Option.map
                   (fun order -> (order, r))
@@ -376,14 +412,19 @@ let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
                     if
                       (not (allowed order))
                       || List.mem r.fire.id held
+                      || !recovery_managed
+                         && r.fire.dispatched_at = None
+                         && not
+                              (R.relay_allowed db ~fire_id:r.fire.id
+                                 ~now:(ctx.now ()))
                       || (terminal && !terminal_polled)
                     then Lwt.return_unit
                     else (
                       if terminal then terminal_polled := true;
                       Lwt.catch
                         (fun () ->
-                          process_fire ~ctx ~db ~manager ?http ?upload_http
-                            ?renew_wait
+                          process_fire ~ctx ~db ~manager ?http ?http_response
+                            ?upload_http ?renew_wait
                             ~allow_new:(not (List.mem r.fire.id read_only))
                             r.fire)
                         (function
@@ -402,7 +443,7 @@ let pass ~ctx ~db ~manager ?http ?upload_http ?renew_wait ?orders ?roots
             (fun order ->
               guard order (fun () ->
                   ignore (allowed order);
-                  report_order ~ctx ~db ~manager ?http order))
+                  report_order ~ctx ~db ~manager ?http ?http_response order))
             orders))
     channels
 
@@ -441,12 +482,14 @@ let stop () =
       | _ -> ());
       Lwt.return_unit
 
-let start ~ctx ~db ~manager ?http ?upload_http
+let start ~ctx ~db ~manager ?http ?http_response ?upload_http
     ?(fallback_sleep = Lwt_unix.sleep)
     ?(list_orders = fun () -> Store.list db ~include_cancelled:true ()) () =
+  Store.ensure_schema db;
   match !worker with
   | Some _ -> ()
   | None ->
+      if not !recovery_managed then R.recover_startup db ~now:(ctx.Ctx.now ());
       let signal = Lwt_condition.create () in
       let drain, drain_wake = Lwt.wait () in
       let w =
@@ -506,6 +549,11 @@ let start ~ctx ~db ~manager ?http ?upload_http
       in
       List.iter
         (fun (o, r) ->
+          (match (r.L.root_ts, r.room_id, r.date_start) with
+          | Some root_ts, Some room_id, Some start ->
+              R.record_root db ~order:o ~root_ts ~room_id
+                ~date_start:(string_of_int start) ~fire_id:None
+          | _ -> ());
           List.iter (fun key -> Hashtbl.replace origins key false) (keys o r))
         (rows ());
       let persisted =
@@ -514,7 +562,13 @@ let start ~ctx ~db ~manager ?http ?upload_http
             Store.list_fires db ~order_id:o.id ~limit:max_int)
           (orders ())
       in
-      let read_only = List.map (fun (f : T.fire) -> f.id) persisted in
+      let read_only () =
+        List.filter_map
+          (fun (f : T.fire) ->
+            if R.relay_allowed db ~fire_id:f.id ~now:(ctx.now ()) then None
+            else Some f.id)
+          persisted
+      in
       let held =
         persisted
         |> List.filter (fun (f : T.fire) ->
@@ -549,8 +603,15 @@ let start ~ctx ~db ~manager ?http ?upload_http
                     Hashtbl.add origins key eligible)
                 keys)
             (rows ()));
+      let scheduled_config = ref (Session.get_config manager) in
       let tick () =
         let all = orders () in
+        let current_config = Session.get_config manager in
+        if current_config != !scheduled_config then (
+          scheduled_config := current_config;
+          List.map (fun (o : T.order) -> o.channel_id) all
+          |> List.sort_uniq String.compare
+          |> List.iter (fun channel -> Schedule.dirty_channel ~db ~channel));
         let channels =
           List.map (fun (o : T.order) -> o.channel_id) all
           |> List.sort_uniq String.compare
@@ -565,26 +626,55 @@ let start ~ctx ~db ~manager ?http ?upload_http
                       (fun () ->
                         let* () = Lwt.pause () in
                         let roots_for_order (order : T.order) =
-                          Hashtbl.to_seq origins |> List.of_seq
-                          |> List.filter_map
-                               (fun ((team, app, ch, ts), eligible) ->
-                                 if
-                                   eligible && team = order.team_id
-                                   && app = order.api_app_id
-                                   && ch = order.channel_id
-                                 then Some ts
-                                 else None)
+                          if !recovery_managed then
+                            if
+                              R.covered db order.id order.epoch
+                              || R.attempt_bool (fun () ->
+                                  R.current_gap db (R.pass_token db order.id)
+                                    ~connected:true
+                                  && List.mem (R.phase db order.id)
+                                       [
+                                         Some "history";
+                                         Some "swept";
+                                         Some "complete";
+                                       ])
+                            then
+                              rows ()
+                              |> List.filter_map (fun ((o : T.order), r) ->
+                                  if o.id = order.id then Schedule.root_of_row r
+                                  else None)
+                            else []
+                          else
+                            Hashtbl.to_seq origins |> List.of_seq
+                            |> List.filter_map
+                                 (fun ((team, app, ch, ts), eligible) ->
+                                   if
+                                     eligible && team = order.team_id
+                                     && app = order.api_app_id
+                                     && ch = order.channel_id
+                                   then Some ts
+                                   else None)
                         in
-                        pass ~ctx:local ~db ~manager ?http ?upload_http
-                          ~renew_wait:ctx.wait ~roots_for_order ~held ~read_only
-                          ~orders:
-                            (List.filter
-                               (fun (o : T.order) -> o.channel_id = channel)
-                               all)
-                          ())
+                        SO.with_wait_guard cancellable (fun () ->
+                            pass ~ctx:local ~db ~manager ?http ?http_response
+                              ?upload_http ~renew_wait:ctx.wait ~roots_for_order
+                              ~held:
+                                (List.filter
+                                   (fun id ->
+                                     not
+                                       (R.relay_allowed db ~fire_id:id
+                                          ~now:(ctx.now ())))
+                                   held)
+                              ~read_only:(read_only ())
+                              ~orders:
+                                (List.filter
+                                   (fun (o : T.order) -> o.channel_id = channel)
+                                   all)
+                              ()))
                       (function
                         | Lwt.Canceled when not w.running -> Lwt.return_unit
                         | exn ->
+                            !on_gap ~cause:"executor_channel_failure";
                             Logs.warn (fun m ->
                                 m "standing-order worker channel %s failed: %s"
                                   channel (Printexc.to_string exn));
@@ -616,6 +706,7 @@ let start ~ctx ~db ~manager ?http ?upload_http
             (function
               | Lwt.Canceled when not w.running -> Lwt.return_unit
               | exn ->
+                  !on_gap ~cause:"executor_tick_failure";
                   Logs.warn (fun m ->
                       m "standing-order worker backoff failed: %s"
                         (Printexc.to_string exn));
@@ -633,6 +724,7 @@ let start ~ctx ~db ~manager ?http ?upload_http
             (function
               | Lwt.Canceled when not w.running -> Lwt.return_false
               | exn ->
+                  !on_gap ~cause:"executor_tick_failure";
                   Logs.warn (fun m ->
                       m "standing-order worker tick failed: %s"
                         (Printexc.to_string exn));
@@ -645,7 +737,10 @@ let start ~ctx ~db ~manager ?http ?upload_http
       in
       worker := Some w;
       Slack_huddle_observer.wake := wake;
-      (Slack_huddle_observer.posture_changed := fun ~channel:_ -> wake ());
+      (Slack_huddle_observer.posture_changed :=
+         fun ~channel ->
+           Schedule.dirty_channel ~db ~channel;
+           wake ());
       Logs.info (fun m -> m "standing-order worker started");
       let rec supervise ~recover () =
         Lwt.catch
@@ -656,6 +751,7 @@ let start ~ctx ~db ~manager ?http ?upload_http
           (function
             | Lwt.Canceled when not w.running -> Lwt.return_unit
             | exn ->
+                !on_gap ~cause:"executor_supervision_failure";
                 Logs.warn (fun m ->
                     m "standing-order worker stopped unexpectedly: %s"
                       (Printexc.to_string exn));

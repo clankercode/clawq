@@ -155,7 +155,7 @@ listed.
 ### `clawq slack`
 
 Operator view and kill switch for Slack [standing
-orders](connector-reference.md#standing-orders-huddle-relay) (full build only;
+orders](https://clawq.org/standing-orders) (full build only;
 the minimal build answers that the command is not available). Reads are open;
 pause, resume and cancel are **[admin]**, and a refused mutation is audited
 against the order's room.
@@ -177,6 +177,33 @@ direct Slack HTTP (bot token, the same egress rules as the daemon) and sets
 `active_since` to the current time; huddles that became ready while the order
 was paused are never relayed. There is no create or change command: both need a
 verified Slack request.
+
+Show includes **Recovery readiness** and **Recovery metadata** from the same
+read-only `R.rollout_readiness` decision used by Slack tool show. Ready labels
+are `fresh_no_legacy_work` and `inventory_verified`; stored
+`legacy_inventory_pending` renders denial `inventory_pending`. Other exact
+denials are `unbound_installation`, `missing_proof`, `invalid_proof`,
+`identity_mismatch`, `activation_unbound`, `storage_error`. Missing/invalid
+proof never becomes success or an empty reviewed inventory.
+
+Recovery metadata exposes proof version/installation/evidence sequence/identity/
+inventory digest, permanent `already_delivered` suppression and external
+receipt metadata, held candidate counts, `catchup_batches` with inspectable
+`notice_unknown`, scan method/code/resume_unit/coverage_limit, coverage origin
+and per-file/note `retention` status. Team, Enterprise when present, App, Epoch
+and Active since show installation/activation boundaries. `fires` also prints
+readiness and external deliveries; public fire fields are unchanged.
+Null metadata is absent/unknown/unavailable, not proof of coverage. Zero counts
+or fresh proof grant no relay authority. Fresh ordinary setup needs no import;
+legacy/ambiguous orders require complete audited inventory before catch-up.
+See [recovery readiness](https://clawq.org/standing-orders#readiness-and-inspection).
+
+Pause/cancel itself sends nothing to Slack. The daemon may later delete exact
+recorded own relay files and post its fixed no-recall cleanup note after
+verified source deletion and current cleanup authority, even while inactive.
+Unknown source errors never trigger deletion; resuming is unnecessary for this
+limited cleanup. Pickup is not downstream completion; P5 live acceptance and
+unknown Claude notice wording remain open.
 
 ### `clawq memory`
 

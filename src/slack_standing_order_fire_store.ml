@@ -719,14 +719,16 @@ let cas db ~lease ~before ~after ~now =
       in_tx db ~on_error:Fun.id (fun () ->
           cas_in_tx db ~lease ~before ~after ~now))
 
-let reserve_dispatch db ~fire_id ~(lease : lease) ~repost ~now =
+let reserve_dispatch ?(check = fun () -> true) ?(on_reserved = fun () -> ()) db
+    ~fire_id ~(lease : lease) ~repost ~now =
   guard (fun () ->
       ensure_schema db;
       in_tx db ~on_error:Fun.id (fun () ->
           match runtime_raw db ~fire_id with
           | None -> Ok false
           | Some r
-            when (not (valid_lease lease r now))
+            when (not (check ()))
+                 || (not (valid_lease lease r now))
                  || (not (relay_allowed db r))
                  || r.fire.repost_forbidden ->
               Ok false
@@ -788,7 +790,9 @@ let reserve_dispatch db ~fire_id ~(lease : lease) ~repost ~now =
                           int lease.lease_epoch;
                           Sqlite3.Data.FLOAT now;
                         ];
-                      if Sqlite3.changes db = 1 then Ok true
+                      if Sqlite3.changes db = 1 then (
+                        on_reserved ();
+                        Ok true)
                       else Error "dispatch reservation lost its lease")))
 
 let suspend_if_epoch_in_tx db ~order_id ~epoch ~reason ~now =

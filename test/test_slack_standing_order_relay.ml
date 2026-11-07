@@ -890,8 +890,7 @@ let suite =
   let module H = Test_slack_standing_order_repost_support in
   let fixture f = with_delivery f in
   [
-    S.case
-      "interrupted rejection backfill retries and permits exactly one repost"
+    S.case "versioned schema damage denies until rollback then one safe repost"
       (H.test_absence_migration_retry fixture);
     S.case "rejected complete survives transient Fire grant retry"
       (H.test_absence_fire_retry fixture);

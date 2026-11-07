@@ -42,6 +42,7 @@
   test_contracts
   test_cost_tracker
   test_daemon
+  test_daemon_config_reload
   test_daemon_liveness
   test_b830k_loop_wait
   test_daemon_logging
@@ -331,7 +332,44 @@
   test_slack_standing_order_dispatch_retry
   test_slack_standing_order_exec_support
   test_slack_standing_order_fetch
+  test_slack_standing_order_worker_support
+  test_slack_standing_order_worker_suppression
   test_slack_standing_order_worker
+  test_slack_standing_order_recovery_store
+  test_slack_standing_order_catchup
+  test_slack_standing_order_catchup_support
+  test_slack_standing_order_catchup_faults
+  test_slack_standing_order_catchup_fences
+  test_slack_standing_order_catchup_edges
+  test_slack_standing_order_catchup_dispatch
+  test_slack_standing_order_reconcile_scan
+  test_slack_standing_order_broadcast_pause
+  test_slack_standing_order_pause_notifications
+  test_slack_standing_order_pause_settlement
+  test_slack_standing_order_reconcile
+  test_slack_standing_order_reconcile_edges
+  test_slack_standing_order_reconcile_ingress
+  test_slack_standing_order_reconcile_socket
+  test_slack_standing_order_reconcile_fences
+  test_slack_standing_order_reconcile_recovery
+  test_slack_standing_order_reconcile_fix2
+  test_slack_standing_order_reconcile_acceptance
+  test_slack_standing_order_reconcile_support
+  slack_standing_order_fault_support
+  test_slack_standing_order_faults
+  test_slack_standing_order_fault_process
+  test_slack_standing_order_fault_identity
+  test_slack_standing_order_fault_security
+  test_slack_standing_order_fault_admission
+  test_slack_standing_order_fault_races
+  test_slack_standing_order_fault_matrix
+  test_slack_standing_order_fault_budgets
+  test_slack_standing_order_scan_support
+  test_slack_standing_order_scan_replay
+  test_slack_standing_order_scan_fences
+  test_slack_standing_order_receipt_import
+  test_slack_standing_order_schedule
+  test_slack_standing_order_resolution
   test_slack_standing_order_exec_review
   test_slack_standing_order_final_fix
   test_slack_standing_order_exec
@@ -342,6 +380,11 @@
   test_slack_standing_order_fire_store
   test_slack_standing_order_report
   test_slack_standing_order_pickup
+  test_slack_standing_order_retention
+  test_slack_standing_order_retention_support
+  test_slack_standing_order_retention_faults
+  test_slack_standing_order_retention_import
+  test_slack_read_limiter
   test_slack_standing_order_slack
   test_slack_file_upload
   test_slack_canvas
@@ -359,6 +402,7 @@
   test_slack_standing_order_render
   test_slack_standing_order_fixtures
   test_slack_standing_order_pause
+  test_slack_standing_order_capability_regressions
   test_slack_standing_order_tools
   test_slack_standing_order_cards
   test_slack_standing_order_change

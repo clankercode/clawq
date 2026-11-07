@@ -65,6 +65,12 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq channel clear-model NAME` | Clear a channel's model override to inherit from global default |
 | `clawq notify --channel telegram\|teams --target TARGET [--account NAME] [--parse-mode MODE] MESSAGE...` | Send one connector message without starting an agent turn |
 | `clawq notify --channel telegram\|teams --list-targets [--account NAME]` | List target IDs previously recorded in the local Clawq database |
+| `clawq slack orders list [--channel C]` | List standing orders and opaque IDs (full build) |
+| `clawq slack orders show ID` | Inspect order and shared recovery readiness; see [standing orders](/standing-orders) |
+| `clawq slack orders fires ID [--limit N]` | Recent fires (default 20), readiness and external deliveries |
+| `clawq slack orders pause ID` | Local kill switch, `CLAWQ_ADMIN=1` |
+| `clawq slack orders resume ID` | Fresh Slack preflight and operator resume, `CLAWQ_ADMIN=1` |
+| `clawq slack orders cancel ID` | Cancel locally, `CLAWQ_ADMIN=1` |
 | `clawq config` | Manage configuration (wizard, get/set/show) |
 | `clawq cron` | Manage cron jobs for scheduled agent messages |
 | `clawq debug html-preview` | Preview HTML rendering |
@@ -557,3 +563,40 @@ Model-setting commands accept canonical `provider:model`, legacy `provider/model
 | `/update` | Pull, rebuild, and gracefully restart clawq |
 | `/debug_dump_chat` | Dump session state to file and send as attachment |
 | `/bash <command>` | Run a bash command (admin only) |
+
+## Slack standing orders
+
+`ID` is the opaque identifier from `list`, while Slack uses channel-local
+`SO-n`. Reads are open; mutations need `CLAWQ_ADMIN=1` and are audited. CLI
+pause/cancel changes local state with a receipt and no grantor notification;
+resume rechecks current Slack authority and resets activation to current time.
+A missing bound activation notice requires Slack resume. There is no CLI
+create/change: they require verified Slack provenance and bound confirmation.
+Minimal builds disable these commands.
+
+Show includes **Recovery readiness** and **Recovery metadata** from the same
+read-only `R.rollout_readiness` decision used by Slack tool show. Ready labels
+are `fresh_no_legacy_work` and `inventory_verified`; stored
+`legacy_inventory_pending` renders denial `inventory_pending`. Other exact
+denials are `unbound_installation`, `missing_proof`, `invalid_proof`,
+`identity_mismatch`, `activation_unbound`, `storage_error`. Missing/invalid
+proof never becomes success or an empty reviewed inventory.
+
+Recovery metadata exposes proof version/installation/evidence sequence/identity/
+inventory digest, permanent `already_delivered` suppression and external
+receipt metadata, held candidate counts, `catchup_batches` with inspectable
+`notice_unknown`, scan method/code/resume_unit/coverage_limit, coverage origin
+and per-file/note `retention` status. Team, Enterprise when present, App, Epoch
+and Active since show installation/activation boundaries. `fires` also prints
+readiness and external deliveries; public fire fields are unchanged.
+Null metadata is absent/unknown/unavailable, not proof of coverage. Zero counts
+or fresh proof grant no relay authority. Fresh ordinary setup needs no import;
+legacy/ambiguous orders require complete audited inventory before catch-up.
+See [recovery readiness](https://clawq.org/standing-orders#readiness-and-inspection).
+
+Pause/cancel itself sends nothing to Slack. The daemon may later delete exact
+recorded own relay files and post its fixed no-recall cleanup note after
+verified source deletion and current cleanup authority, even while inactive.
+Unknown source errors never trigger deletion; resuming is unnecessary for this
+limited cleanup. Pickup is not downstream completion; P5 live acceptance and
+unknown Claude notice wording remain open.

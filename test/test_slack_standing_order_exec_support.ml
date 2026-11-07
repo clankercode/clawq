@@ -27,13 +27,76 @@ type env = {
   transcript : Yojson.Safe.t ref;
 }
 
-let with_env f =
+let cover_order db (order : T.order) =
+  let module R = Slack_standing_order_recovery_store in
+  let module A = Slack_standing_order_admission in
+  let module Sql = Slack_standing_order_sql in
+  A.ensure_schema db;
+  let scope =
+    A.scope db ~team:order.team_id ~app:order.api_app_id
+      ~channel:order.channel_id
+  in
+  let generation =
+    Sql.query db
+      "SELECT generation FROM slack_standing_order_recovery_gaps WHERE \
+       installation=? AND team=? AND app=? AND channel=?"
+      scope (fun s -> Sql_util.int_column s 0)
+  in
+  let gap =
+    match generation with
+    | [ gap_generation ] ->
+        {
+          R.team_id = order.team_id;
+          app_id = order.api_app_id;
+          channel_id = order.channel_id;
+          gap_generation;
+        }
+    | _ ->
+        Result.get_ok
+          (R.close_gap db ~team_id:order.team_id ~app_id:order.api_app_id
+             ~channel_id:order.channel_id ~cause:"fixture_startup"
+             ~now:(Store.now ()))
+  in
+  assert (R.mark_connected db ~token:gap);
+  let owner =
+    Option.get
+      (R.claim db ~order_id:order.id ~owner_id:("fixture:" ^ order.id)
+         ~now:(Store.now ()))
+  in
+  let latest = Option.get order.active_since in
+  assert (
+    R.begin_scan db ~order ~owner ~mode:R.Gap_recovery ~gap ~oldest:latest
+      ~latest ~now:(Store.now ()));
+  assert (R.complete_pause db ~order_id:order.id ~owner ~now:(Store.now ()));
+  assert (R.complete_history db ~order_id:order.id ~owner ~now:(Store.now ()));
+  assert (R.finish_scan db ~order_id:order.id ~owner ~now:(Store.now ()));
+  assert (R.verify_gap db ~token:gap ~owner ~through:latest ~now:(Store.now ()));
+  assert (R.yield_owner db ~order_id:order.id ~owner ~now:(Store.now ()))
+
+let fixture_identity : Slack_standing_order_rollout_store.identity =
+  {
+    team_id = "T123";
+    app_id = "A123";
+    enterprise_id = None;
+    own_user_id = "UBOT";
+    own_bot_id = "BOWN";
+  }
+
+let with_env ?(fresh_binding = true) f =
   let db = S.fresh_db () in
   Fun.protect
     ~finally:(fun () -> ignore (Sqlite3.db_close db))
     (fun () ->
       L.ensure_schema db;
-      let order = S.seed db () in
+      let order =
+        S.seed
+          ?verified_identity:
+            (if fresh_binding then Some fixture_identity else None)
+          db ()
+      in
+      (* Unit delivery fixtures start after established coverage. New integrated
+         lifecycle tests exercise ordinary confirmation and actual HTTP sweeps. *)
+      if fresh_binding then cover_order db order;
       let c =
         Store.insert_card db ~kind:T.Pause_button ~order ~created_by:"U123"
           ~now:S.now ()

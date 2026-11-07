@@ -60,6 +60,8 @@ let apply ~db ~team ~app ~channel ~now = function
         (L.record_notes_ready ~db ~team ~channel ~source:"event" ~now ~thread_ts
            ~ts ~file_ids ~canvas_file_id ~variant
           : L.notes_attachment);
+      Slack_standing_order_schedule.note_ready ~db ~team ~app ~channel
+        ~thread_ts ~canvas_file_id ~ready_ts:ts ~now;
       !wake ()
   | (C.Own_relay _ | C.Target_reaction _ | C.Target_reply _) as observation ->
       Pickup.enqueue ~db ~team_id:team ~api_app_id:app ~now observation;

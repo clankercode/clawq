@@ -11,6 +11,7 @@ module C = Slack_huddle_classify
 module L = Slack_huddle_ledger
 module Ctx = Slack_standing_order_ctx
 module Sql = Slack_standing_order_sql
+module Schedule = Slack_standing_order_schedule
 
 let valid_ts ts =
   T.valid_slack_ts ts
@@ -76,18 +77,23 @@ let retry_state db ~fire_id =
 
 let backoff n = match n with 0 -> 120. | 1 -> 300. | 2 -> 600. | _ -> 1200.
 
-let evaluate ~ctx ~db ~manager ?http ~stage (order : T.order) =
-  let limit ~channel_id =
-    if not (ctx.Ctx.accepting ()) then Lwt.fail Lwt.Canceled
-    else
-      let* () = ctx.limit ~channel_id in
-      if ctx.accepting () then Lwt.return_unit else Lwt.fail Lwt.Canceled
+let transport_limit ~ctx ~channel_id () =
+  if not (ctx.Ctx.accepting ()) then Lwt.fail Lwt.Canceled
+  else
+    let* () = ctx.limit ~channel_id in
+    if ctx.accepting () then Lwt.return_unit else Lwt.fail Lwt.Canceled
+
+let evaluate ~ctx ~db ~manager ?http ?http_response ?before_send
+    ?(unit_label = "fire") ~stage (order : T.order) =
+  let before_send () =
+    if not (ctx.Ctx.accepting ()) then Error SO.Dispatch_refused
+    else Option.fold ~none:(Ok ()) ~some:(fun check -> check ()) before_send
   in
-  Grant.evaluate ~db
+  Grant.evaluate ?limiter:ctx.Ctx.limiter ~db
     ~current_config:(fun () -> Session.get_config manager)
-    ?http
-    ~limit:(fun () -> limit ~channel_id:order.T.channel_id)
-    ~now:(ctx.now ()) ~stage ~unit_label:"fire"
+    ?http ?http_response ~before_send
+    ~limit:(transport_limit ~ctx ~channel_id:order.T.channel_id)
+    ~now:(ctx.now ()) ~stage ~unit_label
     (Grant.subject_of_order order)
 
 let save ~ctx ~db ~lease ~(before : Store.fire_runtime) ~after =
@@ -161,7 +167,7 @@ let refuse ~ctx ~db ~lease (r : Store.fire_runtime) (failure : Grant.failure) =
   | Inactive -> terminal ~ctx ~db ~lease r T.Skipped_inactive reason
   | Capped -> terminal ~ctx ~db ~lease r T.Skipped_cap reason
 
-let read_root ~call ~channel ~root_ts =
+let inspect_root ?(require_ended = true) ~call ~channel ~root_ts () =
   let+ response =
     P.request call "conversations.history"
       [
@@ -182,10 +188,13 @@ let read_root ~call ~channel ~root_ts =
           match C.room_of_json (P.get "room" root) with
           | Some room
             when room.date_start <> None
-                 && P.get "has_ended" (P.get "room" root) = `Bool true ->
+                 && ((not require_ended)
+                    || P.get "has_ended" (P.get "room" root) = `Bool true) ->
               Ok (root, room)
           | _ -> Error (P.Rejected "root_mismatch"))
       | _ -> Error (P.Rejected "root_mismatch"))
+
+let read_root ~call ~channel ~root_ts = inspect_root ~call ~channel ~root_ts ()
 
 let current_order ~db ~manager ~now (v : Grant.validated) (order : T.order) =
   if Session.get_config manager != v.config then None
@@ -253,107 +262,245 @@ let with_lease ~ctx ~db ?renew_wait ~fire_id work =
           Store.release db ~fire_id ~lease:!latest ~now:(ctx.now ());
           Lwt.return_unit)
 
-let resolve_pending ~ctx ~db ~manager ?http ?roots:only_roots (order : T.order)
-    =
-  if not (ctx.Ctx.accepting ()) then Lwt.return_unit
-  else
-    let* grant = evaluate ~ctx ~db ~manager ?http ~stage:Grant.Resolve order in
-    match grant with
-    | Error { Grant.cls = Hard; reason } ->
-        ignore
-          (Store.suspend_if_epoch db ~order_id:order.id ~epoch:order.epoch
-             ~reason:(Grant.reason_code reason) ~now:(ctx.now ()));
-        Lwt.return_unit
-    | Error _ -> Lwt.return_unit
+let with_resolution_lease =
+  Slack_standing_order_resolution_lease.with_resolution_lease
+
+let resolve_pending ~ctx ~db ~manager ?http ?http_response ?roots:only_roots
+    (order : T.order) =
+  Schedule.sync ~db order;
+  let roots =
+    L.list_rows ~db ~team:order.team_id ~channel:order.channel_id
+    |> List.filter_map Schedule.root_of_row
+    |> List.sort_uniq String.compare
+    |> List.filter (fun root ->
+        Option.fold ~none:true ~some:(List.mem root) only_roots)
+  in
+  (* Share only this pass's read validation across due roots. Fire and every
+     write still validate independently; a config publication discards this. *)
+  let validation = ref None in
+  let unit_label = "reconcile:" ^ Store.new_id ~prefix:"resolve" in
+  let validate ~ctx ~before_send =
+    let* result =
+      match !validation with
+      | Some v when Session.get_config manager == v.Grant.config ->
+          Lwt.return (Ok v)
+      | _ ->
+          evaluate ~ctx ~db ~manager ?http ?http_response ~before_send
+            ~unit_label ~stage:Grant.Resolve order
+    in
+    match result with
+    | Error _ -> Lwt.return result
     | Ok v ->
-        let order = Option.get v.order in
-        let rows =
-          L.list_rows ~db ~team:order.team_id ~channel:order.channel_id
+        validation := Some v;
+        (* Reuse read facts, never the previous root owner's transport. *)
+        let call =
+          SO.make ~capability_fence:true ~db
+            ~current_config:(fun () -> Session.get_config manager)
+            ~snapshot:v.snapshot ~channel_id:order.channel_id
+            ~audit:(SO.audit_label ~order_id:(Some order.id) ~unit_label)
+            ?http ?http_response ?limiter:ctx.Ctx.limiter ~team_id:order.team_id
+            ~app_id:order.api_app_id
+            ~limit:(transport_limit ~ctx ~channel_id:order.channel_id)
+            ~before_send ()
         in
-        let roots =
-          List.filter_map
-            (fun (r : L.row) ->
-              match r.kind with
-              | L.Notes_stub -> r.notes_thread_ts
-              | Room -> r.root_ts)
-            rows
-          |> List.sort_uniq String.compare
-          |> List.filter (fun root ->
-              Option.fold ~none:true ~some:(List.mem root) only_roots)
-        in
-        let rec resolve = function
-          | [] -> Lwt.return_unit
-          | _ when not (ctx.accepting ()) -> Lwt.return_unit
-          | root_ts :: rest -> (
-              let* root =
-                read_root ~call:v.call ~channel:order.channel_id ~root_ts
-              in
-              if not (ctx.accepting ()) then Lwt.return_unit
-              else
-                match
-                  (root, current_order ~db ~manager ~now:(ctx.now ()) v order)
-                with
-                | Ok (root, room), Some fresh
-                  when started_eligible ~order:fresh
-                         ~date_start:(Option.get room.date_start)
-                         ~fire_epoch:order.epoch ->
-                    let date_start = Option.get room.date_start in
-                    L.record_seen ~db ~team:order.team_id
-                      ~channel:order.channel_id ~source:"reconcile"
-                      ~now:(ctx.now ()) ~root_ts ~file_ids:(P.file_ids root)
-                      room;
-                    let* () =
-                      match
-                        Store.insert_fire db ~order:fresh ~room_id:room.room_id
-                          ~date_start:(string_of_int date_start) ~root_ts
-                          ~now:(ctx.now ()) ()
-                      with
-                      | Ok (Some fire) ->
-                          checkpoint db ~fire_id:fire.id ~date_end:room.date_end
-                            ~now:(ctx.now ());
-                          with_lease ~ctx ~db ~fire_id:fire.id (fun ctx lease ->
-                              let r =
-                                Option.get (Store.runtime db ~fire_id:fire.id)
-                              in
-                              let after = { r with root_ts = Some root_ts } in
-                              match save ~ctx ~db ~lease ~before:r ~after with
-                              | Error _ -> Lwt.return_unit
-                              | Ok () ->
-                                  checkpoint db ~fire_id:fire.id
-                                    ~date_end:room.date_end ~now:(ctx.now ());
-                                  let* fire_grant =
-                                    evaluate ~ctx ~db ~manager ?http
-                                      ~stage:
-                                        (Grant.Fire
-                                           {
-                                             fire_epoch = fire.epoch;
-                                             fire_id = fire.id;
-                                           })
-                                      fresh
-                                  in
-                                  (if ctx.accepting () then
-                                     match fire_grant with
-                                     | Ok _ -> ()
-                                     | Error failure ->
-                                         ignore
-                                           (refuse ~ctx ~db ~lease after failure));
-                                  Lwt.return_unit)
-                      | Ok None -> Lwt.return_unit
-                      | Error _ -> Lwt.fail_with "fire_insert_failed"
+        Lwt.return (Ok { v with Grant.call })
+  in
+  Lwt_list.iter_s
+    (fun root_ts ->
+      if not (ctx.Ctx.accepting ()) then Lwt.return_unit
+      else
+        match
+          Schedule.claim_resolution ~db
+            ~key:(Schedule.key order root_ts)
+            ~owner_id:(Store.new_id ~prefix:"resolve")
+            ~now:(ctx.now ())
+        with
+        | None -> Lwt.return_unit
+        | Some initial ->
+            let worker_accepting = ctx.Ctx.accepting in
+            with_resolution_lease ~ctx ~db initial (fun ctx lease ->
+                let finish outcome =
+                  ignore
+                    (Schedule.finish_resolution ~db ~lease ~outcome
+                       ~now:(ctx.now ()))
+                in
+                let config = Session.get_config manager in
+                let failed failure =
+                  if ctx.accepting () then
+                    let failure =
+                      if Session.get_config manager != config then
+                        Grant.failure Grant.Config_changed
+                      else failure
                     in
-                    resolve rest
-                | Error (P.Api { method_; error }), _ ->
-                    let failure = P.grant_failure ~method_ error in
-                    if failure.cls = Grant.Hard then
-                      ignore
-                        (Store.suspend_if_epoch db ~order_id:order.id
-                           ~epoch:order.epoch
-                           ~reason:(Grant.reason_code failure.reason)
-                           ~now:(ctx.now ()));
-                    Lwt.return_unit
-                | _ -> resolve rest)
-        in
-        resolve roots
+                    ignore
+                      (Schedule.fail_resolution ~db ~lease ~failure
+                         ~now:(ctx.now ()))
+                in
+                let before_send () =
+                  if
+                    ctx.accepting ()
+                    && Session.get_config manager == config
+                    && Option.fold ~none:false
+                         ~some:(fun (o : T.order) ->
+                           o.state = T.Active && o.epoch = order.epoch
+                           && o.team_id = order.team_id
+                           && o.api_app_id = order.api_app_id
+                           && o.channel_id = order.channel_id
+                           && Grant.unexpired o ~now:(ctx.now ())
+                           && Store.activation_announced db ~order_id:o.id)
+                         (Store.find db order.id)
+                  then Ok ()
+                  else Error SO.Dispatch_refused
+                in
+                Lwt.catch
+                  (fun () ->
+                    let* grant = validate ~ctx ~before_send in
+                    match grant with
+                    | Error failure ->
+                        failed failure;
+                        Lwt.return_unit
+                    | Ok _
+                      when not
+                             (Schedule.owns_resolution ~db ~lease
+                                ~now:(ctx.now ())) ->
+                        Lwt.return_unit
+                    | Ok v -> (
+                        let* root =
+                          inspect_root ~require_ended:false ~call:v.call
+                            ~channel:order.channel_id ~root_ts ()
+                        in
+                        if
+                          (not (ctx.accepting ()))
+                          || not
+                               (Schedule.owns_resolution ~db ~lease
+                                  ~now:(ctx.now ()))
+                        then (
+                          failed
+                            (Grant.failure
+                               (Grant.Indeterminate "resolution_stopped"));
+                          Lwt.return_unit)
+                        else
+                          match
+                            ( root,
+                              current_order ~db ~manager ~now:(ctx.now ()) v
+                                order )
+                          with
+                          | Ok (root, room), Some _ when not room.has_ended ->
+                              Slack_standing_order_recovery_store.record_root db
+                                ~order ~root_ts ~room_id:room.room_id
+                                ~date_start:
+                                  (string_of_int (Option.get room.date_start))
+                                ~fire_id:None;
+                              finish Schedule.Live;
+                              Lwt.return_unit
+                          | Ok (root, room), Some fresh
+                            when started_eligible ~order:fresh
+                                   ~date_start:(Option.get room.date_start)
+                                   ~fire_epoch:order.epoch ->
+                              let date_start = Option.get room.date_start in
+                              Slack_standing_order_recovery_store.record_root db
+                                ~order:fresh ~root_ts ~room_id:room.room_id
+                                ~date_start:(string_of_int date_start)
+                                ~fire_id:None;
+                              L.record_seen ~db ~team:order.team_id
+                                ~channel:order.channel_id ~source:"reconcile"
+                                ~now:(ctx.now ()) ~root_ts
+                                ~file_ids:(P.file_ids root) room;
+                              let* () =
+                                match
+                                  if
+                                    Slack_standing_order_rollout_store
+                                    .suppressed db ~order_id:fresh.id ~root_ts
+                                      ~room_id:room.room_id
+                                      ~date_start:(string_of_int date_start)
+                                  then Ok None
+                                  else
+                                    Store.insert_fire db ~order:fresh
+                                      ~room_id:room.room_id
+                                      ~date_start:(string_of_int date_start)
+                                      ~root_ts ~now:(ctx.now ()) ()
+                                with
+                                | Ok (Some fire) ->
+                                    Slack_standing_order_recovery_store
+                                    .record_root db ~order:fresh ~root_ts
+                                      ~room_id:room.room_id
+                                      ~date_start:(string_of_int date_start)
+                                      ~fire_id:(Some fire.id);
+                                    checkpoint db ~fire_id:fire.id
+                                      ~date_end:room.date_end ~now:(ctx.now ());
+                                    with_lease ~ctx ~db ~fire_id:fire.id
+                                      (fun ctx fire_lease ->
+                                        let r =
+                                          Option.get
+                                            (Store.runtime db ~fire_id:fire.id)
+                                        in
+                                        let after =
+                                          { r with root_ts = Some root_ts }
+                                        in
+                                        match
+                                          save ~ctx ~db ~lease:fire_lease
+                                            ~before:r ~after
+                                        with
+                                        | Error _ ->
+                                            Lwt.fail_with
+                                              "resolution_fire_fence"
+                                        | Ok () ->
+                                            let* fire_grant =
+                                              evaluate ~ctx ~db ~manager ?http
+                                                ?http_response
+                                                ~stage:
+                                                  (Grant.Fire
+                                                     {
+                                                       fire_epoch = fire.epoch;
+                                                       fire_id = fire.id;
+                                                     })
+                                                fresh
+                                            in
+                                            (if ctx.accepting () then
+                                               match fire_grant with
+                                               | Ok _ -> ()
+                                               | Error failure -> (
+                                                   failed failure;
+                                                   match
+                                                     refuse ~ctx ~db
+                                                       ~lease:fire_lease after
+                                                       failure
+                                                   with
+                                                   | Ok () -> ()
+                                                   | Error code -> failwith code
+                                                   ));
+                                            Lwt.return_unit)
+                                | Ok None -> Lwt.return_unit
+                                | Error _ -> Lwt.fail_with "fire_insert_failed"
+                              in
+                              finish Schedule.Settled;
+                              Lwt.return_unit
+                          | Error (P.Api { method_; error }), _ ->
+                              failed (P.grant_failure ~method_ error);
+                              Lwt.return_unit
+                          | _, None ->
+                              failed (Grant.failure Grant.Config_changed);
+                              Lwt.return_unit
+                          | Ok _, Some _ ->
+                              finish Schedule.Settled;
+                              Lwt.return_unit
+                          | Error _, Some _ ->
+                              (* Malformed/wrong-neighbor data is uncertainty, never
+                             successful inspection or proof of disappearance. *)
+                              failed
+                                (Grant.failure
+                                   (Grant.Indeterminate "root_unverified"));
+                              Lwt.return_unit))
+                  (function
+                    | Lwt.Canceled
+                      when worker_accepting () && not (ctx.accepting ()) ->
+                        Lwt.return_unit
+                    | exn ->
+                        failed
+                          (Grant.failure
+                             (Grant.Indeterminate "resolution_failed"));
+                        Lwt.fail exn)))
+    roots
 
 let transcript_conflict db ~fire_id id =
   match id with
@@ -366,7 +513,8 @@ let transcript_conflict db ~fire_id id =
         ignore
       <> []
 
-let fetch ~ctx ~db ~manager ?http ~lease (initial : Store.fire_runtime) =
+let fetch ~ctx ~db ~manager ?http ?http_response ~lease
+    (initial : Store.fire_runtime) =
   let run () =
     match Store.runtime db ~fire_id:initial.fire.id with
     | None -> Lwt.return (Error "fetch_missing")
@@ -388,7 +536,7 @@ let fetch ~ctx ~db ~manager ?http ~lease (initial : Store.fire_runtime) =
                  (terminal ~ctx ~db ~lease r T.Skipped_inactive "order_missing"))
         | Some order -> (
             let* grant =
-              evaluate ~ctx ~db ~manager ?http
+              evaluate ~ctx ~db ~manager ?http ?http_response
                 ~stage:
                   (Grant.Fire { fire_epoch = r.fire.epoch; fire_id = r.fire.id })
                 order
@@ -431,6 +579,11 @@ let fetch ~ctx ~db ~manager ?http ~lease (initial : Store.fire_runtime) =
                           | Error (P.Api { method_; error }) ->
                               refuse ~ctx ~db ~lease r
                                 (P.grant_failure ~method_ error)
+                          | Error (P.Incomplete { method_; code }) ->
+                              retry ~ctx ~db ~lease r ~no_notes:false
+                                ~reason:
+                                  ("incomplete:" ^ method_ ^ ":"
+                                  ^ Slack_standing_order_pages.code_name code)
                           | Error P.Not_ready ->
                               retry ~ctx ~db ~lease r ~no_notes:true
                                 ~reason:"notes_not_ready"
@@ -521,8 +674,9 @@ let fetch ~ctx ~db ~manager ?http ~lease (initial : Store.fire_runtime) =
                                         else Error P.Unavailable
                                 in
                                 let* verified =
-                                  P.verify_with_source ~before_content
-                                    ~call:v.call ~order ~room_id:r.fire.room_id
+                                  P.verify_with_source_mode ~strict_pages:true
+                                    ~before_content ~call:v.call ~order
+                                    ~room_id:r.fire.room_id
                                     ~date_start:r.fire.date_start ~root_ts
                                 in
                                 if not (ctx.accepting ()) then
@@ -536,6 +690,7 @@ let fetch ~ctx ~db ~manager ?http ~lease (initial : Store.fire_runtime) =
                                    row is returned last, immediately before CAS. *)
                                       let* grant =
                                         evaluate ~ctx ~db ~manager ?http
+                                          ?http_response
                                           ~stage:
                                             (Grant.Fire
                                                {
@@ -647,51 +802,94 @@ let fetch ~ctx ~db ~manager ?http ~lease (initial : Store.fire_runtime) =
                                                         (Error
                                                            "fetch_store_failed")
                                                 | Ok () -> (
-                                                    let skip =
-                                                      match order.action with
-                                                      | T.Relay_to_app_mention a
-                                                        ->
-                                                          payload.transcript
-                                                          = None
-                                                          && a
-                                                               .when_no_transcript
-                                                             = T.Skip
-                                                    in
-                                                    let outcome =
-                                                      if skip then
-                                                        terminal ~ctx ~db ~lease
-                                                          after
-                                                          T
-                                                          .Skipped_no_transcript
-                                                          (if
-                                                             payload
-                                                               .transcript_unavailable
-                                                           then
-                                                             "transcript_unavailable"
-                                                           else "no_transcript")
-                                                      else Ok ()
-                                                    in
-                                                    match outcome with
-                                                    | Error _ as e ->
-                                                        Lwt.return e
-                                                    | Ok () ->
-                                                        L.set_verified ~db
-                                                          ~team:order.team_id
-                                                          ~channel:
-                                                            order.channel_id
-                                                          ~room_id:
-                                                            r.fire.room_id
-                                                          ~date_start:
-                                                            payload.date_start
-                                                          ~transcript_file_id:
-                                                            transcript_id
-                                                          ~finalised:skip;
-                                                        Lwt.return
-                                                          (Ok
-                                                             (if skip then None
-                                                              else Some payload))
+                                                    if
+                                                      not
+                                                        (Slack_standing_order_recovery_store
+                                                         .record_cleanup_sources
+                                                           db ~fire_id:r.fire.id
+                                                           ~lease
+                                                           ~canvas:
+                                                             payload.canvas_id
+                                                           ~transcript:
+                                                             transcript_id
+                                                           ~now:(ctx.now ()))
+                                                    then
+                                                      Lwt.return
+                                                        (Error
+                                                           "fetch_source_proof_failed")
+                                                    else
+                                                      let skip =
+                                                        match order.action with
+                                                        | T.Relay_to_app_mention
+                                                            a ->
+                                                            payload.transcript
+                                                            = None
+                                                            && a
+                                                                 .when_no_transcript
+                                                               = T.Skip
+                                                      in
+                                                      let outcome =
+                                                        if skip then
+                                                          terminal ~ctx ~db
+                                                            ~lease after
+                                                            T
+                                                            .Skipped_no_transcript
+                                                            (if
+                                                               payload
+                                                                 .transcript_unavailable
+                                                             then
+                                                               "transcript_unavailable"
+                                                             else
+                                                               "no_transcript")
+                                                        else Ok ()
+                                                      in
+                                                      match outcome with
+                                                      | Error _ as e ->
+                                                          Lwt.return e
+                                                      | Ok () ->
+                                                          L.set_verified ~db
+                                                            ~team:order.team_id
+                                                            ~channel:
+                                                              order.channel_id
+                                                            ~room_id:
+                                                              r.fire.room_id
+                                                            ~date_start:
+                                                              payload.date_start
+                                                            ~transcript_file_id:
+                                                              transcript_id
+                                                            ~finalised:skip;
+                                                          Lwt.return
+                                                            (Ok
+                                                               (if skip then
+                                                                  None
+                                                                else
+                                                                  Some payload))
                                                     )))))))))
   in
   Lwt.catch run (function
     | Lwt.Canceled -> Lwt.fail Lwt.Canceled
     | _ -> Lwt.return (Error "fetch_internal"))
+
+module Resolution = Slack_standing_order_resolution
+
+type incomplete_code = Resolution.incomplete_code
+type verified_root = Resolution.verified_root
+type verified_end = Resolution.verified_end
+type candidate_id = Resolution.candidate_id
+type fixed_reason = Resolution.fixed_reason
+
+type resolution = Resolution.resolution =
+  | Live of verified_root
+  | Not_ready of verified_end
+  | Candidate of candidate_id
+  | Ineligible of fixed_reason
+  | Missing_exact_root
+  | Unavailable of fixed_reason
+  | No_notes of verified_end
+
+type resolution_failure = Resolution.resolution_failure =
+  | Authority of Grant.failure
+  | Incomplete of { method_ : string; code : incomplete_code }
+  | Lost_fence
+
+let resolve_with_grant = Resolution.resolve_with_grant

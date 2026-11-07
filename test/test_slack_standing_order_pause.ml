@@ -593,7 +593,7 @@ let test_has_orders_read_failure () =
       (match P.channel_has_orders env.base.manager route with
       | Error cause ->
           check_bool ("the cause: " ^ cause) true
-            (contains cause "no such column")
+            (contains cause "invalid installation schema")
       | Ok has -> Alcotest.failf "a failed read answered %b" has);
       Lwt.return_unit)
 

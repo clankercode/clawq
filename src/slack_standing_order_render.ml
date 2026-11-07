@@ -245,6 +245,32 @@ let activation_notice (o : T.order) ~card_id =
       actions [ button ~action_id:action_pause ~value:card_id "Pause" ];
     ]
 
+(* Block ids are fixed metadata, never text derived from huddle content. *)
+let catchup_marker ~card_id = "clawq-catchup/1:" ^ card_id
+
+external catchup_local_format : string -> int -> string
+  = "clawq_relay_local_format"
+
+let catchup_notice (o : T.order) ~card_id ~count ~release_at =
+  let time = catchup_local_format "%H:%M %Z" (int_of_float release_at) in
+  let text =
+    Printf.sprintf
+      "clawq was offline; %d huddles will be relayed at %s. Pause %s to stop \
+       them."
+      count time (so o)
+  in
+  card ~text
+    [
+      section text;
+      `Assoc
+        [
+          ("type", `String "actions");
+          ("block_id", `String (catchup_marker ~card_id));
+          ( "elements",
+            `List [ button ~action_id:action_pause ~value:card_id "Pause" ] );
+        ];
+    ]
+
 let resume_card (o : T.order) ~card_id =
   let title = Printf.sprintf "Resume standing order %s?" (so o) in
   card ~text:title
@@ -472,7 +498,8 @@ let order_summary_json (o : T.order) ~last_fire : Yojson.Safe.t =
       ("last_fire", Option.fold ~none:`Null ~some:fire_json last_fire);
     ]
 
-let order_detail_json ?(reports = []) (o : T.order) ~fires : Yojson.Safe.t =
+let order_detail_json ?(recovery = `Null) ?(reports = []) (o : T.order) ~fires :
+    Yojson.Safe.t =
   let (T.Relay_to_app_mention { when_no_transcript; _ }) = o.action in
   `Assoc
     [
@@ -490,6 +517,7 @@ let order_detail_json ?(reports = []) (o : T.order) ~fires : Yojson.Safe.t =
       ("suspended_reason", opt_string o.suspended_reason);
       ("instruction", instruction_json o);
       ("recent_fires", `List (List.map fire_json fires));
+      ("recovery", recovery);
       ( "report_statuses",
         `List
           (List.map
@@ -499,3 +527,5 @@ let order_detail_json ?(reports = []) (o : T.order) ~fires : Yojson.Safe.t =
              reports) );
       ("note", `String untrusted_note);
     ]
+
+let cleanup_note = Slack_standing_order_cleanup_scope.note_text

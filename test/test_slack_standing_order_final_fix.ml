@@ -244,6 +244,7 @@ let test_worker_cancelled_history () =
                ~ctx:(Test_slack_standing_order_worker.context e c)
                ~db:e.db ~manager:e.manager ~http:e.mock.http
                ~upload_http:Relay.raw_success ();
+             cover_order e.db e.order;
              seen e;
              ready e ();
              E.wake ();
@@ -370,6 +371,7 @@ let test_worker_history () =
            (fun () ->
              E.start ~ctx:w ~db:e.db ~manager:e.manager ~http
                ~upload_http:Relay.raw_success ();
+             cover_order e.db e.order;
              seen e;
              ready e ();
              E.wake ();

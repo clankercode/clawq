@@ -111,7 +111,8 @@ let prelude ~current_config ~tool_name ~args json
       (Session.get_db turn.request.manager)
   in
   let now = Store.now () in
-  ignore (Store.expire_pending db ~now : int);
+  if not (List.mem tool_name [ list_name; show_name ]) then
+    ignore (Store.expire_pending db ~now : int);
   Ok { turn; route; db; config; now }
 
 let bad_order =
@@ -336,11 +337,24 @@ let store_plan p (v : Grant.validated) ~action ~current_state ~diff
 let plan_order p (v : Grant.validated) ~order_id ~action =
   let user = requester p in
   match
-    Store.insert_pending p.db ~id:order_id ~team_id:p.route.team
-      ?enterprise_id:v.enterprise_id ~api_app_id:p.route.app
-      ~channel_id:p.route.channel ~grantor_user_id:user
-      ?principal_id:(principal_for ~db:p.db ~team_id:p.route.team ~user_id:user)
-      ~action ~management_thread_ts:p.route.root ~now:p.now ()
+    if Session.get_config (manager p) != v.config then
+      Error (Store.Insert_failed "configuration changed after Plan")
+    else
+      Store.insert_pending p.db
+        ~verified_identity:
+          {
+            Slack_standing_order_rollout_store.team_id = p.route.team;
+            app_id = p.route.app;
+            enterprise_id = v.enterprise_id;
+            own_user_id = v.bot_user_id;
+            own_bot_id = v.bot_id;
+          }
+        ~id:order_id ~team_id:p.route.team ?enterprise_id:v.enterprise_id
+        ~api_app_id:p.route.app ~channel_id:p.route.channel
+        ~grantor_user_id:user
+        ?principal_id:
+          (principal_for ~db:p.db ~team_id:p.route.team ~user_id:user)
+        ~action ~management_thread_ts:p.route.root ~now:p.now ()
   with
   | Error (Store.Duplicate_live { display_no }) ->
       Lwt.return (error (Render.reason_text (Grant.Duplicate_order display_no)))
@@ -433,7 +447,8 @@ let create ~current_config p json =
           | Ok ((sc : Runtime_config.slack_config), snapshot) -> (
               let allowed = sc.standing_orders.allowed_targets in
               let call =
-                SO.make ~db:p.db ~current_config ~snapshot
+                SO.make ~capability_fence:true ~team_id:p.route.team
+                  ~app_id:p.route.app ~db:p.db ~current_config ~snapshot
                   ~channel_id:p.route.channel
                   ~audit:
                     (SO.audit_label ~order_id:(Some order_id) ~unit_label:"plan")
@@ -472,7 +487,10 @@ let create ~current_config p json =
 
 let list p =
   let last_fire (o : T.order) =
-    match Store.list_fires p.db ~order_id:o.id ~limit:1 with
+    match
+      Slack_standing_order_recovery_store.list_fires_readonly p.db
+        ~order_id:o.id ~limit:1
+    with
     | f :: _ -> Some f
     | [] -> None
   in
@@ -495,8 +513,14 @@ let list p =
 let show p (o : T.order) =
   Yojson.Safe.to_string
     (Render.order_detail_json o
-       ~reports:(Slack_standing_order_report.statuses ~db:p.db ~order_id:o.id)
-       ~fires:(Store.list_fires p.db ~order_id:o.id ~limit:10))
+       ~recovery:
+         (Slack_standing_order_recovery_store.status_json p.db ~order_id:o.id)
+       ~reports:
+         (Slack_standing_order_recovery_store.report_statuses p.db
+            ~order_id:o.id)
+       ~fires:
+         (Slack_standing_order_recovery_store.list_fires_readonly p.db
+            ~order_id:o.id ~limit:10))
 
 (* ── pause, resume, cancel ──────────────────────────────────────────────── *)
 
@@ -509,7 +533,8 @@ let pause p (o : T.order) =
   in
   let receipt = Pause.receipt ~display_no:o.display_no ~by:user outcome in
   let+ () =
-    Pause.post_receipt ~manager:(manager p)
+    Pause.post_receipt ~manager:(manager p) ~team_id:p.route.team
+      ~app_id:p.route.app
       ?order:(Pause.order_of_outcome outcome)
       ~channel_id:p.route.channel ~thread_ts:p.route.root receipt
   in
@@ -531,7 +556,8 @@ let resume ~current_config p (o : T.order) =
                (Render.reason_text f.Grant.reason))
       | Ok (_, snapshot) -> (
           let call =
-            SO.make ~db:p.db ~current_config ~snapshot
+            SO.make ~capability_fence:true ~team_id:p.route.team
+              ~app_id:p.route.app ~db:p.db ~current_config ~snapshot
               ~channel_id:p.route.channel
               ~audit:
                 (SO.audit_label ~order_id:(Some o.id) ~unit_label:"resume_card")
@@ -589,7 +615,8 @@ let cancel ~current_config p (o : T.order) =
         Lwt.return (refused (Grant.Member_indeterminate "access_snapshot"))
     | Ok snapshot -> (
         let call =
-          SO.make ~db:p.db ~current_config ~snapshot ~channel_id:p.route.channel
+          SO.make ~team_id:p.route.team ~app_id:p.route.app ~db:p.db
+            ~current_config ~snapshot ~channel_id:p.route.channel
             ~audit:(SO.audit_label ~order_id:(Some o.id) ~unit_label:"cancel")
             ()
         in

@@ -1,3 +1,8 @@
+let on_connected : (unit -> unit) ref = ref (fun () -> ())
+let on_gap : (cause:string -> unit) ref = ref (fun ~cause:_ -> ())
+let on_ingress_admit = Slack_thread_ingress.on_ingress_admit
+let on_ingress_begin = Slack_thread_ingress.on_ingress_begin
+
 let get_wss_url ~app_token =
   let open Lwt.Syntax in
   let uri = "https://slack.com/api/apps.connections.open" in
@@ -212,6 +217,7 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
         (function
           | Lwt.Canceled -> Lwt.fail Lwt.Canceled
           | exn ->
+              !on_gap ~cause:"handler_failure";
               Logs.err (fun m ->
                   m "Slack Socket Mode: event handling failed: %s"
                     (Printexc.to_string exn));
@@ -236,6 +242,7 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
     let callbacks = ref [] in
     let connected_at = ref None in
     let stop reason =
+      !on_gap ~cause:"disconnect";
       if Lwt.is_sleeping stop_p then Lwt.wakeup_later stop_u reason
     in
     let callback msg =
@@ -244,6 +251,8 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
           match parse_envelope msg with
           | None -> Lwt.return_unit
           | Some env when env.payload_type = "hello" ->
+              !on_gap ~cause:"hello";
+              !on_connected ();
               connected_at := Some (now ());
               update Connected "hello received" None;
               if Lwt.is_sleeping hello_p then Lwt.wakeup_later hello_u ();
@@ -257,33 +266,49 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
               stop ("Slack disconnect: " ^ reason);
               Lwt.return_unit
           | Some env ->
-              let* () =
-                with_deadline ~sleep ~seconds:3.0 ~label:"ack timeout"
-                  (fun () ->
-                    ws.send_text
-                      (Yojson.Safe.to_string
-                         (`Assoc [ ("envelope_id", `String env.envelope_id) ])))
-              in
-              if
+              let delivery =
                 env.payload_type = "events_api"
                 || env.payload_type = "interactive"
-              then begin
-                let event_id =
-                  try
-                    Yojson.Safe.Util.(
-                      env.payload |> member "event_id" |> to_string)
-                  with _ -> ""
-                in
-                let key =
-                  if event_id = "" then "envelope:" ^ env.envelope_id
-                  else "event:" ^ event_id
-                in
-                if
-                  (not (Channel_util.Lru_dedup.mem dedup key))
-                  && not (Hashtbl.mem in_flight key)
-                then dispatch key (extract_event_body env.payload)
-              end;
-              Lwt.return_unit)
+              in
+              let body = extract_event_body env.payload in
+              if delivery then !on_ingress_admit ~body;
+              (* A new config/gap generation does not cancel this ACK wait.
+                 Keep it owned until synchronous handoff or cancellation. The
+                 common handler takes its own ticket before this one ends. *)
+              let finish =
+                if delivery then !on_ingress_begin ~body
+                else fun ~success:_ -> ()
+              in
+              Lwt.finalize
+                (fun () ->
+                  let* () =
+                    with_deadline ~sleep ~seconds:3.0 ~label:"ack timeout"
+                      (fun () ->
+                        ws.send_text
+                          (Yojson.Safe.to_string
+                             (`Assoc
+                                [ ("envelope_id", `String env.envelope_id) ])))
+                  in
+                  if delivery then begin
+                    let event_id =
+                      try
+                        Yojson.Safe.Util.(
+                          env.payload |> member "event_id" |> to_string)
+                      with _ -> ""
+                    in
+                    let key =
+                      if event_id = "" then "envelope:" ^ env.envelope_id
+                      else "event:" ^ event_id
+                    in
+                    if
+                      (not (Channel_util.Lru_dedup.mem dedup key))
+                      && not (Hashtbl.mem in_flight key)
+                    then dispatch key body
+                  end;
+                  Lwt.return_unit)
+                (fun () ->
+                  finish ~success:false;
+                  Lwt.return_unit))
         (function
           | Lwt.Canceled -> Lwt.fail Lwt.Canceled
           | exn ->
@@ -302,6 +327,18 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
       | None -> ());
       heartbeat ()
     in
+    (* Chain the close fence into the promise consumed by pick. Independent
+       callbacks on ws.closed have no FIFO ordering guarantee. *)
+    let closed =
+      Lwt.try_bind
+        (fun () -> Lwt.protected ws.closed)
+        (fun () ->
+          !on_gap ~cause:"transport_closed";
+          Lwt.return "transport closed")
+        (fun exn ->
+          !on_gap ~cause:"transport_failure";
+          Lwt.fail exn)
+    in
     Lwt.finalize
       (fun () ->
         ws.on_message (fun msg ->
@@ -313,17 +350,21 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
             Lwt.on_any task remove remove;
             task);
         let* reason =
-          Lwt.pick
-            [
-              stop_p;
-              (let* () = Lwt.protected ws.closed in
-               Lwt.return "transport closed");
-              (let* () =
-                 with_deadline ~sleep ~seconds:connect_timeout
-                   ~label:"hello timeout" (fun () -> hello_p)
-               in
-               heartbeat ());
-            ]
+          Lwt.catch
+            (fun () ->
+              Lwt.pick
+                [
+                  stop_p;
+                  closed;
+                  (let* () =
+                     with_deadline ~sleep ~seconds:connect_timeout
+                       ~label:"hello timeout" (fun () -> hello_p)
+                   in
+                   heartbeat ());
+                ])
+            (fun exn ->
+              !on_gap ~cause:"connection_failure";
+              Lwt.fail exn)
         in
         (match !connected_at with
         | Some since when now () -. since >= 60.0 ->
@@ -340,7 +381,9 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
     let* reason =
       Lwt.catch run_connection (function
         | Lwt.Canceled -> Lwt.fail Lwt.Canceled
-        | exn -> Lwt.return (Printexc.to_string exn))
+        | exn ->
+            !on_gap ~cause:"connection_failure";
+            Lwt.return (Printexc.to_string exn))
     in
     incr reconnects;
     let delay = Channel_util.Backoff.current backoff in
@@ -352,6 +395,7 @@ let run ?(sleep = Lwt_unix.sleep) ?(now = Unix.gettimeofday)
     loop ()
   in
   Lwt.finalize loop (fun () ->
+      !on_gap ~cause:"socket_stopped";
       (* Close native admission and join admitted UI replies before cancelling
          handlers. Routine reconnect never enters this terminal finalizer. *)
       Lwt.no_cancel

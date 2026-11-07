@@ -8,6 +8,8 @@ let apply_runtime_config_reload =
 
 let run ~(config : Runtime_config.t) =
   Daemon_logging.install ();
+  let standing_order_limiter = Slack_read_limiter.create () in
+  Slack_standing_order_slack.configure_limiter (Some standing_order_limiter);
   (* B830: shrink major-heap headroom so burst peaks do not become permanent
      RSS (OCaml 5.1 never decommits major chunks). *)
   Gc_init.apply ();
@@ -181,6 +183,15 @@ let run ~(config : Runtime_config.t) =
       ~landlock_enabled ?db ()
   in
   Slack_thread_execution.install session_manager;
+  (match db with
+  | None -> ()
+  | Some db ->
+      let ctx =
+        Slack_standing_order_exec.context ~limiter:standing_order_limiter
+          ~accepting:(fun () -> Slack_thread_runs.accepting session_manager)
+          ()
+      in
+      Slack_standing_order_reconcile.configure ~db ~manager:session_manager ~ctx);
   (match tool_registry with
   | Some registry ->
       refresh_runtime_bound_tools ~config:!current_config ~session_manager
@@ -857,12 +868,13 @@ let run ~(config : Runtime_config.t) =
   | None -> ()
   | Some db ->
       let ctx =
-        Slack_standing_order_exec.context
+        Slack_standing_order_exec.context ~limiter:standing_order_limiter
           ~accepting:(fun () ->
             (not !shutting_down) && (not !restarting)
             && Slack_thread_runs.accepting session_manager)
           ()
       in
+      Slack_standing_order_reconcile.start ~db ~manager:session_manager;
       Slack_standing_order_exec.start ~ctx ~db ~manager:session_manager ());
   Daemon_heartbeat.start ~config ~workspace ~session_manager;
   Daemon_background_loops.start_subagent_status_loop ~db;
@@ -880,6 +892,7 @@ let run ~(config : Runtime_config.t) =
          Lwt.return Shutdown);
       ]
   in
+  let* () = Slack_standing_order_reconcile.stop () in
   let* () = Slack_standing_order_exec.stop () in
   let* final_intent =
     match picked_intent with

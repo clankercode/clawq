@@ -25,8 +25,10 @@ type stage =
   | Replace of { replaces : string; replaced_epoch : int }
   | Resume
   | Resolve
+  | Reconcile of { reconcile_id : string }
   | Fire of { fire_epoch : int; fire_id : string }
   | Track of { fire_id : string }
+  | Cleanup of { fire_id : string }
 
 type failure_class = Hard | Transient | Inactive | Capped
 
@@ -145,16 +147,35 @@ type validated = {
   call : SO.call;
 }
 
+(* Opaque calls retain their per-pass read validation, exactly as if Scan had
+   received [validated] directly. This is not used by Fire or write validation. *)
+module Reconcile_contexts = Ephemeron.K1.Make (struct
+  type t = SO.call
+
+  let equal = ( == )
+  let hash _ = 0
+end)
+
+let reconcile_contexts = Reconcile_contexts.create 8
+
+let remember_reconcile ~stage result =
+  (match (stage, result) with
+  | Reconcile { reconcile_id }, Ok v ->
+      Reconcile_contexts.replace reconcile_contexts v.call (reconcile_id, v)
+  | _ -> ());
+  result
+
 (* ── Step 1: the zero-HTTP gate ─────────────────────────────────────────── *)
 
-let gate ~db ~(config : Runtime_config.t) ~channel_id ~order_ref =
+let gate_for ~cleanup ~db ~(config : Runtime_config.t) ~channel_id ~order_ref =
   let deny reason = Error (failure reason) in
+  Store.ensure_schema db;
   match config.channels.slack with
   | Some sc
     when sc.standing_orders.orders_enabled && config.security.tools_enabled -> (
       if not (Runtime_config.slack_has_valid_credentials sc) then
         deny Credentials_invalid
-      else if sc.standing_orders.allowed_targets = [] then
+      else if (not cleanup) && sc.standing_orders.allowed_targets = [] then
         deny Target_not_allowlisted
       else
         match SO.snapshot ~db ~config ~channel_id ~order_ref with
@@ -173,6 +194,8 @@ let gate ~db ~(config : Runtime_config.t) ~channel_id ~order_ref =
             | Some name -> deny (Tool_denied name)
             | None -> Ok (sc, snap)))
   | _ -> deny Feature_disabled
+
+let gate = gate_for ~cleanup:false
 
 (* ── Step 2: the stage's view of the order rows (sync) ──────────────────── *)
 
@@ -279,13 +302,23 @@ let stage_rows db ~now ~stage (s : subject) =
       let*? () = require_state o T.[ Paused; Suspended ] in
       let*? () = no_live_conflict db s ~excluding:o.id in
       only o
+  | Cleanup { fire_id } -> (
+      let*? o = own_row db s in
+      let*? () = require_state o T.[ Active; Paused; Suspended; Cancelled ] in
+      match Slack_standing_order_cleanup_store.find db fire_id with
+      | Some j
+        when j.order_id = o.id
+             && Some j.own_user = o.bot_user_id
+             && Some j.own_bot = o.bot_id ->
+          only o
+      | _ -> Error Identity_changed)
   | Track { fire_id } ->
       let*? o = own_row db s in
       let*? f = bound_fire db o fire_id in
       (* Dispatch evidence survives terminal states and pause/cancel epochs. *)
       if Option.is_some f.dispatched_at then only o
       else Error (Indeterminate "fire")
-  | Resolve ->
+  | Resolve | Reconcile _ ->
       let*? o = own_row db s in
       let*? () = require_state o [ T.Active ] in
       if not (unexpired o ~now) then Error Order_expired
@@ -296,6 +329,20 @@ let stage_rows db ~now ~stage (s : subject) =
       let*? o = own_row db s in
       let*? f = bound_fire db o fire_id in
       let*? () = require_state o [ T.Active ] in
+      let*? () =
+        let root =
+          Store.query db
+            "SELECT root_ts FROM slack_standing_order_fires WHERE id=?"
+            [ Sqlite3.Data.TEXT fire_id ] (fun s ->
+              Sql_util.opt_text_column s 0)
+        in
+        let root = match root with [ Some ts ] -> ts | _ -> "" in
+        if
+          Slack_standing_order_rollout_store.suppressed db ~order_id:o.id
+            ~root_ts:root ~room_id:f.room_id ~date_start:f.date_start
+        then Error (Indeterminate "already_delivered")
+        else Ok ()
+      in
       if o.epoch <> fire_epoch || f.epoch <> fire_epoch then
         Error Epoch_mismatch
       else if not (unexpired o ~now) then Error Order_expired
@@ -596,66 +643,183 @@ let tracking_call (call : SO.call) method_ params =
       call method_ params
   | _ -> Lwt.return (Error (SO.Method_not_permitted method_))
 
-let evaluate ~db ~current_config ?http ?limit ?now ~stage ~unit_label
-    (s : subject) =
+(* Cleanup never borrows grantor, active-state or target authority. Its pinned
+   artifacts and current installation are independently verified before writes. *)
+let evaluate_cleanup ~db ~current_config ?http ?http_response ?limiter ?priority
+    ?limit ?before_send ~now ~fire_id (s : subject) =
+  let module C = Slack_standing_order_cleanup_store in
+  let cfg = current_config () in
+  let order_ref =
+    Some { Access_snapshot.order_id = s.order_id; fire_id = Some fire_id }
+  in
+  match
+    gate_for ~cleanup:true ~db ~config:cfg ~channel_id:s.channel_id ~order_ref
+  with
+  | Error f -> Lwt.return (Error f)
+  | Ok (_, snapshot) -> (
+      let stage = Cleanup { fire_id } in
+      let check () =
+        if current_config () != cfg then Error SO.Dispatch_refused
+        else
+          match stage_rows db ~now ~stage s with
+          | Error _ -> Error SO.Dispatch_refused
+          | Ok _ -> (
+              match cfg.channels.slack with
+              | Some sc
+                when sc.standing_orders.orders_enabled
+                     && cfg.security.tools_enabled ->
+                  Option.fold ~none:(Ok ()) ~some:(fun f -> f ()) before_send
+              | _ -> Error SO.Dispatch_refused)
+      in
+      match stage_rows db ~now ~stage s with
+      | Error r -> Lwt.return (Error (failure r))
+      | Ok _ ->
+          let raw =
+            SO.make ~capability_fence:true ~db ~current_config ~snapshot
+              ~channel_id:s.channel_id
+              ~audit:
+                (SO.audit_label ~order_id:(Some s.order_id)
+                   ~unit_label:("cleanup:" ^ fire_id))
+              ?http ?http_response ?limiter ?priority ?limit ~before_send:check
+              ~team_id:s.team_id ~app_id:s.api_app_id ()
+          in
+          let bot_info = ref `Null in
+          let identity_call method_ params =
+            let+ response = raw method_ params in
+            (match (method_, response) with
+            | "bots.info", Ok json -> bot_info := get "bot" json
+            | _ -> ());
+            response
+          in
+          let* reads = installation identity_call s in
+          Lwt.return
+            (Result.map_error failure
+               (let*? user, bot, enterprise_id, team_url = reads in
+                let*? rows = stage_rows db ~now ~stage s in
+                let j = Option.get (C.find db fire_id) in
+                let*? () =
+                  if
+                    check () = Ok ()
+                    && enterprise_id = s.enterprise_id
+                    && user = j.own_user && bot = j.own_bot
+                    && field "id" !bot_info = bot
+                    && field "user_id" !bot_info = user
+                  then Ok ()
+                  else Error Identity_changed
+                in
+                let*? () =
+                  if current_config () == cfg then Ok ()
+                  else Error Config_changed
+                in
+                Ok
+                  {
+                    snapshot;
+                    config = cfg;
+                    order = rows.row;
+                    replaced = None;
+                    enterprise_id;
+                    bot_user_id = user;
+                    bot_id = bot;
+                    team_url;
+                    call =
+                      Slack_standing_order_cleanup_scope.scoped ~db ~job:j
+                        ~channel:s.channel_id raw;
+                  })))
+
+let evaluate ~db ~current_config ?http ?http_response ?limiter ?priority ?limit
+    ?before_send ?now ~stage ~unit_label (s : subject) =
   let now = match now with Some t -> t | None -> Store.now () in
   let run () =
-    let cfg : Runtime_config.t = current_config () in
-    let fire_id =
-      match stage with
-      | Fire { fire_id; _ } | Track { fire_id } -> Some fire_id
-      | Plan _ | Confirm | Replace _ | Resume | Resolve -> None
-    in
-    let order_ref = Some { Access_snapshot.order_id = s.order_id; fire_id } in
-    match gate ~db ~config:cfg ~channel_id:s.channel_id ~order_ref with
-    | Error f -> Lwt.return (Error f)
-    | Ok (sc, snapshot) -> (
-        match
-          let*? (_ : rows) = stage_rows db ~now ~stage s in
-          grantor_policy ~db sc s
-        with
-        | Error r -> Lwt.return (Error (failure r))
-        | Ok () ->
-            let call =
-              SO.make ~capability_fence:true ~db ~current_config ~snapshot
-                ~channel_id:s.channel_id
-                ~audit:(SO.audit_label ~order_id:(Some s.order_id) ~unit_label)
-                ?http ?limit ()
-            in
-            let call =
-              match stage with Track _ -> tracking_call call | _ -> call
-            in
-            let+ reads = slack_reads call sc s in
-            (* Step 11, with no yield from here to the caller's action: the
+    match stage with
+    | Cleanup { fire_id } ->
+        evaluate_cleanup ~db ~current_config ?http ?http_response ?limiter
+          ?priority ?limit ?before_send ~now ~fire_id s
+    | _ -> (
+        let cfg : Runtime_config.t = current_config () in
+        let fire_id =
+          match stage with
+          | Fire { fire_id; _ } | Track { fire_id } | Cleanup { fire_id } ->
+              Some fire_id
+          | Plan _ | Confirm | Replace _ | Resume | Resolve | Reconcile _ ->
+              None
+        in
+        let unit_label =
+          match stage with
+          | Reconcile { reconcile_id } -> "reconcile:" ^ reconcile_id
+          | Fire { fire_id; _ } | Track { fire_id } ->
+              "fire:" ^ fire_id ^ ":" ^ unit_label
+          | _ -> unit_label
+        in
+        let order_ref =
+          Some { Access_snapshot.order_id = s.order_id; fire_id }
+        in
+        match gate ~db ~config:cfg ~channel_id:s.channel_id ~order_ref with
+        | Error f -> Lwt.return (Error f)
+        | Ok (sc, snapshot) -> (
+            match
+              let*? (_ : rows) = stage_rows db ~now ~stage s in
+              grantor_policy ~db sc s
+            with
+            | Error r -> Lwt.return (Error (failure r))
+            | Ok () ->
+                let call =
+                  SO.make ~capability_fence:true ~db ~current_config ~snapshot
+                    ~channel_id:s.channel_id
+                    ~audit:
+                      (SO.audit_label ~order_id:(Some s.order_id) ~unit_label)
+                    ?http ?http_response ?limiter ?priority ~team_id:s.team_id
+                    ~app_id:s.api_app_id ?limit ?before_send ()
+                in
+                let call =
+                  match stage with Track _ -> tracking_call call | _ -> call
+                in
+                let+ reads = slack_reads call sc s in
+                (* Step 11, with no yield from here to the caller's action: the
                same config, then step 3's admin read, then the rows, last. *)
-            Result.map_error failure
-              (let*? () =
-                 match
-                   SO.capability_denied (current_config ())
-                     ~channel_id:s.channel_id
-                 with
-                 | Some name -> Error (Tool_denied name)
-                 | None -> Ok ()
-               in
-               let*? bot_user_id, bot_id, enterprise_id, team_url = reads in
-               let*? () =
-                 if current_config () != cfg then Error Config_changed
-                 else Ok ()
-               in
-               let*? () = grantor_policy ~db sc s in
-               let*? rows = stage_rows db ~now ~stage s in
-               Ok
-                 {
-                   snapshot;
-                   config = cfg;
-                   order = rows.row;
-                   replaced = rows.old_row;
-                   enterprise_id;
-                   bot_user_id;
-                   bot_id;
-                   team_url;
-                   call;
-                 }))
+                Result.map_error failure
+                  (let*? () =
+                     match
+                       SO.capability_denied (current_config ())
+                         ~channel_id:s.channel_id
+                     with
+                     | Some name -> Error (Tool_denied name)
+                     | None -> Ok ()
+                   in
+                   let*? bot_user_id, bot_id, enterprise_id, team_url = reads in
+                   let*? () =
+                     if current_config () != cfg then Error Config_changed
+                     else Ok ()
+                   in
+                   let*? () =
+                     match
+                       Slack_standing_order_rollout_store.revalidate_identity db
+                         {
+                           team_id = s.team_id;
+                           app_id = s.api_app_id;
+                           enterprise_id;
+                           own_user_id = bot_user_id;
+                           own_bot_id = bot_id;
+                         }
+                     with
+                     | Ok true -> Ok ()
+                     | Ok false -> Error Identity_changed
+                     | Error _ -> Error (Indeterminate "rollout_identity")
+                   in
+                   let*? () = grantor_policy ~db sc s in
+                   let*? rows = stage_rows db ~now ~stage s in
+                   Ok
+                     {
+                       snapshot;
+                       config = cfg;
+                       order = rows.row;
+                       replaced = rows.old_row;
+                       enterprise_id;
+                       bot_user_id;
+                       bot_id;
+                       team_url;
+                       call;
+                     })
+                |> remember_reconcile ~stage))
   in
   Lwt.catch run (function
     | Lwt.Canceled -> Lwt.fail Lwt.Canceled
@@ -727,3 +891,15 @@ let check_member ~(call : SO.call) ~(config : Runtime_config.t) ~team_id
         | _ -> refuse (Member_indeterminate "conversations.members")
       in
       page "" 1
+
+(* Recover only this call's already completed Reconcile read validation.
+   New passes must evaluate afresh; current config and the final local stage
+   are checked here as well as by the scan's owner/gap fence. *)
+let reconcile_validation ~db ~current_config ~call ~now ~reconcile_id s =
+  match Reconcile_contexts.find_opt reconcile_contexts call with
+  | Some (id, v) when id = reconcile_id && v.config == current_config () ->
+      Result.map_error failure
+        (Result.map
+           (fun _ -> v)
+           (stage_rows db ~now ~stage:(Reconcile { reconcile_id }) s))
+  | _ -> Error (failure Config_changed)

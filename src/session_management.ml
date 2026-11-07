@@ -38,10 +38,18 @@ let memory_snapshot ?(now = Unix.gettimeofday ()) mgr ~idle_threshold_s () =
     { live_sessions = 0; idle = 0; evictable = 0; total_msgs = 0 }
   |> fun acc -> { acc with live_sessions = Hashtbl.length mgr.sessions }
 
+let on_config_published : (unit -> unit) ref = ref (fun () -> ())
+
 let update_config ?(source = "") mgr config =
   let old_model = mgr.config.Runtime_config.agent_defaults.primary_model in
   let new_model = config.Runtime_config.agent_defaults.primary_model in
   mgr.config <- config;
+  let publication_error =
+    try
+      !on_config_published ();
+      None
+    with exn -> Some (exn, Printexc.get_raw_backtrace ())
+  in
   if old_model <> new_model then
     if source = "" then
       Logs.info (fun m ->
@@ -70,7 +78,11 @@ let update_config ?(source = "") mgr config =
         Session_room_profile.resolve_instruction_items_for_session mgr ~key;
       Agent.sync_observed_active_workspace_files agent;
       persist_session_workspace_state mgr ~key agent)
-    (Hashtbl.to_seq mgr.sessions |> List.of_seq)
+    (Hashtbl.to_seq mgr.sessions |> List.of_seq);
+  (* Direct publishers also need synchronized agents when the outward hook fails. *)
+  match publication_error with
+  | None -> ()
+  | Some (exn, backtrace) -> Printexc.raise_with_backtrace exn backtrace
 
 (* B822: model-override keys must match the sanitized keys the session table
    and get_or_create_locked use. Callers inside a turn (e.g. the models tool)

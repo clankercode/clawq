@@ -2,6 +2,90 @@
 
 (* ── Pure validation / builder functions (tested) ────────────────── *)
 
+(* Canonical app permissions; connections:write belongs to the app token. *)
+let bot_scopes =
+  [
+    "app_mentions:read";
+    "assistant:write";
+    "channels:history";
+    "channels:read";
+    "chat:write";
+    "groups:history";
+    "groups:read";
+    "im:history";
+    "im:read";
+    "im:write";
+    "mpim:history";
+    "mpim:read";
+    "users:read";
+    "files:read";
+    "files:write";
+    "canvases:read";
+    "canvases:write";
+    "reactions:read";
+    "reactions:write";
+  ]
+
+let bot_events =
+  [
+    "app_mention";
+    "message.channels";
+    "message.groups";
+    "message.im";
+    "agent_session_stopped";
+    "app_home_opened";
+    "app_context_changed";
+    "reaction_added";
+    "member_joined_channel";
+    "channel_shared";
+  ]
+
+(* HTTP URLs are editable examples, never an inferred public endpoint. *)
+let manifest_json ~socket_mode : Yojson.Safe.t =
+  let endpoint = `String "https://example.invalid/slack/events" in
+  let http_url key = if socket_mode then [] else [ (key, endpoint) ] in
+  `Assoc
+    [
+      ("display_information", `Assoc [ ("name", `String "Clawq") ]);
+      ( "features",
+        `Assoc
+          [
+            ( "bot_user",
+              `Assoc
+                [
+                  ("display_name", `String "Clawq");
+                  ("always_online", `Bool true);
+                ] );
+            ( "app_home",
+              `Assoc
+                [
+                  ("home_tab_enabled", `Bool true);
+                  ("messages_tab_enabled", `Bool true);
+                  ("messages_tab_read_only", `Bool false);
+                ] );
+            ( "agent_view",
+              `Assoc [ ("agent_description", `String "Clawq thread assistant") ]
+            );
+          ] );
+      ( "oauth_config",
+        `Assoc
+          [
+            ( "scopes",
+              `Assoc [ ("bot", Setup_common.json_string_list bot_scopes) ] );
+          ] );
+      ( "settings",
+        `Assoc
+          [
+            ( "event_subscriptions",
+              `Assoc
+                (("bot_events", Setup_common.json_string_list bot_events)
+                :: http_url "request_url") );
+            ( "interactivity",
+              `Assoc (("is_enabled", `Bool true) :: http_url "request_url") );
+            ("socket_mode_enabled", `Bool socket_mode);
+          ] );
+    ]
+
 let validate_bot_token s =
   let trimmed = String.trim s in
   if trimmed = "" then Error "Bot token cannot be empty."
@@ -62,27 +146,16 @@ let post_setup_instructions ~events_path ~socket_mode ~gateway_port ~tunnel_url
     OAuth & Permissions:
     4. Navigate to "OAuth & Permissions"
     5. Add these Bot Token Scopes:
-       - app_mentions:read
-       - chat:write
-       - channels:history
-       - groups:history
-       - im:history
-       - mpim:history
-       - channels:read
-       - groups:read
-       - im:read
-       - mpim:read
-       - users:read
-       - assistant:write
+%s
        Thread context verifies the human and bot are channel members.
-       For optional huddle discovery/content tools, also add:
-       - files:read
+       Canvas/file permissions support long answers and I065 canvas tools.
        Huddle reads require bot and requesting-user channel membership.
     Agent experience (current agent_view):
-       In the app manifest, declare features.agent_view with an
-       agent_description (for example, "Clawq thread assistant").
-       Subscribe to agent_session_stopped (chat:write), app_home_opened,
-       app_context_changed (assistant:write), and the message events below.
+       Declare features.bot_user and features.app_home with writable
+       messages, plus features.agent_view with an agent_description
+       (for example, "Clawq thread assistant").
+       Subscribe to the complete bot event list below (native task UX,
+       channel messages, pickup reactions and channel posture changes).
        Enable Interactivity for the run-specific "Stop this task" buttons.
        Socket Mode delivers interactive envelopes; HTTP uses the same signed
        Events Request URL for Interactivity. Native APIs may return
@@ -91,8 +164,11 @@ let post_setup_instructions ~events_path ~socket_mode ~gateway_port ~tunnel_url
     6. Install the app to your workspace
     7. Copy the "Bot User OAuth Token" (xoxb-...) into this wizard
 %s%s|}
+    (String.concat "\n"
+       (List.map (fun scope -> "       - " ^ scope) bot_scopes))
     (if socket_mode then
-       {|
+       Printf.sprintf
+         {|
     Socket Mode (recommended):
     8. Navigate to "Settings" > "Socket Mode"
     9. Enable Socket Mode
@@ -102,8 +178,9 @@ let post_setup_instructions ~events_path ~socket_mode ~gateway_port ~tunnel_url
     Event Subscriptions:
    12. Navigate to "Event Subscriptions"
    13. Enable Events (no Request URL needed in Socket Mode)
-   14. Subscribe to bot events: app_mention, message.channels, message.groups, message.im
+   14. Subscribe to bot events: %s
 |}
+         (String.concat ", " bot_events)
      else
        Printf.sprintf
          {|
@@ -111,13 +188,14 @@ let post_setup_instructions ~events_path ~socket_mode ~gateway_port ~tunnel_url
     8. Navigate to "Event Subscriptions"
     9. Enable Events
    10. Set Request URL to: %s
-   11. Subscribe to bot events: app_mention, message.channels, message.groups, message.im
+   11. Subscribe to bot events: %s
 
     Signing Secret:
    12. Navigate to "Settings" > "Basic Information"
    13. Copy the "Signing Secret" into this wizard
 |}
-         events_url)
+         events_url
+         (String.concat ", " bot_events))
     (match tunnel_url with
     | None when not socket_mode ->
         "\n\

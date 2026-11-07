@@ -939,3 +939,60 @@ let suite =
     Alcotest.test_case "parse envelope empty payload" `Quick
       test_parse_envelope_empty_payload;
   ]
+
+let test_admit_before_ack () =
+  let old = !Slack_socket.on_ingress_admit in
+  let admitted = ref false in
+  Fun.protect
+    ~finally:(fun () -> Slack_socket.on_ingress_admit := old)
+    (fun () ->
+      (Slack_socket.on_ingress_admit := fun ~body:_ -> admitted := true);
+      let socket = make_socket () in
+      with_connector [ socket ] (fun _ _ _ delivered _ ->
+          let open Lwt.Syntax in
+          let* () = hello socket in
+          let pending, _ = Lwt.task () in
+          socket.ack_pending := Some pending;
+          let delivery = socket.emit (event "before-ack") in
+          Alcotest.(check bool)
+            "admitted synchronously before ACK resolves" true !admitted;
+          Alcotest.(check bool)
+            "ACK really pending" true (Lwt.is_sleeping delivery);
+          Alcotest.(check int) "handler has not run" 0 (List.length !delivered);
+          Lwt.cancel delivery;
+          Lwt.return_unit))
+
+let test_closed_invalidates_before_continuation () =
+  let old = !Slack_socket.on_gap in
+  let closed = ref false in
+  Fun.protect
+    ~finally:(fun () -> Slack_socket.on_gap := old)
+    (fun () ->
+      (Slack_socket.on_gap :=
+         fun ~cause -> if cause = "transport_closed" then closed := true);
+      let socket = make_socket () in
+      let observed = ref false in
+      let close () =
+        observed := !closed;
+        socket.transport.close ()
+      in
+      let socket =
+        { socket with transport = { socket.transport with close } }
+      in
+      with_connector [ socket ] (fun _ _ _ _ _ ->
+          let open Lwt.Syntax in
+          let* () = hello socket in
+          socket.drop ();
+          let* () = settle 20 in
+          Alcotest.(check bool)
+            "close hook precedes pick finalizer" true !observed;
+          Lwt.return_unit))
+
+let suite =
+  suite
+  @ [
+      Alcotest.test_case "verified ingress reserved before ACK wait" `Quick
+        test_admit_before_ack;
+      Alcotest.test_case "closed gap callback precedes pick continuations"
+        `Quick test_closed_invalidates_before_continuation;
+    ]

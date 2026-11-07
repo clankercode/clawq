@@ -377,7 +377,10 @@ let test_status_and_exceptions () =
           in
           let result = Lwt_main.run (post ~http db cfg snap) in
           if status >= 200 && status < 300 then expect_ok result
-          else expect_error (SO.Http_status status) result)
+          else
+            expect_error
+              (if status = 429 then SO.Rate_limited else SO.Http_status status)
+              result)
         [ 200; 201; 204; 299; 300; 302; 400; 429; 500 ];
       let http _ = Lwt.fail_with (uri ^ " BODY_SECRET") in
       let result, logs =
@@ -536,8 +539,49 @@ let test_fake_time () =
   check_bool "finalization restores clock" true
     (!Slack_standing_order_store.clock == previous)
 
+let test_shared_upload_retry () =
+  let module Clock = Test_slack_read_limiter in
+  List.iter
+    (fun headers ->
+      Clock.with_clock (fun c limiter ->
+          let open Lwt.Syntax in
+          let db = S.fresh_db () and cfg = ref (config ()) and calls = ref 0 in
+          let snap = snapshot db !cfg in
+          let http (request : Upload.request) =
+            incr calls;
+            check_headers request.Upload.headers;
+            Lwt.return { success with status = 429; headers }
+          in
+          let send ~http =
+            Upload.post ~db
+              ~current_config:(fun () -> !cfg)
+              ~snapshot:snap ~channel_id:"C123" ~audit ~limiter ~http ~uri
+              ~body:bytes ()
+          in
+          let* result = send ~http in
+          expect_error SO.Rate_limited result;
+          Alcotest.(check int) "raw upload is never retried" 1 !calls;
+          let queued =
+            send ~http:(fun _ ->
+                incr calls;
+                Lwt.return success)
+          in
+          let delay = SO.retry_delay headers in
+          let* () = Clock.advance c (delay -. 0.001) in
+          check_bool "second upload waits for server cooldown" true
+            (Lwt.is_sleeping queued);
+          (* Revocation during cooldown is checked before the raw socket. *)
+          cfg := config ~allowed:false ();
+          let* () = Clock.advance c 0.001 in
+          let+ result = queued in
+          expect_error (SO.Egress_denied "upload") result;
+          Alcotest.(check int) "revocation blocks HTTP" 1 !calls))
+    [ [ ("Retry-After", "17") ]; []; [ ("Retry-After", "nan") ] ]
+
 let suite =
   [
+    S.case "raw upload shares retry headers and rechecks policy"
+      test_shared_upload_retry;
     S.case "shared upload preserves relay fence" test_shared_fence;
     S.case "upload before_send follows limiter and blocks HTTP" test_before_send;
     S.case "fake time advances explicitly and finalizes cancellable waits"

@@ -227,6 +227,11 @@ let bind ~manager ~db ~now ~payload ~button action =
         Ok o
     | _ -> Error "the card's order is unavailable"
   in
+  let* () =
+    require
+      (Slack_standing_order_card_store.catchup_card_valid db card order)
+      "the catch-up notice is not bound to this epoch"
+  in
   let action_ts =
     match get "action_ts" action with
     | `String ts when T.valid_slack_ts ts -> Some ts
@@ -245,7 +250,10 @@ let card_open c =
 let is_admin c = Admin.is_admin ~db:c.db ~channel:"slack" ~sender_id:c.clicker
 
 let make_call c snapshot =
-  SO.make ~db:c.db ~current_config:(current_config c) ~snapshot
+  SO.make
+    ~priority:
+      (if c.card.kind = T.Pause_button then Slack_read_limiter.Pause else Live)
+    ~db:c.db ~current_config:(current_config c) ~snapshot
     ~channel_id:c.card.channel_id
     ~audit:
       (SO.audit_label ~order_id:(Some c.order.id)
@@ -548,9 +556,11 @@ let resume c =
 let pause c =
   let o = c.order in
   let* outcome =
-    Pause.run ~manager:c.manager ~now:c.now ~team_id:c.card.team_id
-      ~app_id:c.card.app_id ~channel_id:c.card.channel_id ~user_id:c.clicker
-      ~target:(`Order o.id) ~source:Pause.Button ()
+    Pause.run ~manager:c.manager ~now:c.now
+      ?guard:(Slack_standing_order_card_store.catchup_pause_guard c.db c.card)
+      ~team_id:c.card.team_id ~app_id:c.card.app_id
+      ~channel_id:c.card.channel_id ~user_id:c.clicker ~target:(`Order o.id)
+      ~source:Pause.Button ()
   in
   let outcome =
     match outcome with
@@ -558,7 +568,8 @@ let pause c =
     | outcome -> outcome
   in
   (* An unknown diagnostic count still gets the successful pause receipt. *)
-  Pause.post_receipt ~manager:c.manager
+  Pause.post_receipt ~manager:c.manager ~team_id:c.card.team_id
+    ~app_id:c.card.app_id
     ?order:(Pause.order_of_outcome outcome)
     ~channel_id:c.card.channel_id ~thread_ts:(reply_thread c)
     (Pause.receipt ~display_no:o.display_no ~by:c.clicker outcome)
