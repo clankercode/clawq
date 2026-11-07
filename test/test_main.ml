@@ -311,7 +311,8 @@ let all_suites =
     ("slack_standing_order_pickup", Test_slack_standing_order_pickup.suite);
     ( "slack_standing_order_retention",
       Test_slack_standing_order_retention.suite
-      @ Test_slack_standing_order_retention_faults.suite );
+      @ Test_slack_standing_order_retention_faults.suite
+      @ Test_slack_standing_order_retention_import.suite );
     ("slack_standing_order_exec", Test_slack_standing_order_exec.suite);
     ("slack_standing_order_worker", Test_slack_standing_order_worker.suite);
     ( "slack_standing_order_receipt_import",

@@ -162,6 +162,55 @@ let refresh db (o : T.order) ~now =
   transaction db (fun () ->
       let recent_ids = ref [] in
       let remember id = recent_ids := id :: !recent_ids in
+      let automatic id canvas transcript own_user own_bot =
+        let attempts =
+          Sql.query db
+            ("SELECT " ^ Store.attempt_columns
+           ^ " FROM slack_standing_order_dispatches WHERE fire_id=? ORDER BY \
+              attempt_no")
+            [ Sql.text id ]
+            Store.decode_attempt
+        in
+        let dispatched =
+          List.filter
+            (fun (a : Store.relay_attempt) ->
+              a.attempt_no >= 0 && a.attempt_no <= 1
+              && (match a.dispatched_at with
+                | Some t -> Float.is_finite t && t > 0. && t <= now
+                | None -> false)
+              && Option.fold ~none:true
+                   ~some:(fun ts ->
+                     Option.fold ~none:false
+                       ~some:(fun t -> Float.is_finite t && t > 0. && t <= now)
+                       (stamp ts))
+                   a.relay_ts)
+            attempts
+        in
+        if
+          Option.fold ~none:false
+            ~some:(fun (j : job) -> j.missing)
+            (find db id)
+          || List.exists
+               (fun (a : Store.relay_attempt) ->
+                 recent now
+                   (Option.value
+                      (Option.bind a.relay_ts stamp)
+                      ~default:(Option.get a.dispatched_at)))
+               dispatched
+        then (
+          remember id;
+          install_job db o ~id ~canvas ~transcript ~own_user ~own_bot
+            ~files:
+              (List.concat_map
+                 (fun (a : Store.relay_attempt) -> a.uploaded_file_ids)
+                 dispatched
+              |> sorted)
+            ~threads:
+              (List.filter_map
+                 (fun (a : Store.relay_attempt) -> a.relay_ts)
+                 dispatched
+              |> sorted))
+      in
       Sql.query db
         "SELECT id,source_canvas_id,source_transcript_id FROM \
          slack_standing_order_fires WHERE order_id=?"
@@ -171,61 +220,15 @@ let refresh db (o : T.order) ~now =
             Sql_util.opt_text_column s 1,
             Sql_util.opt_text_column s 2 ))
       |> List.iter (fun (id, canvas, transcript) ->
-          let attempts =
-            Sql.query db
-              ("SELECT " ^ Store.attempt_columns
-             ^ " FROM slack_standing_order_dispatches WHERE fire_id=? ORDER BY \
-                attempt_no")
-              [ Sql.text id ]
-              Store.decode_attempt
-          in
-          let dispatched =
-            List.filter
-              (fun (a : Store.relay_attempt) ->
-                a.attempt_no >= 0 && a.attempt_no <= 1
-                && (match a.dispatched_at with
-                  | Some t -> Float.is_finite t && t > 0. && t <= now
-                  | None -> false)
-                && Option.fold ~none:true
-                     ~some:(fun ts ->
-                       Option.fold ~none:false
-                         ~some:(fun t ->
-                           Float.is_finite t && t > 0. && t <= now)
-                         (stamp ts))
-                     a.relay_ts)
-              attempts
-          in
-          if
-            Option.fold ~none:false
-              ~some:(fun (j : job) -> j.missing)
-              (find db id)
-            || List.exists
-                 (fun (a : Store.relay_attempt) ->
-                   recent now
-                     (Option.value
-                        (Option.bind a.relay_ts stamp)
-                        ~default:(Option.get a.dispatched_at)))
-                 dispatched
-          then
-            match (canvas, o.bot_user_id, o.bot_id) with
-            | Some canvas, Some own_user, Some own_bot ->
-                remember id;
-                install_job db o ~id ~canvas ~transcript ~own_user ~own_bot
-                  ~files:
-                    (List.concat_map
-                       (fun (a : Store.relay_attempt) -> a.uploaded_file_ids)
-                       dispatched
-                    |> sorted)
-                  ~threads:
-                    (List.filter_map
-                       (fun (a : Store.relay_attempt) -> a.relay_ts)
-                       dispatched
-                    |> sorted)
-            | _ -> ());
+          match (canvas, o.bot_user_id, o.bot_id) with
+          | Some canvas, Some own_user, Some own_bot ->
+              automatic id canvas transcript own_user own_bot
+          | _ -> ());
       (* Imported rows are append-only reviewed proof. Revalidate their exact digest,
        scope and own identity, never interpret editable relay prose as proof. *)
       Sql.query db
-        "SELECT e.receipt_digest,e.metadata,e.automatic_fire FROM \
+        "SELECT \
+         e.receipt_digest,e.metadata,e.automatic_fire,e.automatic_attempt FROM \
          slack_standing_order_external_deliveries e JOIN \
          slack_standing_order_suppression s ON \
          s.receipt_digest=e.receipt_digest WHERE s.order_id=?"
@@ -233,8 +236,9 @@ let refresh db (o : T.order) ~now =
         (fun s ->
           ( Sql_util.text_column s 0,
             Sql_util.text_column s 1,
-            Sql_util.opt_text_column s 2 ))
-      |> List.iter (fun (digest, raw, automatic) ->
+            Sql_util.opt_text_column s 2,
+            Sql_util.opt_int_column s 3 ))
+      |> List.iter (fun (digest, raw, linked_fire, linked_attempt) ->
           let r =
             Slack_standing_order_receipt_import.receipt_of_json
               (Yojson.Safe.from_string raw)
@@ -249,19 +253,47 @@ let refresh db (o : T.order) ~now =
             && r.identity.team_id = o.team_id
             && r.identity.app_id = o.api_app_id
             && r.identity.enterprise_id = o.enterprise_id
-            && Option.fold ~none:false ~some:(recent now) (stamp r.relay_ts)
+            &&
+            match (linked_fire, linked_attempt) with
+            | None, None -> true
+            | Some id, Some n ->
+                Slack_standing_order_delivery_inventory.link_valid db
+                  (Yojson.Safe.from_string raw)
+                  (Some (id, n))
+            | _ -> false
           then
-            match r.source_canvas_id with
-            | Some canvas ->
-                let id =
-                  Option.value automatic ~default:("external:" ^ digest)
+            match (r.source_canvas_id, linked_fire) with
+            | Some canvas, Some id ->
+                (* Reviewed source proof supplements only the exact retained fire.
+                   Conflicting dedicated proof must never widen this association. *)
+                let compatible =
+                  Sql.int_query db
+                    "SELECT count(*) FROM slack_standing_order_fires WHERE \
+                     id=? AND order_id=? AND (source_canvas_id IS NULL OR \
+                     source_canvas_id=?) AND (source_transcript_id IS NULL OR \
+                     source_transcript_id=?)"
+                    Sql.
+                      [
+                        text id;
+                        text o.id;
+                        text canvas;
+                        opt r.source_transcript_id;
+                      ]
+                  = 1
                 in
+                if compatible then
+                  automatic id canvas r.source_transcript_id
+                    r.identity.own_user_id r.identity.own_bot_id
+            | Some canvas, None
+              when Option.fold ~none:false ~some:(recent now) (stamp r.relay_ts)
+              ->
+                let id = "external:" ^ digest in
                 remember id;
                 install_job db o ~id ~canvas ~transcript:r.source_transcript_id
                   ~own_user:r.identity.own_user_id
                   ~own_bot:r.identity.own_bot_id ~files:r.own_file_ids
                   ~threads:[ r.relay_ts ]
-            | None -> ());
+            | _ -> ());
       Sql.query db
         "SELECT id FROM slack_order_cleanup_jobs WHERE order_id=? AND \
          missing=0 AND status='watching'"

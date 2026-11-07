@@ -371,6 +371,7 @@
   test_slack_standing_order_retention
   test_slack_standing_order_retention_support
   test_slack_standing_order_retention_faults
+  test_slack_standing_order_retention_import
   test_slack_read_limiter
   test_slack_standing_order_slack
   test_slack_file_upload
