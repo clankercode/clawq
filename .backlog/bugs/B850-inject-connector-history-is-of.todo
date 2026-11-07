@@ -1,13 +1,17 @@
 ---
+completed_at: null
 complexity: medium
 created_at: "2026-11-06T03:10:05Z"
 depends_on: []
 estimate_hours: 1
 id: B850
 priority: high
+started_at: null
 status: pending
 tags: []
 title: inject_connector_history is offered in Slack rooms while connector_history.enabled=false, so users see a ✗ tool error
 updated_at: "2026-11-06T03:10:05Z"
 ---
 Same test thread (06 Nov 14:07): the model called inject_connector_history {count:30}, which failed with 'connector_history.enabled is false. Enable it in config to capture unaddressed group messages.' The ✗ line was posted in the thread. The tool should be hidden when the feature is disabled, like B844's unbound-room tools. Also review the redaction: the WARN 'Raw model tool-call data for failed inject_connector_history (... reason=[slack canvas content redacted]): [slack canvas content redacted]' wrongly labels unrelated tool-call data as canvas content, which hides diagnostics.
+
+Decision 2026-11-07: separate tool-gating lane from B849/B851. Reproduce disabled connector-history advertisement, hide it using current config including runtime reloads, and retain a clear execution-time refusal. Correct misleading canvas diagnostic labeling while preserving fail-closed redaction for mixed/unknown tool batches. All tests/builds/fmt only via shared-lock x-p35 gate; no push.
