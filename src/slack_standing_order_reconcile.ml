@@ -128,7 +128,8 @@ let record_gap db (order : T.order) previous now =
                   ]))
         (uncovered ~last_success:last ~now)
 
-let pass_with ~ctx ?http ?http_response ~db ~manager (original : T.order) =
+let discovery_pass_with ~ctx ?http ?http_response ~db ~manager
+    (original : T.order) =
   R.ensure_schema db;
   A.ensure_schema db;
   let mutex =
@@ -460,6 +461,14 @@ let pass_with ~ctx ?http ?http_response ~db ~manager (original : T.order) =
                  The next tick renews it; a new pass re-adopts it only after coverage. *)
                           heartbeat))))
 
+(* Cleanup does not consume discovery admission, its pass owner or pause epoch. *)
+let pass_with ~ctx ?http ?http_response ~db ~manager order =
+  let* () =
+    Slack_standing_order_retention.pass ~ctx ~db ~manager ?http ?http_response
+      order
+  in
+  discovery_pass_with ~ctx ?http ?http_response ~db ~manager order
+
 let pass ~db ~manager order =
   match !Life.configured with
   | Some c when c.db == db && c.manager == manager ->
@@ -577,6 +586,11 @@ let start ~db ~manager =
         else (
           w.pending <- false;
           ignore (Life.scopes c);
+          let* () =
+            Lwt_list.iter_s
+              (Slack_standing_order_retention.pass ~ctx:c.ctx ~db ~manager)
+              (Slack_standing_order_retention.orders ~db ~now:(c.ctx.now ()))
+          in
           let* () = Lwt_list.iter_s (pass ~db ~manager) (Store.list db ()) in
           loop ())
       in

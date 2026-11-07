@@ -801,49 +801,68 @@ let fetch ~ctx ~db ~manager ?http ?http_response ~lease
                                                         (Error
                                                            "fetch_store_failed")
                                                 | Ok () -> (
-                                                    let skip =
-                                                      match order.action with
-                                                      | T.Relay_to_app_mention a
-                                                        ->
-                                                          payload.transcript
-                                                          = None
-                                                          && a
-                                                               .when_no_transcript
-                                                             = T.Skip
-                                                    in
-                                                    let outcome =
-                                                      if skip then
-                                                        terminal ~ctx ~db ~lease
-                                                          after
-                                                          T
-                                                          .Skipped_no_transcript
-                                                          (if
-                                                             payload
-                                                               .transcript_unavailable
-                                                           then
-                                                             "transcript_unavailable"
-                                                           else "no_transcript")
-                                                      else Ok ()
-                                                    in
-                                                    match outcome with
-                                                    | Error _ as e ->
-                                                        Lwt.return e
-                                                    | Ok () ->
-                                                        L.set_verified ~db
-                                                          ~team:order.team_id
-                                                          ~channel:
-                                                            order.channel_id
-                                                          ~room_id:
-                                                            r.fire.room_id
-                                                          ~date_start:
-                                                            payload.date_start
-                                                          ~transcript_file_id:
-                                                            transcript_id
-                                                          ~finalised:skip;
-                                                        Lwt.return
-                                                          (Ok
-                                                             (if skip then None
-                                                              else Some payload))
+                                                    if
+                                                      not
+                                                        (Slack_standing_order_recovery_store
+                                                         .record_cleanup_sources
+                                                           db ~fire_id:r.fire.id
+                                                           ~lease
+                                                           ~canvas:
+                                                             payload.canvas_id
+                                                           ~transcript:
+                                                             transcript_id
+                                                           ~now:(ctx.now ()))
+                                                    then
+                                                      Lwt.return
+                                                        (Error
+                                                           "fetch_source_proof_failed")
+                                                    else
+                                                      let skip =
+                                                        match order.action with
+                                                        | T.Relay_to_app_mention
+                                                            a ->
+                                                            payload.transcript
+                                                            = None
+                                                            && a
+                                                                 .when_no_transcript
+                                                               = T.Skip
+                                                      in
+                                                      let outcome =
+                                                        if skip then
+                                                          terminal ~ctx ~db
+                                                            ~lease after
+                                                            T
+                                                            .Skipped_no_transcript
+                                                            (if
+                                                               payload
+                                                                 .transcript_unavailable
+                                                             then
+                                                               "transcript_unavailable"
+                                                             else
+                                                               "no_transcript")
+                                                        else Ok ()
+                                                      in
+                                                      match outcome with
+                                                      | Error _ as e ->
+                                                          Lwt.return e
+                                                      | Ok () ->
+                                                          L.set_verified ~db
+                                                            ~team:order.team_id
+                                                            ~channel:
+                                                              order.channel_id
+                                                            ~room_id:
+                                                              r.fire.room_id
+                                                            ~date_start:
+                                                              payload.date_start
+                                                            ~transcript_file_id:
+                                                              transcript_id
+                                                            ~finalised:skip;
+                                                          Lwt.return
+                                                            (Ok
+                                                               (if skip then
+                                                                  None
+                                                                else
+                                                                  Some payload))
                                                     )))))))))
   in
   Lwt.catch run (function

@@ -384,7 +384,11 @@ let status_json db ~order_id =
         with _ -> `Null
       in
       `Assoc
-        (("coverage_origin", origin) :: ("catchup_batches", batches) :: fields)
+        (( "retention",
+           Slack_standing_order_cleanup_store.status_json db ~order_id )
+        :: ("coverage_origin", origin)
+        :: ("catchup_batches", batches)
+        :: fields)
   | json -> json
 
 let yield_owner db ~order_id ~owner ~now =
@@ -407,3 +411,19 @@ let resume_owner db ~order_id ~owner ~now =
         f now;
       ];
   Sqlite3.changes db = 1
+
+(* Only the completed verified fetch may populate retention source proof. The
+   attempt source fields alone can contain pre-content hints and are insufficient. *)
+let record_cleanup_sources db ~fire_id ~lease ~canvas ~transcript ~now =
+  tx_bool db (fun () ->
+      match Store.runtime db ~fire_id with
+      | Some r
+        when Store.valid_lease lease r now
+             && Store.sources_mutable r && r.canvas_id = Some canvas
+             && r.transcript_id = transcript ->
+          Sql.exec db
+            "UPDATE slack_standing_order_fires SET \
+             source_canvas_id=?,source_transcript_id=? WHERE id=?"
+            Sql.[ text canvas; Sqlite3.Data.opt_text transcript; text fire_id ];
+          Sqlite3.changes db = 1
+      | _ -> false)

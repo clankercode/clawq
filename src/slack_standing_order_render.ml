@@ -527,3 +527,5 @@ let order_detail_json ?(recovery = `Null) ?(reports = []) (o : T.order) ~fires :
              reports) );
       ("note", `String untrusted_note);
     ]
+
+let cleanup_note = Slack_standing_order_cleanup_scope.note_text

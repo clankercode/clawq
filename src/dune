@@ -588,6 +588,10 @@
   slack_final_reply
   slack_standing_order_upload
   slack_standing_order_grant
+  slack_standing_order_cleanup_store
+  slack_standing_order_cleanup_scope
+  slack_standing_order_cleanup_note
+  slack_standing_order_retention
   slack_standing_order_target
   slack_standing_order_render
   slack_standing_order_pause
