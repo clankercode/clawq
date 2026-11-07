@@ -511,8 +511,14 @@ let check_dispatch_unchanged db (before : Store.fire_runtime) =
   in
   check "retained identities, debits and clocks unchanged" true
     (identities before = identities after);
+  (* CAS refreshes the wall-clock audit stamp, independently of Store.clock. *)
   check "fire identity and accounting unchanged" true
-    ({ after.fire with state = before.fire.state } = before.fire);
+    ({
+       after.fire with
+       state = before.fire.state;
+       updated_at = before.fire.updated_at;
+     }
+    = before.fire);
   integer "current attempt unchanged" before.current_attempt
     after.current_attempt;
   check "source identity unchanged" true
@@ -525,6 +531,10 @@ let test_terminal_repost_observation capped st () =
     ~finally:(fun () -> ignore (Sqlite3.db_close db))
     (fun () ->
       let o, f, lease, now = terminal_repost db capped in
+      (* Force a different audit stamp without sleeping across a wall second. *)
+      Store.exec db
+        "UPDATE slack_standing_order_fires SET updated_at=? WHERE id=?"
+        [ Store.text "2000-01-01 00:00:00"; Store.text f.id ];
       let before = runtime db f.id in
       integer "expected re-post count"
         (if capped then 0 else 1)
@@ -532,9 +542,16 @@ let test_terminal_repost_observation capped st () =
       let debits = if capped then 1 else 2 in
       integer "expected dispatch debits" debits
         (Store.dispatches_since db ~order_id:o.id ~since:0.);
+      let earliest_stamp = Store.stamp () in
       check "retained original observation" true
         (ok (observe_original db f.id lease st (now +. 1.)));
       let after = runtime db f.id in
+      let latest_stamp = Store.stamp () in
+      check "observation refreshes audit stamp" true
+        (after.fire.updated_at <> before.fire.updated_at);
+      check "observation uses wall-clock audit stamp" true
+        (earliest_stamp <= after.fire.updated_at
+        && after.fire.updated_at <= latest_stamp);
       state "observation advances fire" st after.fire.state;
       let original = List.hd after.attempts in
       (match st with
