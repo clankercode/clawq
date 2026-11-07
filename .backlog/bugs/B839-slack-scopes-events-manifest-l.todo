@@ -1,17 +1,18 @@
 ---
 claimed_at: "2026-11-06T10:27:19Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-11-07T08:45:44Z"
 complexity: medium
 created_at: "2026-11-04T06:19:41Z"
 depends_on: []
+duration_minutes: 1338.4175665991334
 estimate_hours: 1
 id: B839
 priority: high
 started_at: "2026-11-06T10:27:19Z"
-status: in_progress
+status: done
 tags: []
 title: Slack scopes/events/manifest lists disagree across 5 sources; consolidate on one generated source
-updated_at: "2026-11-06T10:27:19Z"
+updated_at: "2026-11-07T08:45:44Z"
 ---
 Found 2026-11-04 (huddle-orders research clawq-ingress.md §3). Bot scopes and event subscriptions differ between src/setup_slack.ml, docs/setup-guide.md, docs/connector-reference.md, docs/src/content/docs/channels.mdx and an untracked docs/dist/slack-app-manifest.json (setup-guide lacks files:read; message.mpim only in the stray manifest; stray manifest declares a /clawq slash command the code drops). Make setup_slack.ml (or a generated manifest) the single source and derive docs from it. Live app A0CA40GBWTX scopes as of 2026-11-04 are recorded in .superpowers/sdd/huddle-orders/research/live-workspace-probe.md.
