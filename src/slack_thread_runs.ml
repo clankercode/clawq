@@ -240,24 +240,43 @@ let open_stream r =
           Logs.warn (fun m -> m "Slack stream unavailable: %s" reason));
       Lwt.return_unit
 
-let close_stream r state =
+(* These streams contain status only. Final answers use the checked final
+   sender, so stopStream alone would leave a permanent Working placeholder. *)
+let delete_message r ~token ts =
+  let* result =
+    call r ~token "chat.delete"
+      [ ("channel", str r.route.channel); ("ts", str ts) ]
+  in
+  (match result with
+  | Ok _ -> ()
+  | Error reason -> Logs.warn (fun m -> m "Slack task UI cleanup: %s" reason));
+  Lwt.return_unit
+
+let close_stream ?(update_status = true) r state =
   let previous = r.stream in
   r.stream <- None;
   r.stream_deadline <- None;
   match (previous, token r.manager) with
   | Some ts, Some token ->
-      let* result =
-        call r ~token "chat.stopStream"
-          [
-            ("channel", str r.route.channel);
-            ("ts", str ts);
-            ("session_status", str state);
-          ]
+      let* () =
+        if not update_status then Lwt.return_unit
+        else
+          let* result =
+            call r ~token "chat.stopStream"
+              [
+                ("channel", str r.route.channel);
+                ("ts", str ts);
+                ("session_status", str state);
+              ]
+          in
+          (match result with
+          | Ok _ -> ()
+          | Error reason ->
+              Logs.warn (fun m -> m "Slack stream close: %s" reason));
+          Lwt.return_unit
       in
-      (match result with
-      | Ok _ -> ()
-      | Error reason -> Logs.warn (fun m -> m "Slack stream close: %s" reason));
-      Lwt.return_unit
+      (* Deleting an old owned message does not change a successor's status. *)
+      delete_message r ~token ts
   | _ -> Lwt.return_unit
 
 let start_maintenance r =
@@ -451,24 +470,7 @@ let finish r =
               | None -> Lwt.return_unit
               | Some token -> (
                   let* () =
-                    match r.stream with
-                    | None -> Lwt.return_unit
-                    | Some _ when not owns_status ->
-                        r.stream <- None;
-                        Lwt.return_unit
-                    | Some ts ->
-                        r.stream <- None;
-                        (* stopStream changes native session status too. If ownership
-                   moved, only finalize this old message without an active write. *)
-                        let* _ =
-                          call r ~token "chat.stopStream"
-                            [
-                              ("channel", str r.route.channel);
-                              ("ts", str ts);
-                              ("session_status", str "active");
-                            ]
-                        in
-                        Lwt.return_unit
+                    close_stream ~update_status:owns_status r "active"
                   in
                   match r.control with
                   | None -> Lwt.return_unit
@@ -485,7 +487,11 @@ let finish r =
                             ("blocks", `List []);
                           ]
                       in
-                      Lwt.return_unit)
+                      (* Clear the Stop action before best-effort deletion, so a
+                         failed delete cannot leave an apparently live control.
+                         Stopped requests retain their explicit stop receipt. *)
+                      if r.stopped then Lwt.return_unit
+                      else delete_message r ~token ts)
             in
             if owns_status then (
               r.group.owner <- None;
