@@ -220,10 +220,12 @@ let collect ~db ~(order : T.order) ~oldest ~latest ~parent messages =
         | _ -> ())
     messages
 
-let sweep_internal ~page_budget ~wrap ~db ~manager ~ctx ~owner
-    ~(order : T.order) ~snapshot ~call =
+let sweep_internal ~pause_ctx ~pause_call ~page_budget ~wrap ~db ~manager ~ctx
+    ~owner ~(order : T.order) ~snapshot ~call =
   let config = Session.get_config manager in
-  let replay_check = pause_fence ~ctx ~db ~manager ~config ~owner ~order in
+  let replay_check =
+    pause_fence ~ctx:pause_ctx ~db ~manager ~config ~owner ~order
+  in
   protect ~check:replay_check ~db ~order ~owner ~unit:"pause" (fun () ->
       if
         not
@@ -394,10 +396,10 @@ let sweep_internal ~page_budget ~wrap ~db ~manager ~ctx ~owner
             (* Collect all pages before replay so pagination order never reorders commands. *)
             let replay_failure = ref None in
             let replay_call method_ params =
+              let call = Option.value pause_call ~default:snapshot.Grant.call in
               let+ result =
                 scoped ~check:replay_check ~priority:Slack_read_limiter.Pause
-                  (* Use the original call, not the active-only wrapper. *)
-                  snapshot.Grant.call method_ params
+                  call method_ params
               in
               (match result with
               | Error error ->
@@ -469,7 +471,7 @@ let sweep_internal ~page_budget ~wrap ~db ~manager ~ctx ~owner
             let*! () = replay_all messages in
             if
               not
-                (ctx.accepting ()
+                (pause_ctx.accepting ()
                 && R.replay_fenced db ~order ~owner ~now:(ctx.now ()))
             then Lwt.return (Error Lease_lost)
             else
@@ -526,19 +528,19 @@ let sweep ~db ~manager ~ctx ~owner ~(order : T.order) ~call =
           call;
         }
       in
-      sweep_internal ~page_budget:20 ~wrap:Fun.id ~db ~manager ~ctx ~owner
-        ~order ~snapshot:validated ~call
+      sweep_internal ~pause_ctx:ctx ~pause_call:None ~page_budget:20
+        ~wrap:Fun.id ~db ~manager ~ctx ~owner ~order ~snapshot:validated ~call
   | Some _ ->
       Lwt.return (Error (Grant_failure (Grant.failure Grant.Identity_changed)))
 
-let sweep_with_grant_wrapped ~page_budget ~wrap ~db ~manager ~ctx ~owner
-    ~(validated : Grant.validated) ~order =
-  sweep_internal ~page_budget ~wrap ~db ~manager ~ctx ~owner ~order
-    ~snapshot:validated ~call:validated.call
+let sweep_with_grant_wrapped ~pause_ctx ~pause_call ~page_budget ~wrap ~db
+    ~manager ~ctx ~owner ~(validated : Grant.validated) ~order =
+  sweep_internal ~pause_ctx ~pause_call ~page_budget ~wrap ~db ~manager ~ctx
+    ~owner ~order ~snapshot:validated ~call:validated.call
 
 let sweep_with_grant ~db ~manager ~ctx ~owner ~validated ~order =
-  sweep_with_grant_wrapped ~page_budget:20 ~wrap:Fun.id ~db ~manager ~ctx ~owner
-    ~validated ~order
+  sweep_with_grant_wrapped ~pause_ctx:ctx ~pause_call:None ~page_budget:20
+    ~wrap:Fun.id ~db ~manager ~ctx ~owner ~validated ~order
 
 let discover_wrapped ~page_budget ~wrap ~db ~manager ~ctx ~owner
     ~(order : T.order) ~call =

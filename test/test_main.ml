@@ -322,6 +322,8 @@ let all_suites =
       Test_slack_standing_order_reconcile_scan.suite );
     ( "slack_standing_order_broadcast_pause",
       Test_slack_standing_order_broadcast_pause.suite );
+    ( "slack_standing_order_pause_notifications",
+      Test_slack_standing_order_pause_notifications.suite );
     ( "slack_standing_order_recovery_store",
       Test_slack_standing_order_recovery_store.suite );
     ("slack_standing_order_schedule", Test_slack_standing_order_schedule.suite);

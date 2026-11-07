@@ -181,6 +181,17 @@ let discovery_pass_with ~ctx ?http ?http_response ~db ~manager
                               ~now:(ctx.now ())
                             && R.current_gap db gap ~connected:true)
                       in
+                      let pause_check () =
+                        if
+                          ctx.accepting ()
+                          && Session.get_config manager == config
+                          && R.attempt_bool (fun () ->
+                              R.current_gap db gap ~connected:true
+                              && R.replay_fenced db ~order ~owner
+                                   ~now:(ctx.now ()))
+                        then Ok ()
+                        else Error SO.Dispatch_refused
+                      in
                       let stop_lost () =
                         if Lwt.is_sleeping lost then
                           Lwt.wakeup_later_exn lost_u Owner_lost
@@ -203,6 +214,17 @@ let discovery_pass_with ~ctx ?http ?http_response ~db ~manager
                             && R.renew db ~order_id:order.id ~owner
                                  ~now:(ctx.now ())
                           then renew ()
+                          else if
+                            pause_check () = Ok ()
+                            && Option.fold ~none:false
+                                 ~some:(fun (o : T.order) ->
+                                   o.state = T.Paused
+                                   && o.epoch = order.epoch + 1)
+                                 (Store.find db order.id)
+                          then
+                            (* Only fixed pause replay may finish under
+                               the retained lease. Never renew an inactive pass. *)
+                            renew ()
                           else (
                             stop_lost ();
                             Lwt.return_unit)
@@ -266,6 +288,41 @@ let discovery_pass_with ~ctx ?http ?http_response ~db ~manager
                               if valid () then A.failed db order.id (ctx.now ());
                               Lwt.return_unit
                           | Ok v ->
+                              (* Only Pause's member checks and fixed posts use
+                                 the retained fence and admitted snapshot. The
+                                 original grant call remains active-only for
+                                 content, discovery and relay work. *)
+                              let pause_transport =
+                                SO.make ~capability_fence:true ~db
+                                  ~current_config:(fun () ->
+                                    Session.get_config manager)
+                                  ~snapshot:v.snapshot
+                                  ~channel_id:order.channel_id
+                                  ~audit:
+                                    (SO.audit_label ~order_id:(Some order.id)
+                                       ~unit_label:
+                                         ("reconcile:" ^ Scan.reconcile_id owner))
+                                  ?http ?http_response ?limiter:ctx.limiter
+                                  ~priority:Slack_read_limiter.Pause
+                                  ~limit:(fun () ->
+                                    ctx.limit ~channel_id:order.channel_id)
+                                  ~before_send:pause_check
+                                  ~team_id:order.team_id
+                                  ~app_id:order.api_app_id ()
+                              in
+                              let pause_call method_ params =
+                                if
+                                  List.mem method_
+                                    [
+                                      "users.info";
+                                      "conversations.members";
+                                      "chat.postMessage";
+                                    ]
+                                then pause_transport method_ params
+                                else
+                                  Lwt.return
+                                    (Error (SO.Method_not_permitted method_))
+                              in
                               let pages = ref 0 and cache = Hashtbl.create 20 in
                               let wrap call method_ params =
                                 let window =
@@ -357,6 +414,8 @@ let discovery_pass_with ~ctx ?http ?http_response ~db ~manager
                                     let* sweep =
                                       if R.phase db order.id = Some "pause" then
                                         Scan.sweep_with_grant_wrapped
+                                          ~pause_ctx:ctx
+                                          ~pause_call:(Some pause_call)
                                           ~page_budget:max_int ~wrap ~db
                                           ~manager ~ctx:local ~owner
                                           ~validated:v ~order
