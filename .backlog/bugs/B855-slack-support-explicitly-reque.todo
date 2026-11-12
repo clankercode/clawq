@@ -1,0 +1,13 @@
+---
+complexity: medium
+created_at: "2026-11-12T00:24:30Z"
+depends_on: []
+estimate_hours: 1
+id: B855
+priority: high
+status: pending
+tags: []
+title: 'Slack: support explicitly requested cross-thread posting (Claude Tag parity)'
+updated_at: "2026-11-12T00:24:30Z"
+---
+Reported in Slack: users need to ask the assistant to post or relay a reply into another thread, similar to Claude Tag, rather than being confined to the current conversation. Existing cross-channel context-learning work does not by itself provide outbound cross-thread posting.\n\nAcceptance criteria:\n- Support an explicit user request to post into a specified Slack thread, including another channel where authorized.\n- Resolve and validate the destination thread and enforce requester permissions and bot access; never bypass private-channel or room boundaries.\n- Ask for clarification when the destination or requested content is ambiguous; do not infer blanket permission to broadcast.\n- Report success with a destination message link, or give an actionable permission/destination error.\n- Add tests for allowed cross-thread posting, denied access, ambiguous destinations, and delivery failures.\n\nUse Claude Tag as the UX reference; its exact behavior has not yet been verified.

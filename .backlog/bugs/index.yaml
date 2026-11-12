@@ -1807,3 +1807,4 @@ bugs:
     - file: B852-standing-order-fire-ignores-sl.todo
     - file: B853-standing-order-worker-re-runs.todo
     - file: B854-daemon-shutdown-exceeds-system.todo
+    - file: B855-slack-support-explicitly-reque.todo
